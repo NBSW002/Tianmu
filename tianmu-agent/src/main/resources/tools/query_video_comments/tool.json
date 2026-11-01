@@ -4,13 +4,39 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "video_id": {"type": "integer", "minimum": 1},
-      "start": {"type": "string", "maxLength": 19},
-      "end": {"type": "string", "maxLength": 19},
-      "evidence_id": {"type": "string", "minLength": 1, "maxLength": 80},
-      "offset": {"type": "integer", "minimum": 0, "maximum": 5000}
+      "video_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Authorized video/room ID from confirmed_conditions or the current validated page; do not substitute a historical video."
+      },
+      "start": {
+        "type": "string",
+        "maxLength": 19,
+        "description": "Frozen feedback collection start in Asia/Shanghai local time, e.g. 2026-11-01T00:00:00; inclusive. Copy confirmed_conditions.conditions.start, including the all-retained sentinel; not playback time."
+      },
+      "end": {
+        "type": "string",
+        "maxLength": 19,
+        "description": "Frozen feedback collection end in Asia/Shanghai local time; exclusive. Copy confirmed_conditions.conditions.end exactly; not a video playback position."
+      },
+      "evidence_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Omit on the first call; continue with the same immutable comment snapshot evidence_id returned by this tool. Do not use danmaku, video or artifact IDs."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5000,
+        "description": "Comment-page position: omit or use 0 initially, then copy returned page.next_offset with the same evidence_id and query. Not a history cursor or text-character offset."
+      }
     },
-    "required": ["video_id", "start", "end"],
+    "required": [
+      "video_id",
+      "start",
+      "end"
+    ],
     "additionalProperties": false
   }
 }

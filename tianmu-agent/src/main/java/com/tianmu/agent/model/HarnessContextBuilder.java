@@ -27,6 +27,7 @@ public final class HarnessContextBuilder {
     }
     private Map<String,Object> message(String role,String content) { return Map.of("role",role,"content",content); }
     public List<Map<String,Object>> build(String instruction,ModelContext context) {
+        List<ToolCall> calls = calls(context);
         var memory=context.memory();
         List<MemoryTypes.Message> history=new ArrayList<>(memory.recent());
         if(ConversationTopics.switchesTopic(context.message()))history.clear();
@@ -34,14 +35,17 @@ public final class HarnessContextBuilder {
         while(!history.isEmpty() && (history.size()>4 || bytes(history)>Math.min(8192,policy.maxHistoryBytes()))) removeOldestTurn(history);
         ObjectNode working=json.createObjectNode();working.set("tools",json.valueToTree(context.availableTools()));
         working.set("results",json.valueToTree(context.observations()));
-        int schemas=bounds.deduplicateSchemas(working),released=bounds.releaseClassifiedBatches(working);
-        List<Map<String,Object>> messages=assemble(instruction,context,history,working);
+        int schemas=bounds.deduplicateSchemas(working);
+        var projection=new com.tianmu.agent.application.ReportContextProjection(json).apply(calls,(ArrayNode)working.get("results"));
+        calls=projection.calls();
+        List<Map<String,Object>> messages=assemble(instruction,context,history,working,calls);
         while(bytes(messages)>policy.maxInputBytes() && !history.isEmpty()) {
-            removeOldestTurn(history);messages=assemble(instruction,context,history,working);
+            removeOldestTurn(history);messages=assemble(instruction,context,history,working,calls);
         }
         bounds.check(messages);
         TraceAttributes.apply(Span.current(),Map.of("context.format","native_roles_v1","context.output_bytes",bytes(messages),
-                "context.history_messages",history.size(),"context.schemas_removed",schemas,"context.classified_batches_released",released,
+                "context.history_messages",history.size(),"context.schemas_removed",schemas,"context.classified_batches_released",projection.batchesReleased(),
+                "context.report_inputs_released",projection.inputFieldsReleased(),"context.projection_bytes_saved",projection.bytesSaved(),
                 "context.byte_limit",policy.maxInputBytes()));
         return List.copyOf(messages);
     }
@@ -50,7 +54,7 @@ public final class HarnessContextBuilder {
         UUID first=history.get(0).runId();
         do { history.remove(0); } while(!history.isEmpty() && Objects.equals(first,history.get(0).runId()));
     }
-    private List<Map<String,Object>> assemble(String instruction,ModelContext context,List<MemoryTypes.Message> history,ObjectNode working) {
+    private List<Map<String,Object>> assemble(String instruction,ModelContext context,List<MemoryTypes.Message> history,ObjectNode working,List<ToolCall> recordedCalls) {
         List<Map<String,Object>> out=new ArrayList<>();out.add(message("system",instruction));
         for(var prior:history) if(Set.of("user","assistant").contains(prior.role())) out.add(message(prior.role(),prior.text()));
         StringBuilder control=new StringBuilder();
@@ -73,23 +77,55 @@ public final class HarnessContextBuilder {
         out.add(message("system",control.toString()));out.add(message("user",current));
         ArrayNode results=(ArrayNode)working.get("results");
         for(int i=0;i<results.size();) {
-            ToolCall first=call(context,i);int end=i+1;
-            if(first.providerGroupId()!=null)while(end<results.size() && first.providerGroupId().equals(call(context,end).providerGroupId()))end++;
+            ToolCall first=recordedCalls.get(i);int end=i+1;
+            if(first.providerGroupId()!=null)while(end<results.size() && first.providerGroupId().equals(recordedCalls.get(end).providerGroupId()))end++;
             List<Map<String,Object>> calls=new ArrayList<>();List<Map<String,Object>> replies=new ArrayList<>();
             for(int j=i;j<end;j++) {
-                ToolCall call=call(context,j);String id=call.providerCallId()==null ? "call_host_"+j:call.providerCallId();
+                ToolCall call=recordedCalls.get(j);String id=call.providerCallId();
                 calls.add(Map.of("id",id,"type","function","function",Map.of("name",call.name(),"arguments",encode(call.arguments()))));
                 ObjectNode result=((ObjectNode)results.get(j)).deepCopy();result.remove("terminalAnswer");
                 replies.add(Map.of("role","tool","tool_call_id",id,"content",encode(result)));
             }
             out.add(Map.of("role","assistant","content","","tool_calls",calls));out.addAll(replies);i=end;
         }
+        if(context.reportState()!=null)out.add(message("system",section("task_state",context.reportState())));
         if(context.finalizing())out.add(message("system",context.systemDirective()));
         return out;
     }
-    private ToolCall call(ModelContext context,int index) {
-        ToolResult observed=context.observations().get(index);
-        return context.exchanges().stream().filter(e->e.result().equals(observed)).map(ToolExchange::call).findFirst()
-                .orElse(new ToolCall(observed.tool(),Map.of()));
+    /** Execution order is the association key; equal result bodies are not identifiers. */
+    private List<ToolCall> calls(ModelContext context) {
+        boolean legacy=context.exchanges().isEmpty();
+        if(!legacy && context.exchanges().size()!=context.observations().size())throw invalidHistory();
+        List<ToolCall> calls=new ArrayList<>();Set<String> ids=new HashSet<>();
+        for(int i=0;i<context.observations().size();i++) {
+            ToolResult observed=context.observations().get(i);
+            ToolCall call;
+            if(legacy)call=new ToolCall(observed.tool(),Map.of());
+            else {
+                ToolExchange exchange=context.exchanges().get(i);call=exchange.call();
+                if(call==null || !observed.equals(exchange.result()) || !Objects.equals(call.name(),observed.tool()))throw invalidHistory();
+            }
+            if(call.name()==null || call.name().isBlank())throw invalidHistory();
+            String id=call.providerCallId();
+            if(id!=null && (id.length()>160 || !id.matches("[A-Za-z0-9_.:-]+") || !ids.add(id)))throw invalidHistory();
+            calls.add(call);
+        }
+        Set<String> closedGroups=new HashSet<>();String group=null;int groupSize=0;
+        for(int i=0;i<calls.size();i++) {
+            ToolCall call=calls.get(i);String nextGroup=call.providerGroupId();
+            if(!Objects.equals(group,nextGroup)) {
+                if(group!=null)closedGroups.add(group);
+                if(nextGroup!=null && (nextGroup.isBlank() || closedGroups.contains(nextGroup)))throw invalidHistory();
+                group=nextGroup;groupSize=0;
+            }
+            if(group!=null && ++groupSize>4)throw invalidHistory();
+            if(call.providerCallId()==null) {
+                String base="call_host_"+i,id=base;int suffix=0;
+                while(!ids.add(id))id=base+"_"+(++suffix);
+                calls.set(i,new ToolCall(call.name(),call.arguments(),id,group));
+            }
+        }
+        return List.copyOf(calls);
     }
+    private AgentException invalidHistory() { return new AgentException("INVALID_MODEL_CONTEXT","Tool calls and results have inconsistent execution records"); }
 }

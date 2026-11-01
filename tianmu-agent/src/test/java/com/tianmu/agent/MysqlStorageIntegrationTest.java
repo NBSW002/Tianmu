@@ -47,6 +47,63 @@ class MysqlStorageIntegrationTest {
         if (cache != null) cache.close(); if (source != null) source.close();
     }
     RunState create(String query) { RunState run = repository.create(query, owner, null, UUID.randomUUID().toString(), null).run(); sessions.add(run.sessionId); return run; }
+    @Test void historySearchAndPagingTraverseDatabaseWindowsWithoutIncludingTheActiveTurn() {
+        var first=create("needle-first");faq(first);
+        for(int i=1;i<=26;i++) {
+            var older=repository.create(i==14?"needle-middle":"filler-"+i,owner,first.sessionId,UUID.randomUUID().toString(),null).run();faq(older);
+        }
+        var current=repository.create("needle-current",owner,first.sessionId,UUID.randomUUID().toString(),null).run();
+        var service=new com.tianmu.agent.application.HistoryQueryService(repository,current.sessionId,owner,current.turnSeq);
+        var recent=service.read(Long.MAX_VALUE,1,"needle");
+        assertEquals(5L,recent.get("next_before"));assertEquals(true,recent.get("more_available"));
+        assertTrue(recent.toString().contains("needle-middle"));assertFalse(recent.toString().contains("needle-current"));
+        var oldest=service.read(5,1,"needle");assertTrue(oldest.toString().contains("needle-first"));assertEquals(false,oldest.get("more_available"));
+        var seen=new ArrayList<Long>();long cursor=Long.MAX_VALUE;
+        for(int page=0;page<12;page++) {
+            var result=service.read(cursor,7,"");
+            for(var raw:(List<?>)result.get("messages"))seen.add(((Number)((Map<?,?>)raw).get("sequence")).longValue());
+            long next=((Number)result.get("next_before")).longValue();assertTrue(next<cursor);
+            if(!Boolean.TRUE.equals(result.get("more_available")))break;cursor=next;
+        }
+        assertEquals(54,seen.size());assertEquals(54,new HashSet<>(seen).size());
+        assertEquals(java.util.stream.LongStream.rangeClosed(1,54).boxed().toList(),seen.stream().sorted().toList());current.cancel();
+    }
+    @Test void historyQueryRedactsBeforeSearchAndRejectsForeignSessionsAndExpiredTurns() {
+        var first=create("公开历史问题");faq(first);
+        var narrow=new AccessScope(owner.tenantId(),owner.userId(),Set.of(1002L));
+        var current=repository.create("current",narrow,first.sessionId,null,null).run();
+        var service=new com.tianmu.agent.application.HistoryQueryService(repository,current.sessionId,narrow,current.turnSeq);
+        assertTrue(((List<?>)service.read(Long.MAX_VALUE,4,"approved").get("messages")).isEmpty());
+        assertTrue(service.read(Long.MAX_VALUE,4,"").toString().contains("已隐藏"));
+        assertFalse(service.read(Long.MAX_VALUE,4,"").toString().contains("approved"));
+        for(var foreign:List.of(new AccessScope(owner.tenantId(),"bob",owner.videoIds()),new AccessScope("other-"+owner.tenantId(),owner.userId(),owner.videoIds())))
+            assertEquals("SESSION_NOT_FOUND",assertThrows(AgentException.class,()->new com.tianmu.agent.application.HistoryQueryService(repository,current.sessionId,foreign,current.turnSeq).read(Long.MAX_VALUE,4,"")).code());
+        var sibling=create("sibling-only-history");faq(sibling);
+        assertTrue(((List<?>)service.read(Long.MAX_VALUE,4,"sibling-only-history").get("messages")).isEmpty());
+        db.update("UPDATE agent_run SET data_expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE run_id=?",first.id.toString());
+        assertTrue(((List<?>)new com.tianmu.agent.application.HistoryQueryService(repository,current.sessionId,owner,current.turnSeq).read(Long.MAX_VALUE,4,"").get("messages")).isEmpty());
+        current.cancel();
+    }
+    @Test void privateReportProgressRestoresAfterReloadAndCannotBeReplacedByAnotherOwner() {
+        var run=create("report checkpoint");run.start();
+        var q=new DanmakuTypes.Query(1001,run.businessDate.minusDays(1).atStartOfDay(),run.businessDate.atStartOfDay());
+        var groups=List.of(new AudienceData.TextGroup("1","问题一",1,500L,false),new AudienceData.TextGroup("2","问题二",1,500L,false));
+        var bins=java.util.stream.IntStream.range(0,12).mapToObj(i->new DanmakuTypes.Bucket(i,i==0?2:0)).toList();
+        var data=new DanmakuTypes.Dataset(q,2,1,bins,List.of(),Instant.now(),"fixture",false,
+                new AudienceData.Overview(List.of(),List.of(new AudienceData.Position(0,1000,2)),0,groups,2,2));
+        String id="ev_"+UUID.randomUUID();run.execution().evidence().put(new Evidence(id,run.id,owner,null,data));
+        var topic=new AudienceData.Topic("T1","讨论","原文","",List.of("1"),1,"",List.of());
+        var first=new DanmakuClassification(1,List.of(topic));
+        new com.tianmu.agent.application.ReportProgressService(run,run.execution()).save(id,first);
+        var loaded=repository.load(run.id,owner);
+        assertFalse(loaded.execution().hasClassification(id));
+        var restored=new com.tianmu.agent.application.ReportProgressService(loaded,loaded.execution());
+        assertEquals(first,restored.load(id));
+        assertEquals(1,loaded.execution().evidence().snapshot().values().stream().filter(e->e.reportCheckpoint()!=null).count());
+        assertEquals("INVALID_REPORT",assertThrows(AgentException.class,()->restored.save(id,new DanmakuClassification(0,List.of()))).code());
+        assertEquals("RUN_NOT_FOUND",assertThrows(AgentException.class,()->repository.load(run.id,new AccessScope(owner.tenantId(),"bob",owner.videoIds()))).code());
+        run.cancel();
+    }
     @Test void conversationFocusForeignKeyColumnsMatchSessionCollations(){
         for(String column:List.of("tenant_id","owner_user_id","session_id")){
             String sessionCollation=db.queryForObject("SELECT COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_session' AND COLUMN_NAME=?",String.class,column);
@@ -329,7 +386,7 @@ class MysqlStorageIntegrationTest {
             store.put(key,new com.tianmu.agent.runtime.store.AnalysisCacheStore.Entry(80,"accepted",Instant.now().plusSeconds(60)));
             store.put(key,new com.tianmu.agent.runtime.store.AnalysisCacheStore.Entry(40,"slower",Instant.now().plusSeconds(60)));
             assertEquals("accepted",new MysqlAnalysisCacheStore(source).get(key).json());
-            db.update("UPDATE agent_report_cache SET expires_at=? WHERE cache_key=?",java.sql.Timestamp.from(Instant.now().minusSeconds(1)),key);
+            db.update("UPDATE agent_report_cache SET expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE cache_key=?",key);
             store.put(key,new com.tianmu.agent.runtime.store.AnalysisCacheStore.Entry(20,"fresh",Instant.now().plusSeconds(60)));
             assertEquals(20,store.get(key).rank());assertEquals("fresh",store.get(key).json());
         }finally{db.update("DELETE FROM agent_report_cache WHERE cache_key=?",key);}
@@ -353,7 +410,7 @@ class MysqlStorageIntegrationTest {
         String key=UUID.randomUUID().toString().replace("-","").repeat(2);UUID a=UUID.randomUUID(),b=UUID.randomUUID();
         try{
             assertTrue(first.acquire(key,a));assertFalse(second.acquire(key,b));second.release(b);assertFalse(second.acquire(key,b));
-            db.update("UPDATE agent_report_leases SET valid_until=? WHERE cache_key=?",java.sql.Timestamp.from(Instant.now().minusSeconds(1)),key);
+            db.update("UPDATE agent_report_leases SET valid_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE cache_key=?",key);
             assertTrue(second.acquire(key,b));first.release(a);assertFalse(first.acquire(key,a));
         }finally{db.update("DELETE FROM agent_report_leases WHERE cache_key=?",key);}
     }

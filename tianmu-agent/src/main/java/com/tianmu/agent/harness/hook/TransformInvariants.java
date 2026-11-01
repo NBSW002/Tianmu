@@ -8,7 +8,7 @@ import java.util.*;
 final class TransformInvariants {
     private TransformInvariants() {}
     private static final Set<String> FACT_KEYS = Set.of("video_id", "date", "metric", "value", "metric_version",
-            "source", "data_as_of", "complete", "demo", "evidence_id", "skill", "tool_schemas", "error_code", "retryable", "attempt", "analysis", "sampling_method");
+            "source", "data_as_of", "complete", "demo", "evidence_id", "skill", "tool_schemas", "error_code", "retryable", "attempt", "analysis", "sampling_method", "classification");
     static void require(boolean condition) {
         if (!condition) throw new AgentException("HOOK_TRANSFORM_INVALID", "Transform violated a harness invariant");
     }
@@ -45,10 +45,15 @@ final class TransformInvariants {
                     && context.remainingSteps() == original.remainingSteps() && context.businessDate().equals(original.businessDate())
                     && context.message().equals(original.message()) && context.finalizing() == original.finalizing()
                     && Objects.equals(context.systemDirective(), original.systemDirective())
+                    && Objects.equals(context.reportState(), original.reportState())
                     && original.exchanges().containsAll(context.exchanges())
                     && Objects.equals(context.preparation(), original.preparation()) && Objects.equals(context.task(), original.task()) && Objects.equals(context.memory(), original.memory()));
             require(new HashSet<>(context.availableTools()).size() == context.availableTools().size()
                     && original.availableTools().containsAll(context.availableTools()));
+            // Native execution records stay paired and immutable. Presentation compaction uses a separate view.
+            // Tool-result transforms run before admission and are already part of both recorded lists.
+            if (!original.exchanges().isEmpty())
+                require(context.exchanges().equals(original.exchanges()) && context.observations().equals(original.observations()));
             Set<Integer> used = new HashSet<>();
             for (ToolResult observation : context.observations()) {
                 int matching = -1;

@@ -111,7 +111,8 @@ public class AgentRuntime {
                 () -> harness.transform(run, TransformPoint.CONTEXT, new ModelContext(message,
                         run.businessDate, run.owner, run.execution().activeSkills(), run.execution().observations(),
                         finalizing ? List.of() : tools.definitions(run), remaining, finalizing,
-                        finalizing ? finalizeDirective : "", run.preparedRequest(), run.task(), run.memory(),run.execution().exchanges())));
+                        finalizing ? finalizeDirective : "", run.preparedRequest(), run.task(), run.memory(),run.execution().exchanges(),
+                        new com.tianmu.agent.application.ReportTaskStateView(run,run.execution()).build())));
     }
     private Decision decide(RunState run, ModelContext context) {
         return harness.stage(run, context.finalizing() ? "agent.model.finalize" : "agent.model", HookPoint.PRE_MODEL, HookPoint.POST_MODEL,

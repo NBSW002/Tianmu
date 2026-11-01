@@ -1,5 +1,36 @@
 {
-  "name":"read_skill",
-  "description":"Read skill instructions to activate tools; then optionally page a reference by its declared resource name. Paging offsets count Unicode characters. No filesystem paths.",
-  "inputSchema":{"type":"object","properties":{"name":{"type":"string","minLength":1},"resource":{"type":"string","minLength":1,"maxLength":64},"offset":{"type":"integer","minimum":0,"maximum":2147483647},"limit":{"type":"integer","minimum":1,"maximum":4096}},"required":["name"],"additionalProperties":false}
+  "name": "read_skill",
+  "description": "Read skill instructions to activate tools; then optionally page a reference by its declared resource name. Paging offsets count Unicode characters. No filesystem paths.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Exact Skill name from list_skills or the available name enum. Without resource, loads the Skill instructions and activates its allowed tools; activation does not expand task or data permissions."
+      },
+      "resource": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "description": "Optional declared reference name returned by read_skill.resources, not a filesystem path or URL. Read the Skill instructions first; omit to load the main instructions."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2147483647,
+        "description": "Reference text position in Unicode code points (not bytes). Only valid with resource; omit or use 0 initially, then copy page.next_offset."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4096,
+        "description": "Reference page length in Unicode code points, 1-4096 (default 2048). Only valid with resource; main Skill instructions are loaded without paging."
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "additionalProperties": false
+  }
 }

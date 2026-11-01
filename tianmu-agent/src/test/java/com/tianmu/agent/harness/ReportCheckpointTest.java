@@ -18,6 +18,7 @@ import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class ReportCheckpointTest {
     @Test void rebuildingExecutionStateResumesTheAdmittedBatchWithoutRepeatingMembership() throws Exception {
@@ -37,6 +38,9 @@ class ReportCheckpointTest {
             var checkpoint=run.execution().evidence().snapshot().values().stream().filter(e->e.reportCheckpoint()!=null).findFirst().orElseThrow();
             assertEquals(firstEnd,checkpoint.reportCheckpoint().classification().offset());
             assertEquals(checkpoint.reportCheckpoint(),json.readValue(json.writeValueAsBytes(checkpoint.reportCheckpoint()),ReportCheckpoint.class));
+            assertEquals("INVALID_REPORT",assertThrows(AgentException.class,()->fixture.tools.execute(
+                    new ToolCall("create_danmaku_report",Map.of("evidence_id","ev_input")),run)).code());
+            assertFalse(run.execution().hasReport("ev_input"));
             var resumed=new RunState(run.id,run.sessionId,run.turnSeq,run.owner,run.message,run.query(),run.createdAt,run.deadline(),RunBackend.MEMORY,new InMemoryRunEventStore(),run.execution().evidence(),false);
             fixture.harness.forget(run.id);resumed.bindPersistedControl(run.modelCallLimit());fixture.harness.start(resumed);
             resumed.prepared(prepared);resumed.task(run.task());resumed.start();resumed.execution().activateSkill("danmaku-analysis");
@@ -46,6 +50,25 @@ class ReportCheckpointTest {
             assertEquals(nextEnd,((Map<?,?>)result.data().get("classification")).get("offset"));
             assertEquals(nextEnd,resumed.execution().classification("ev_input").topics().get(0).sampleIds().size());
             run.cancel();resumed.cancel();
+        }
+    }
+    @Test void nonReportToolCannotWriteProgressThroughTheHostEvenBeforeEvidenceLookup() {
+        try(var fixture=new HarnessLifecycleTest.Fixture()) {
+            var registry=mock(com.tianmu.agent.tool.ToolRegistry.class);
+            var caller=new com.tianmu.agent.tool.AgentTool() {
+                public String name(){return "read_result";}
+                public ToolResult execute(ToolCall call,com.tianmu.agent.tool.ToolContext context) {
+                    context.saveReportClassification("ev_unknown",DanmakuClassification.empty());
+                    throw new AssertionError("Capability guard must reject the write");
+                }
+            };
+            when(registry.admit(eq("read_result"),anySet(),anySet())).thenReturn(caller);
+            when(registry.definition("read_result")).thenReturn(new ToolCatalog().all().get("read_result"));
+            var dispatcher=new com.tianmu.agent.tool.ToolDispatcher(new SkillCatalog(),fixture.harness,registry);
+            var run=fixture.run();
+            assertEquals("TOOL_CAPABILITY_DENIED",assertThrows(AgentException.class,()->dispatcher.execute(
+                    new ToolCall("read_result",Map.of("result_id","ev_unknown")),run)).code());
+            assertTrue(run.execution().evidence().isEmpty());assertFalse(run.execution().hasClassification("ev_unknown"));run.cancel();
         }
     }
     private ToolCall batch(ObjectMapper json,int start,int end)throws Exception {

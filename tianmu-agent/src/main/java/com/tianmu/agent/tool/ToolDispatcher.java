@@ -24,14 +24,16 @@ public class ToolDispatcher {
     private final RuntimeHarness harness;
     private final ToolRegistry registry;
     private final com.tianmu.agent.application.ReportArtifacts artifacts;
-    private com.tianmu.agent.runtime.store.ConversationStore conversations;
+    private final com.tianmu.agent.runtime.store.ConversationStore conversations;
     @org.springframework.beans.factory.annotation.Autowired
     public ToolDispatcher(SkillCatalog skills,RuntimeHarness harness,ToolRegistry registry,com.tianmu.agent.runtime.store.ReportStore reports,
                           com.tianmu.agent.runtime.store.ConversationStore conversations) {
-        this(skills,harness,registry,reports);this.conversations=conversations;
+        this.skills = skills; this.harness = harness; this.registry = registry;
+        this.artifacts = new com.tianmu.agent.application.ReportArtifacts(reports);
+        this.conversations = conversations;
     }
     public ToolDispatcher(SkillCatalog skills, RuntimeHarness harness, ToolRegistry registry, com.tianmu.agent.runtime.store.ReportStore reports) {
-        this.skills = skills; this.harness = harness; this.registry = registry; this.artifacts = new com.tianmu.agent.application.ReportArtifacts(reports);
+        this(skills,harness,registry,reports,null);
     }
     public ToolDispatcher(SkillCatalog skills, RuntimeHarness harness, ToolRegistry registry) { this(skills, harness, registry, null); }
     public List<ToolDefinition> definitions(Set<String> activeSkills) { return registry.definitions(activeSkills); }
@@ -72,7 +74,13 @@ public class ToolDispatcher {
     }
     private final class HostContext implements ToolContext {
         private final RunState run; private final AgentTool tool;
-        HostContext(RunState run, AgentTool tool) { this.run = run; this.tool = tool; }
+        private final com.tianmu.agent.application.ReportProgressService reportProgress;
+        private final com.tianmu.agent.application.HistoryQueryService history;
+        HostContext(RunState run, AgentTool tool) {
+            this.run = run; this.tool = tool;
+            this.reportProgress = new com.tianmu.agent.application.ReportProgressService(run, run.execution());
+            this.history = new com.tianmu.agent.application.HistoryQueryService(conversations, run.sessionId, run.owner, run.turnSeq);
+        }
         public UUID runId() { return run.id; }
         public AccessScope scope() { return run.owner; }
         public LocalDate businessDate() { return run.businessDate; }
@@ -81,18 +89,7 @@ public class ToolDispatcher {
         public void checkpoint() { run.checkpoint(); }
         public Map<String,Object> history(long before,int limit,String query) {
             run.checkpoint();
-            if (conversations==null) throw new AgentException("HISTORY_UNAVAILABLE","History unavailable");
-            var loaded=conversations.messages(run.sessionId,run.owner,Math.min(before,run.turnSeq*2-1));
-            var matched=loaded.stream().filter(m->query.isEmpty() || m.text().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))).toList();
-            List<Map<String,Object>> records=new ArrayList<>();
-            for(var m:matched.subList(Math.max(0,matched.size()-limit),matched.size())) {
-                String text=m.text();boolean truncated=text.length()>1600;
-                if(truncated)text=text.substring(0,Character.isHighSurrogate(text.charAt(1599)) ? 1599:1600);
-                records.add(Map.of("role",m.role().toLowerCase(Locale.ROOT),"text",text,"run_id",m.runId().toString(),"sequence",m.sequence(),"truncated",truncated));
-            }
-            boolean remainingMatches=matched.size()>limit;
-            long next=remainingMatches ? matched.get(matched.size()-limit).sequence() : loaded.isEmpty()?0:loaded.get(0).sequence();
-            return Map.of("messages",records,"next_before",next,"more_available",remainingMatches || loaded.size()==50);
+            return history.read(before,limit,query);
         }
         public com.tianmu.agent.core.AnalysisContract analysisContract(){return run.task()==null?null:run.task().specification().analysis();}
         public boolean reportRequiresVideo(){return run.task()!=null && run.task().specification().reading()!=null && run.task().specification().reading().includes(com.tianmu.agent.core.AnalysisContract.Source.VIDEO);}
@@ -152,21 +149,11 @@ public class ToolDispatcher {
             run.execution().advanceComments(id, expected, next);
         }
         public com.tianmu.agent.core.DanmakuClassification reportClassification(String id){
-            evidence(id);
-            if(!run.execution().hasClassification(id)) {
-                var restored=run.execution().evidence().snapshot().values().stream().filter(e->e.runId().equals(run.id) && e.owner().equals(run.owner) && e.reportCheckpoint()!=null && e.reportCheckpoint().evidenceId().equals(id))
-                        .map(e->e.reportCheckpoint().classification()).max(Comparator.comparingInt(com.tianmu.agent.core.DanmakuClassification::offset)
-                                .thenComparing(com.tianmu.agent.core.DanmakuClassification::merged)).orElse(com.tianmu.agent.core.DanmakuClassification.empty());
-                run.execution().classification(id,restored);
-            }
-            return run.execution().classification(id);
+            return reportProgress.load(id);
         }
         public void saveReportClassification(String id,com.tianmu.agent.core.DanmakuClassification progress){
             if(!tool.name().equals("create_danmaku_report"))throw new AgentException("TOOL_CAPABILITY_DENIED","Only report tool may update its draft");
-            evidence(id);
-            var checkpoint=new com.tianmu.agent.core.ReportCheckpoint("audience-report-checkpoint-v1",id,progress);
-            run.execution().evidence().put(new Evidence("ev_"+UUID.randomUUID(),run.id,run.owner,null,null,null,null,checkpoint));
-            run.execution().classification(id,progress);
+            reportProgress.save(id,progress);
         }
         public Evidence registerEvidence(MetricData data) { return business.registerEvidence(run, data); }
         public <T> T query(Function<CallControl, T> operation) { return harness.toolCall(run, operation); }

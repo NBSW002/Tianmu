@@ -1,14 +1,32 @@
 {
-  "name":"query_video_metrics",
-  "description":"Query a completed day of retained danmaku counts by video_id; videos and live rooms share the same ID and semantics. Only authorized IDs are allowed",
-  "inputSchema":{
-    "type":"object",
-    "properties":{
-      "video_id":{"type":"integer","minimum":1},
-      "date":{"type":"string","format":"date"},
-      "metric":{"type":"string","enum":["bullet_count"]}
+  "name": "query_video_metrics",
+  "description": "Query a completed day of retained danmaku counts by video_id; videos and live rooms share the same ID and semantics. Only authorized IDs are allowed",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "video_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Authorized video/room ID from confirmed_conditions or the current validated page; do not substitute a historical video."
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "description": "Completed business day in Asia/Shanghai, formatted YYYY-MM-DD (e.g. 2026-10-31). Use the frozen date; yesterday is businessDate minus one day. Not a timestamp or playback position."
+      },
+      "metric": {
+        "type": "string",
+        "enum": [
+          "bullet_count"
+        ],
+        "description": "Metric identifier; currently only bullet_count (retained danmaku count). Do not replace it with a display label or unsupported metric."
+      }
     },
-    "required":["date","metric","video_id"],
-    "additionalProperties":false
+    "required": [
+      "date",
+      "metric",
+      "video_id"
+    ],
+    "additionalProperties": false
   }
 }

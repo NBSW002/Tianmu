@@ -31,8 +31,12 @@ public class ToolCatalog {
                 || required.size() != new HashSet<>(required).size() || !properties.keySet().containsAll(required))
             throw new IllegalStateException("Tool schemas must declare required fields and reject additional properties");
         for (Object spec : properties.values()) {
+            if (spec instanceof Map<?, ?> field && field.containsKey("description")
+                    && (!(field.get("description") instanceof String description) || description.isBlank() || description.length() > 512))
+                throw new IllegalStateException("Field descriptions must contain 1-512 characters");
             if (spec instanceof Map<?, ?> array && "array".equals(array.get("type"))) {
-                if (!array.keySet().equals(Set.of("type", "items", "minItems", "maxItems"))
+                if (!Set.of("type", "items", "minItems", "maxItems", "description").containsAll(array.keySet())
+                        || !array.keySet().containsAll(Set.of("type", "items", "minItems", "maxItems"))
                         || !(array.get("minItems") instanceof Integer min) || min < 1
                         || !(array.get("maxItems") instanceof Integer max) || max < min || max > 10
                         || !(array.get("items") instanceof Map<?, ?> item))
@@ -42,7 +46,7 @@ public class ToolCatalog {
                 continue;
             }
             if (!(spec instanceof Map<?, ?> field) || !Set.of("string", "integer").contains(field.get("type"))
-                    || !Set.of("type", "minimum", "maximum", "minLength", "maxLength", "format", "enum").containsAll(field.keySet())
+                    || !Set.of("type", "minimum", "maximum", "minLength", "maxLength", "format", "enum", "description").containsAll(field.keySet())
                     || field.containsKey("format") && !"date".equals(field.get("format")))
                 throw new IllegalStateException("Unsupported tool schema field");
             if (field.containsKey("minimum") && (!(field.get("minimum") instanceof Number) || !"integer".equals(field.get("type")))

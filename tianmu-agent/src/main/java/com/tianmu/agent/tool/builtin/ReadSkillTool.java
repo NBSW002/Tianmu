@@ -16,7 +16,9 @@ public class ReadSkillTool implements AgentTool {
     public ToolDefinition describe(ToolDefinition declared, SkillCatalog skills) {
         Map<String, Object> schema = new LinkedHashMap<>(declared.inputSchema());
         Map<String, Object> properties = new LinkedHashMap<>((Map<String, Object>) schema.get("properties"));
-        properties.put("name", Map.of("type", "string", "enum", skills.names().stream().sorted().toList()));
+        Map<String,Object> name = new LinkedHashMap<>((Map<String,Object>)properties.get("name"));
+        name.put("enum", skills.names().stream().sorted().toList());
+        properties.put("name", name);
         schema.put("properties", properties);
         return new ToolDefinition(name(), declared.description(), schema);
     }

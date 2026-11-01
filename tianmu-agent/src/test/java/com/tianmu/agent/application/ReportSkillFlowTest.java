@@ -8,6 +8,9 @@ import com.tianmu.agent.core.DanmakuTypes.*;
 import com.tianmu.agent.tool.ToolContext;
 import com.tianmu.agent.tool.builtin.CreateDanmakuReportTool;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.*;
@@ -114,6 +117,37 @@ class ReportSkillFlowTest {
         assertEquals(1,progress.get().topics().stream().filter(t->t.title().equals("其他讨论")).count());
         assertEquals(2,progress.get().topics().stream().flatMap(t->t.sampleIds().stream()).distinct().count());
     }
+    @ParameterizedTest
+    @CsvSource({"false,T6,true","false,T7,false","false,T100,false","true,T7,true","true,T100,true","true,T101,false"})
+    void topicKeyRangeFollowsFeedbackEvidenceKindEvenForOneSelectedSource(boolean audience,String key,boolean valid) throws Exception {
+        var base=data(1);
+        var input=audience?AudienceReportData.combine(new AudienceReportData.Snapshot(base,null,1),"u",Set.of(AnalysisContract.Source.DANMAKU)):base;
+        var progress=new AtomicReference<>(DanmakuClassification.empty());var context=context(input,progress);
+        var topic=Map.of("topic_key",key,"title","话题边界","observation","观众询问后续内容","recommendation","","sample_ids",List.of("G1"));
+        var call=new ToolCall("create_danmaku_report",Map.of("evidence_id","ev_full","offset",0,"topics_json",json.writeValueAsString(List.of(topic))));
+        var tool=new CreateDanmakuReportTool(json);
+        if(valid) {
+            assertNotNull(tool.execute(call,context).terminalAnswer());assertEquals(key,progress.get().topics().get(0).id());
+            assertEquals(1,progress.get().offset());verify(context,times(1)).saveReport(eq("ev_full"),any());
+        } else {
+            assertEquals("INVALID_REPORT",assertThrows(AgentException.class,()->tool.execute(call,context)).code());
+            assertEquals(0,progress.get().offset());verify(context,never()).saveReport(anyString(),any());
+        }
+    }
+    @Test void crossTopicDuplicatesUseFirstOwnershipAndEmptyTopicsDoNotCreatePhantomCoverage() throws Exception {
+        var input=data(3);var progress=new AtomicReference<>(DanmakuClassification.empty());var context=context(input,progress);
+        var topics=List.of(
+                Map.of("topic_key","T1","title","主题一","observation","第一种需求","recommendation","","sample_ids",List.of("G1")),
+                Map.of("topic_key","T2","title","主题二","observation","第二种需求","recommendation","","sample_ids",List.of("G1","G2")),
+                Map.of("topic_key","T3","title","空主题","observation","没有本批依据","recommendation","","sample_ids",List.of()));
+        var result=new CreateDanmakuReportTool(json).execute(new ToolCall("create_danmaku_report",Map.of("evidence_id","ev_full","offset",0,"topics_json",json.writeValueAsString(topics))),context);
+        assertNotNull(result.terminalAnswer());var accepted=progress.get().topics();
+        assertEquals(List.of("T1","T2","OTHER"),accepted.stream().map(Topic::id).toList());
+        assertEquals(List.of(input.audience().corpus().get(0).id()),accepted.get(0).sampleIds());
+        assertEquals(List.of(input.audience().corpus().get(1).id()),accepted.get(1).sampleIds());
+        assertEquals(List.of(input.audience().corpus().get(2).id()),accepted.get(2).sampleIds());
+        assertEquals(3,accepted.stream().mapToLong(Topic::messages).sum());verify(context,times(1)).saveReport(eq("ev_full"),any());
+    }
     @Test void fallbackTopicNeverRenamesPriorTopicsAndReusesItsOwnKeyAcrossBatches() throws Exception {
         var data=data(120);var progress=new AtomicReference<>(DanmakuClassification.empty());var c=context(data,progress);var tool=new CreateDanmakuReportTool(json);
         tool.execute(batch(data,progress.get()),c);
@@ -128,6 +162,23 @@ class ReportSkillFlowTest {
         assertEquals(1,others.size());assertEquals("OTHER",others.get(0).id());assertEquals(2,others.get(0).messages());
         assertEquals(List.of(data.audience().corpus().get(79).id(),data.audience().corpus().get(119).id()),others.get(0).sampleIds());
         assertEquals(120,progress.get().topics().stream().mapToLong(Topic::messages).sum());
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void sameNamedFallbackKeepsItsReturnedOrdinaryKeyAcrossBatches(boolean audience) throws Exception {
+        var base=data(41);
+        var input=audience?AudienceReportData.combine(new AudienceReportData.Snapshot(base,null,1),"u",Set.of(AnalysisContract.Source.DANMAKU)):base;
+        var progress=new AtomicReference<>(DanmakuClassification.empty());var context=context(input,progress);var tool=new CreateDanmakuReportTool(json);
+        var topic=Map.of("topic_key","T1","title","其他讨论","observation","观众零散讨论","recommendation","","sample_ids",List.of("G1"));
+        var first=tool.execute(new ToolCall("create_danmaku_report",Map.of("evidence_id","ev_full","offset",0,"topics_json",json.writeValueAsString(List.of(topic)))),context);
+        assertNull(first.terminalAnswer());assertEquals(40,progress.get().offset());
+        assertEquals(List.of("T1"),progress.get().topics().stream().map(Topic::id).toList());
+        assertEquals(40,progress.get().topics().get(0).messages());verify(context,never()).saveReport(anyString(),any());
+        var returned=json.valueToTree(first.data()).path("classification").path("topics").get(0).path("topic_key").asText();
+        var next=Map.of("topic_key",returned,"title","其他讨论","observation","继续保留已发现的讨论","recommendation","","sample_ids",List.of("G41"));
+        var result=tool.execute(new ToolCall("create_danmaku_report",Map.of("evidence_id","ev_full","offset",40,"topics_json",json.writeValueAsString(List.of(next)))),context);
+        assertNotNull(result.terminalAnswer());assertEquals(List.of("T1"),progress.get().topics().stream().map(Topic::id).toList());
+        assertEquals(41,progress.get().topics().get(0).messages());assertEquals(41,new HashSet<>(progress.get().topics().get(0).sampleIds()).size());
+        verify(context,times(1)).saveReport(eq("ev_full"),any());
     }
     @Test void videoEvidenceMustActuallyBeConnectedToAReportTopicBeforeDraftCommit() throws Exception {
         var data=data(1);var progress=new AtomicReference<>(DanmakuClassification.empty());var c=context(data,progress);var tool=new CreateDanmakuReportTool(json);

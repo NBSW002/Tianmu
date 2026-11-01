@@ -4,19 +4,58 @@
   "inputSchema": {
     "type": "object",
     "properties": {
-      "video_id": {"type":"integer", "minimum":1},
-      "video_evidence_id": {"type":"string", "maxLength":80},
-      "kind": {"type":"string", "enum":["COMMENT","DANMAKU"]},
-      "items": {"type":"array", "minItems":1, "maxItems":10, "items": {
-        "type":"object",
-        "properties": {
-          "text":{"type":"string", "minLength":1, "maxLength":500},
-          "playback_ms":{"type":"integer", "minimum":0, "maximum":3599999}
+      "video_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Authorized video/room ID from confirmed_conditions or the current validated page; do not substitute a historical video."
+      },
+      "video_evidence_id": {
+        "type": "string",
+        "maxLength": 80,
+        "description": "Same-run evidence_id returned by analyze_video_content for this video and the authorized playback scope; not feedback evidence or a report artifact."
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "COMMENT",
+          "DANMAKU"
+        ],
+        "description": "Draft kind matching the frozen creator.draft task: COMMENT or DANMAKU. Creating a draft does not publish it; sending requires the page confirmation flow."
+      },
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 10,
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Draft message text, not HTML or a tool instruction. COMMENT supports up to 500 characters; DANMAKU supports up to 80. Write for the creator and ground video-specific statements in the supplied video evidence."
+            },
+            "playback_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3599999,
+              "description": "DANMAKU requires an integer playback position in milliseconds within the analyzed video interval (start inclusive, end exclusive). COMMENT must omit this field. This is not a sending timestamp."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
         },
-        "required":["text"], "additionalProperties":false
-      }}
+        "description": "Native JSON array of 1-10 draft objects, not a JSON string. Each object has text and, for DANMAKU, playback_ms. Only draft previews are created."
+      }
     },
-    "required":["video_id","video_evidence_id","kind","items"],
-    "additionalProperties":false
+    "required": [
+      "video_id",
+      "video_evidence_id",
+      "kind",
+      "items"
+    ],
+    "additionalProperties": false
   }
 }

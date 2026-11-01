@@ -43,7 +43,11 @@ public final class AgentTypes {
     public record ModelContext(String message, LocalDate businessDate, AccessScope scope,
                                Set<String> activeSkills, List<ToolResult> observations,
                                List<ToolDefinition> availableTools, int remainingSteps,
-                               boolean finalizing, String systemDirective, PreparedRequest preparation, PreparedTask task, MemoryTypes.View memory, List<ToolExchange> exchanges) {
+                               boolean finalizing, String systemDirective, PreparedRequest preparation, PreparedTask task, MemoryTypes.View memory, List<ToolExchange> exchanges, ReportTaskState reportState) {
+        public ModelContext(String message,LocalDate date,AccessScope scope,Set<String> skills,List<ToolResult> results,
+                            List<ToolDefinition> tools,int remaining,boolean finalizing,String directive,PreparedRequest preparation,PreparedTask task,MemoryTypes.View memory,List<ToolExchange> exchanges) {
+            this(message,date,scope,skills,results,tools,remaining,finalizing,directive,preparation,task,memory,exchanges,null);
+        }
         public ModelContext(String message,LocalDate date,AccessScope scope,Set<String> skills,List<ToolResult> results,
                             List<ToolDefinition> tools,int remaining,boolean finalizing,String directive,PreparedRequest preparation,PreparedTask task,MemoryTypes.View memory) {
             this(message,date,scope,skills,results,tools,remaining,finalizing,directive,preparation,task,memory,List.of());

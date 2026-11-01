@@ -403,7 +403,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
     @Override public Set<Long> resourcesForSession(UUID id, AccessScope owner, long before) {
         return read(() -> {
             session(id, owner, false);
-            var rows = db.queryForList("SELECT r.access_scope_json FROM agent_message m JOIN agent_run r ON r.tenant_id=m.tenant_id AND r.run_id=m.run_id WHERE m.tenant_id=? AND m.owner_user_id=? AND m.session_id=? AND m.message_seq<? AND r.data_expires_at>UTC_TIMESTAMP(6) ORDER BY m.message_seq DESC LIMIT 50", owner.tenantId(), owner.userId(), id.toString(), before);
+            var rows = db.queryForList("SELECT r.access_scope_json FROM agent_message m JOIN agent_run r ON r.tenant_id=m.tenant_id AND r.run_id=m.run_id WHERE m.tenant_id=? AND m.owner_user_id=? AND m.session_id=? AND m.message_seq<? AND r.data_expires_at>UTC_TIMESTAMP(6) ORDER BY m.message_seq DESC LIMIT " + MESSAGE_PAGE_SIZE, owner.tenantId(), owner.userId(), id.toString(), before);
             Set<Long> result = new HashSet<>();
             for (var value : rows) result.addAll(decode(value.get("access_scope_json"), AccessScope.class).videoIds());
             return Set.copyOf(result);

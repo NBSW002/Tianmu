@@ -86,7 +86,7 @@ final class MysqlConversationStore implements ConversationStore {
     @Override public List<MemoryTypes.Message> messages(UUID sid, AccessScope owner, long before) {
         return access.read(() -> {
             access.session(sid, owner); if (before < 1) throw new AgentException("INVALID_CURSOR", "Invalid message cursor");
-            var rows = db.queryForList("SELECT m.*,r.access_scope_json FROM agent_message m JOIN agent_run r ON r.tenant_id=m.tenant_id AND r.run_id=m.run_id WHERE m.tenant_id=? AND m.owner_user_id=? AND m.session_id=? AND m.message_seq<? AND r.data_expires_at>UTC_TIMESTAMP(6) ORDER BY m.message_seq DESC LIMIT 50", owner.tenantId(), owner.userId(), sid.toString(), before);
+            var rows = db.queryForList("SELECT m.*,r.access_scope_json FROM agent_message m JOIN agent_run r ON r.tenant_id=m.tenant_id AND r.run_id=m.run_id WHERE m.tenant_id=? AND m.owner_user_id=? AND m.session_id=? AND m.message_seq<? AND r.data_expires_at>UTC_TIMESTAMP(6) ORDER BY m.message_seq DESC LIMIT " + MESSAGE_PAGE_SIZE, owner.tenantId(), owner.userId(), sid.toString(), before);
             List<MemoryTypes.Message> result = new ArrayList<>();
             for (var row : rows) {
                 boolean allowed = owner.videoIds().containsAll(decode(row.get("access_scope_json"),AccessScope.class).videoIds());

@@ -97,6 +97,36 @@ class TransformHookTest {
             assertTrue(run.execution().activeSkills().isEmpty());
         }
     }
+    @Test void contextCannotSplitReorderOrDowngradeNativeExecutionRecords() {
+        var a=new ToolResult("read_history",Map.of("display","a"),null);var b=new ToolResult("read_history",Map.of("display","b"),null);
+        var exchanges=List.of(new ToolExchange(new ToolCall(a.tool(),Map.of(),"a"),a),new ToolExchange(new ToolCall(b.tool(),Map.of(),"b"),b));
+        var base=new ModelContext("q",LocalDate.now(),new AccessScope("t","u",Set.of()),Set.of(),List.of(a,b),List.of(),6,false,"",null,null,
+                com.tianmu.agent.core.MemoryTypes.View.empty(),exchanges);
+        for(int mode:List.of(0,1,2,3)) {
+            var transform=hook("broken-native",TransformPoint.CONTEXT,0,(input,context)->new ModelContext(
+                    input.message(),input.businessDate(),input.scope(),input.activeSkills(),
+                    mode==0?List.of(a):mode==3?List.of(b,a):input.observations(),input.availableTools(),input.remainingSteps(),false,"",null,null,input.memory(),
+                    mode==1?List.of():mode==2?List.of(exchanges.get(1),exchanges.get(0)):input.exchanges()));
+            try(var fixture=new HarnessLifecycleTest.Fixture(List.of(transform))) {
+                code("HOOK_TRANSFORM_INVALID",()->apply(fixture,TransformPoint.CONTEXT,base));
+            }
+        }
+    }
+    @Test void contextCanReduceCurrentToolsWhilePreservingNativeHistoryForFinalization() {
+        var result=new ToolResult("read_history",Map.of("text","background"),null);
+        var exchanges=List.of(new ToolExchange(new ToolCall(result.tool(),Map.of(),"original"),result));
+        var base=new ModelContext("q",LocalDate.now(),new AccessScope("t","u",Set.of()),Set.of(),List.of(result),
+                List.of(new ToolDefinition("read_history","history",Map.of("type","object"))),6,true,"finish",null,null,
+                com.tianmu.agent.core.MemoryTypes.View.empty(),exchanges);
+        var transform=hook("reduce-tools",TransformPoint.CONTEXT,0,(input,context)->new ModelContext(input.message(),input.businessDate(),input.scope(),input.activeSkills(),
+                input.observations(),List.of(),input.remainingSteps(),input.finalizing(),input.systemDirective(),input.preparation(),input.task(),input.memory(),input.exchanges()));
+        try(var fixture=new HarnessLifecycleTest.Fixture(List.of(transform))) {
+            var reduced=apply(fixture,TransformPoint.CONTEXT,base);assertTrue(reduced.availableTools().isEmpty());assertEquals(exchanges,reduced.exchanges());
+            var messages=new com.tianmu.agent.model.HarnessContextBuilder(new ObjectMapper(),com.tianmu.agent.model.ContextPolicy.defaults()).build("rules",reduced);
+            assertEquals("original",messages.stream().filter(m->m.get("role").equals("tool")).findFirst().orElseThrow().get("tool_call_id"));
+            assertEquals("finish",messages.get(messages.size()-1).get("content"));
+        }
+    }
     @Test void rewrittenToolArgumentsStillPassThroughMandatoryPermissionChecks() {
         var transform = hook("rewrite", TransformPoint.TOOL_CALL, 0, (input, context) -> {
             Map<String, Object> arguments = new HashMap<>(input.arguments());
@@ -156,6 +186,25 @@ class TransformHookTest {
             fixture.execute(run, context -> Decision.answer("text", List.of("original")));
             assertEquals("HOOK_TRANSFORM_INVALID", run.snapshot().errorCode());
             assertNull(run.snapshot().answer());
+        }
+    }
+    @Test void admittedClassificationReceiptsCannotBeRewrittenOrRemovedByResultHooks() {
+        var original=new ToolResult("create_danmaku_report",Map.of("evidence_id","ev_a","classification",Map.of("offset",40,"total_groups",80)),"ev_a");
+        for(boolean remove:List.of(false,true)) {
+            var transform=hook("tamper-progress",TransformPoint.TOOL_RESULT,0,(input,context)->new ToolResult(input.tool(),remove?Map.of("evidence_id","ev_a"):
+                    Map.of("evidence_id","ev_a","classification",Map.of("offset",80,"total_groups",80)),input.evidenceId()));
+            try(var fixture=new HarnessLifecycleTest.Fixture(List.of(transform))) { code("HOOK_TRANSFORM_INVALID",()->apply(fixture,TransformPoint.TOOL_RESULT,original)); }
+        }
+    }
+    @Test void contextHooksCannotRemoveOrRewriteHostReportState() {
+        var state=new com.tianmu.agent.core.ReportTaskState("danmaku.report",List.of(new com.tianmu.agent.core.ReportTaskState.Feedback("ev_a",40,120,false,false)));
+        var base=new ModelContext("报告",java.time.LocalDate.now(),new AccessScope("t","u",Set.of(1001L)),Set.of(),List.of(),List.of(),6,false,"",null,null,
+                com.tianmu.agent.core.MemoryTypes.View.empty(),List.of(),state);
+        for(boolean remove:List.of(true,false)) {
+            var transform=hook("tamper-state",TransformPoint.CONTEXT,0,(input,context)->new ModelContext(input.message(),input.businessDate(),input.scope(),input.activeSkills(),
+                    input.observations(),input.availableTools(),input.remainingSteps(),input.finalizing(),input.systemDirective(),input.preparation(),input.task(),input.memory(),input.exchanges(),
+                    remove?null:new com.tianmu.agent.core.ReportTaskState("danmaku.report",List.of(new com.tianmu.agent.core.ReportTaskState.Feedback("ev_a",120,120,true,true)))));
+            try(var fixture=new HarnessLifecycleTest.Fixture(List.of(transform))) {code("HOOK_TRANSFORM_INVALID",()->apply(fixture,TransformPoint.CONTEXT,base));}
         }
     }
     @Test void nullOutputAndBodyExceptionNeverContinueWithUnprocessedData() {

@@ -1,7 +1,7 @@
 {
   "name": "audience-report",
-  "version": "1.2.0",
-  "description": "面向作者的视频观众反馈报告，完整分析弹幕、评论及回复，模型逐批归类并结合视频提出建议；代码累计主题、核对覆盖并生成可读 HTML。",
+  "version": "1.3.1",
+  "description": "按冻结来源完整分析所选评论、弹幕及回复，逐批归类；选中 VIDEO 时才结合画面。代码累计主题、核对覆盖并保存私有 HTML。",
   "tools": [
     "query_audience",
     "analyze_video_content",

@@ -74,6 +74,28 @@ class DeepSeekAdapterTest {
         assertTrue(messages.get(messages.size()-2).path("content").asText().isEmpty());
         assertNotEquals(new ToolCall("x",Map.of("a",1),"first"),new ToolCall("x",Map.of("a",1),"second"));
     }
+    @Test void parameterDescriptionsAndDynamicNamesReachTheActualNativeRequestUnchanged() {
+        var catalog=new com.tianmu.agent.tool.ToolCatalog();var skills=new com.tianmu.agent.skill.SkillCatalog();
+        var declared=catalog.all().values().stream().map(t->t.name().equals("read_skill")?
+                new com.tianmu.agent.tool.builtin.ReadSkillTool().describe(t,skills):t).toList();
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","Inspect available tools")),declared,128,control());
+        var functions=new HashMap<String,JsonNode>();
+        for(var tool:requests.get(0).path("tools"))functions.put(tool.path("function").path("name").asText(),tool.path("function"));
+        for(var definition:declared)assertEquals(mapper.valueToTree(definition.inputSchema()),functions.get(definition.name()).path("parameters"));
+        var name=functions.get("read_skill").path("parameters").path("properties").path("name");
+        assertFalse(name.path("description").asText().isBlank());assertEquals(mapper.valueToTree(skills.names().stream().sorted().toList()),name.path("enum"));
+        assertFalse(functions.get("prepare_creator_interactions").path("parameters").path("properties").path("items").path("items").path("properties").path("playback_ms").path("description").asText().isBlank());
+    }
+    @Test void parameterDescriptionsStillCountTowardTheWholeRequestLimitBeforeHttpAndReservation() throws Exception {
+        var definition=new com.tianmu.agent.tool.ToolCatalog().all().get("query_video_metrics");
+        var body=(com.fasterxml.jackson.databind.node.ObjectNode)mapper.valueToTree(definition);
+        ((com.fasterxml.jackson.databind.node.ObjectNode)body.path("inputSchema").path("properties").path("date")).put("description","中文".repeat(256));
+        var admitted=new com.tianmu.agent.tool.ToolCatalog(new org.springframework.core.io.Resource[]{new org.springframework.core.io.ByteArrayResource(mapper.writeValueAsBytes(body))}).all().get(definition.name());
+        var bounded=new DeepSeekClient(properties,mapper,new com.tianmu.agent.model.ContextPolicy(1024,0));var budget=new ModelBudget(10000,50);
+        assertEquals("MODEL_CONTEXT_TOO_LARGE",assertThrows(AgentException.class,()->bounded.completeHarness(properties.harnessModel(),
+                List.of(Map.of("role","user","content","q")),List.of(admitted),128,control().withBudget(budget))).code());
+        assertTrue(requests.isEmpty());assertEquals(0L,budget.attributes().get("budget.charged_tokens"));
+    }
     @Test void redundantRootClosingBracesAreRepairedWithoutAnotherProviderCall() {
         answer=request->"{\"kind\":\"CLARIFY\",\"clarification\":\"Date?\"}}}";
         assertEquals("Date?",client.complete(properties.preparationModel(),List.of(Map.of("role","user","content","JSON")),384,control()).path("clarification").asText());
@@ -91,6 +113,27 @@ class DeepSeekAdapterTest {
         assertEquals(List.of("ev_a","ev_v"),reply.answer().evidenceIds());
         var m=requests.get(1).path("messages");assertEquals(2,m.get(m.size()-3).path("tool_calls").size());
         assertEquals("p1",m.get(m.size()-2).path("tool_call_id").asText());assertEquals("p2",m.get(m.size()-1).path("tool_call_id").asText());
+    }
+    @Test void equalNativeResultsKeepBothOriginalGroupsAndIdsInTheActualHttpRequest() {
+        var shared=new ToolResult("query_audience",Map.of("count",0),null);
+        var exchanges=new ArrayList<ToolExchange>();
+        for(int i=1;i<=4;i++)exchanges.add(new ToolExchange(new ToolCall(shared.tool(),Map.of("video_id",1001,"page",i),"p"+i,i<=2?"g1":"g2"),shared));
+        var model=new DeepSeekHarnessModel(client,properties,mapper,new PromptCatalog());
+        model.decide(nativeContext(Collections.nCopies(4,shared),exchanges),control());
+        var messages=requests.get(0).path("messages");List<String> calls=new ArrayList<>(),replies=new ArrayList<>();List<Integer> groups=new ArrayList<>();
+        for(var message:messages) {
+            if(message.has("tool_calls")) {groups.add(message.path("tool_calls").size());for(var call:message.path("tool_calls"))calls.add(call.path("id").asText());}
+            if(message.path("role").asText().equals("tool"))replies.add(message.path("tool_call_id").asText());
+        }
+        assertEquals(List.of(2,2),groups);assertEquals(List.of("p1","p2","p3","p4"),calls);assertEquals(calls,replies);
+    }
+    @Test void brokenNativeRecordsStopBeforeHttpDispatchOrTokenReservation() {
+        var shared=new ToolResult("query_audience",Map.of("count",0),null);
+        var exchange=new ToolExchange(new ToolCall(shared.tool(),Map.of(),"p1"),shared);
+        var budget=new ModelBudget(10000,50);var model=new DeepSeekHarnessModel(client,properties,mapper,new PromptCatalog());
+        assertEquals("INVALID_MODEL_CONTEXT",assertThrows(AgentException.class,()->model.decide(
+                nativeContext(List.of(shared,shared),List.of(exchange)),control().withBudget(budget))).code());
+        assertTrue(requests.isEmpty());assertEquals(0L,budget.attributes().get("budget.charged_tokens"));
     }
     @Test void jsonToolDecisionsAndDsmlBodiesAreNeverExecutedAsNativeCalls() {
         var model=new DeepSeekHarnessModel(client,properties,mapper,new PromptCatalog());

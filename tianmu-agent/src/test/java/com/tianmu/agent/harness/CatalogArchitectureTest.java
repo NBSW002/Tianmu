@@ -21,6 +21,37 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CatalogArchitectureTest {
+    @Test void dynamicSkillNamesRetainDeclaredDescriptionAndConstraintsWithoutMutatingCatalog() {
+        var catalog=new ToolCatalog();var skills=new SkillCatalog();
+        var original=catalog.all().get("read_skill");
+        var registry=new ToolRegistry(builtins(),catalog,skills);
+        var json=new com.fasterxml.jackson.databind.ObjectMapper();
+        var before=json.valueToTree(original.inputSchema()).path("properties").path("name");
+        var after=json.valueToTree(registry.definition("read_skill").inputSchema()).path("properties").path("name");
+        assertEquals(before.path("description"),after.path("description"));assertFalse(after.path("description").asText().isBlank());
+        assertEquals(before.path("minLength"),after.path("minLength"));
+        assertEquals(json.valueToTree(skills.names().stream().sorted().toList()),after.path("enum"));
+        assertFalse(before.has("enum"));assertEquals(before,json.valueToTree(catalog.all().get("read_skill").inputSchema()).path("properties").path("name"));
+    }
+    Map<String,String> versions(ToolCatalog catalog) {
+        var run=new RunState(new AccessScope("t","u",Set.of(1001L)),"视频1001昨天的弹幕数");run.start();
+        try {
+            run.prepared(new Result(Route.HARNESS,new PreparedRequest(run.message,run.query(),Emotion.UNKNOWN,Set.of()),null,null));
+            return new com.tianmu.agent.application.TaskAssembler(new SkillCatalog(),new PromptCatalog(),catalog).assemble(run).resourceVersions();
+        } finally {run.cancel();}
+    }
+    @Test void changingOnlyAParameterDescriptionChangesTheFrozenToolFingerprint() throws Exception {
+        var catalog=new ToolCatalog();var json=new com.fasterxml.jackson.databind.ObjectMapper();var resources=new ArrayList<Resource>();
+        for(var definition:catalog.all().values()) {
+            var body=(com.fasterxml.jackson.databind.node.ObjectNode)json.valueToTree(definition);
+            if(definition.name().equals("query_video_metrics"))
+                ((com.fasterxml.jackson.databind.node.ObjectNode)body.path("inputSchema").path("properties").path("date")).put("description","A revised date explanation");
+            resources.add(text(json.writeValueAsString(body)));
+        }
+        var before=versions(catalog);var after=versions(new ToolCatalog(resources.toArray(Resource[]::new)));
+        assertNotEquals(before.get("tool:query_video_metrics"),after.get("tool:query_video_metrics"));
+        before.forEach((key,value)->{if(!key.equals("tool:query_video_metrics"))assertEquals(value,after.get(key));});
+    }
     Resource text(String value) { return new ByteArrayResource(value.getBytes(StandardCharsets.UTF_8)); }
     Resource skill(String name, String tool) {
         return new ByteArrayResource(("{\"name\":\"" + name + "\",\"version\":\"1.0.0\",\"description\":\"test skill\",\"tools\":[\"" + tool + "\"]}").getBytes(StandardCharsets.UTF_8)) {

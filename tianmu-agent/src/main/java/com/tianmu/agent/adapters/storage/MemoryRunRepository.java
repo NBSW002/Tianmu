@@ -94,7 +94,7 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
         if (runs.values().stream().noneMatch(r -> r.sessionId.equals(session) && r.owner.tenantId().equals(owner.tenantId()) && r.owner.userId().equals(owner.userId())))
             throw new AgentException("SESSION_NOT_FOUND","Session not found");
         var all = history(session,owner,Long.MAX_VALUE).stream().filter(m -> m.sequence()<before).toList();
-        return all.subList(Math.max(0,all.size()-50),all.size());
+        return all.subList(Math.max(0,all.size()-MESSAGE_PAGE_SIZE),all.size());
     }
     @Override public synchronized com.tianmu.agent.core.DanmakuTypes.ReportRef saveReport(UUID runId, AccessScope owner, String evidenceId, byte[] html) {
         RunState run = load(runId, owner); run.checkpoint();

@@ -24,7 +24,7 @@ public final class TraceAttributes {
             "model.provider", "model.usage_state", "model.total_tokens", "model.cache_hit_tokens", "model.cache_miss_tokens", "model.reasoning_tokens", "model.finish_reason", "model.temperature", "model.max_tokens", "model.streaming", "model.first_token_state", "model.response_ms", "model.message_count", "model.reasoning_state", "model.http_status",
             "usage.external_model_calls", "usage.total_tokens", "usage.cache_hit_tokens", "usage.reasoning_tokens", "usage.state",
             "context.history_removed", "context.schemas_removed", "context.byte_limit", "context.input_bytes", "context.output_bytes", "context.changed",
-            "context.format", "context.history_messages", "context.classified_batches_released",
+            "context.format", "context.history_messages", "context.classified_batches_released", "context.report_inputs_released", "context.projection_bytes_saved",
             "model.response_repaired", "model.validation_error",
             "model.tool_protocol", "video.fact_strategy",
             "detail.input_ref", "detail.input_state", "detail.input_bytes", "detail.input_redacted",

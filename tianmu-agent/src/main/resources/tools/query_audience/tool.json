@@ -6,15 +6,18 @@
     "properties": {
       "video_id": {
         "type": "integer",
-        "minimum": 1
+        "minimum": 1,
+        "description": "Authorized video/room ID from confirmed_conditions or the current validated page; do not substitute a historical video."
       },
       "start": {
         "type": "string",
-        "maxLength": 19
+        "maxLength": 19,
+        "description": "Frozen feedback collection start in Asia/Shanghai local time, e.g. 2026-11-01T00:00:00; inclusive. Copy confirmed_conditions.conditions.start, including the all-retained sentinel; not playback time."
       },
       "end": {
         "type": "string",
-        "maxLength": 19
+        "maxLength": 19,
+        "description": "Frozen feedback collection end in Asia/Shanghai local time; exclusive. Copy confirmed_conditions.conditions.end exactly; not a video playback position."
       }
     },
     "required": [

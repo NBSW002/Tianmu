@@ -1,29 +1,34 @@
 {
   "name": "create_danmaku_report",
-  "description": "Persist a private HTML report from the frozen selected sources. For VIDEO-only reports, pass the video evidence_id alone; never query feedback to create that artifact. For feedback reports, classify the selected text sources completely; no model calls occur inside this tool. For classification returned by query_danmaku, submit current offset and topics_json: an array or {\"topics\":[...]} containing {topic_key:T1..T100,title,observation,recommendation,sample_ids,optional video_context,optional video_at_ms}. Submit at most 10 topics and no more topics than the current batch contains groups. Assign EVERY current batch G1/G2/... ID exactly once; sample_ids means all members, not examples. Empty sample_ids arrays are ignored; duplicate IDs are kept only in their first submitted topic; omitted IDs go into a visible “other discussion” topic with their original audience quotes retained. Reuse topic_key across batches and update its prose using prior conclusions plus current feedback. Include video_evidence_id only when VIDEO is selected (then it is required), and connect at least one first-batch topic to actual video frames using video_context and video_at_ms. video_at_ms MUST be an integer array of 1-4 actual sampled positions (for one anchor use [1320], never 1320). If the video cannot confirm a viewer claim, say so rather than inventing facts. Before LLM processing the server compresses exact duplicate texts with the same source, author role, playback position and reply context, retaining every original ID and occurrence. Classify only the returned representative G IDs; the server expands membership to every original record. Batches contain at most 40 distinct expressions, not 40 raw records. Server saves the draft, computes exact counts and returns the next full batch. The LAST batch automatically renders and delivers the HTML report; earlier batches do not finish the run. A report cannot be produced with unread or unclassified text. For zero messages, pass evidence_id only. Legacy data without audience uses sections_json with up to 6 observations and 1-4 legacy sample IDs each. For query_audience evidence, reuse stable topic_key T1..T100 across batches. The server accumulates topic memberships, counts and video anchors in code and automatically publishes after the last complete batch. Do not request an extra merge or skill resource. Do not infer audio from frames; viewer audio feedback must remain attributed to the viewer.",
+  "description": "Persist a private HTML report for the frozen report request; this tool makes no additional model calls. Choose the evidence path: VIDEO-only sources require the video evidence_id alone, with no feedback query. Feedback reports require the feedback evidence_id: query_danmaku classification uses topic_key T1..T6; query_audience classification uses T1..T100, even when only one text source was selected. Both allow reserved OTHER only with title 其他讨论. For a nonempty full-feedback batch, submit the returned current offset and topics_json (an array or {\"topics\":[...]}), with topic_key, title, observation, recommendation and sample_ids. Submit at most 10 topics and no more topics than current groups; omit old topics with no current members. Aim to assign every returned representative G ID exactly once; sample_ids are all members, not examples. The server ignores empty-member topics and keeps duplicate members in their first topic. Omitted members join the first submitted nonempty topic titled 其他讨论, preserving its key; only if none exists does the server create OTHER. Follow the actual returned classification.topics keys across batches; do not rename a T-key fallback to OTHER. Unknown IDs, invalid keys or wrong offsets are rejected; correct the current batch, never replay an accepted batch. Reuse topic keys and update prose without forgetting earlier conclusions. Only when VIDEO is selected, supply video_evidence_id for the same video; at least one first-batch topic must connect to actual frames via video_context and video_at_ms, an integer array of 1-4 actual sampled positions (example: [1320]). Attribute audio claims to viewers unless supported by audio evidence. Exact duplicate expressions are compressed with source, author role, playback position and reply context preserved; submit representative IDs and the server expands coverage. A batch has at most 40 distinct expressions, not 40 raw records. Intermediate calls save progress and return the next batch; the last complete batch validates coverage, persists HTML and delivers the report. Classification progress alone is not a stored report; no extra model merge is needed. For zero feedback, omit topics_json and offset: pass feedback evidence_id alone when VIDEO is unselected, or feedback evidence_id plus video_evidence_id when VIDEO is selected. Legacy sampled evidence without audience uses sections_json with up to 6 sections and 1-4 existing sample IDs per section. Read the active report Skill for analysis guidance.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "evidence_id": {
         "type": "string",
-        "maxLength": 80
+        "maxLength": 80,
+        "description": "For feedback reports, use the feedback evidence_id returned by query_danmaku/query_audience. Only for VIDEO-only reports, use the video evidence_id instead; not an artifact ID or a historical run result."
       },
       "sections_json": {
         "type": "string",
-        "maxLength": 12000
+        "maxLength": 12000,
+        "description": "Legacy sampled evidence without audience only: JSON string of up to 6 sections with title, observation, recommendation and 1-4 existing sample_ids each. Omit for full-feedback and VIDEO-only reports."
       },
       "offset": {
         "type": "integer",
         "minimum": 0,
-        "maximum": 5000
+        "maximum": 5000,
+        "description": "Full-feedback classification position: copy the latest classification.offset (initially 0), not the number of weighted messages or compressed input rows. Omit for zero feedback and VIDEO-only reports."
       },
       "topics_json": {
         "type": "string",
-        "maxLength": 24000
+        "maxLength": 24000,
+        "description": "Nonempty full-feedback batch classification as a JSON string (array or {\"topics\":[...]}). Follow the active report Skill and current representative G IDs; this is not native JSON objects or HTML. Omit for zero feedback and VIDEO-only reports."
       },
       "video_evidence_id": {
         "type": "string",
-        "maxLength": 80
+        "maxLength": 80,
+        "description": "Same-run, same-video evidence_id from analyze_video_content for feedback reports selecting VIDEO. Supply it on the first classification (also for zero feedback); the accepted draft retains it. Omit when VIDEO is unselected; VIDEO-only reports use evidence_id instead."
       }
     },
     "required": [

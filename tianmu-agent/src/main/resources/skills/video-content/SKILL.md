@@ -4,9 +4,13 @@
 
 用户希望了解某个视频的画面、剧情、镜头、内容或具体片段时使用。闲聊、能力介绍、通用运营建议和文案创作直接对话，不为了给建议而读取视频；单纯查弹幕数量使用 video-metrics。视频内容理解不需要弹幕发送日期，也不自动生成报告。
 基于当前视频寻找下一条视频灵感、选题或改进属于具体视频咨询，应先获取画面依据再建议；承接前文的“就是现在的视频”沿用该目标。主动使用已授权的视频工具，不再次询问是否可以查看。
-遵守 confirmed_conditions.analysis.sources：只有 VIDEO 被选择时才能读取画面。analysis.reportRequired=true 时，先读取视频，再把视频 evidence_id 提交 create_danmaku_report 生成私有 HTML 报告；未要求报告时直接基于证据回答。视频报告不得额外读取评论或弹幕。
+遵守 confirmed_conditions.analysis.sources：只有 VIDEO 被选择时才能读取画面，读取视频不改变 reportRequired 或原分析任务。
 
-video_id 以当前 taskSpecification 或当前请求的已授权视频上下文为准，不能从旧会话猜测。已知当前视频时无需再询问ID；没有明确对象时只问缺失的视频，不同时索要无关日期。
+- reportRequired=false：基于所选来源的证据回答，不调用 create_danmaku_report。comments.analysis 沿用 comment-analysis/query_video_comments 读取全部评论；其他分析也沿用已确认任务的对应 Skill，不因同时选择 VIDEO 与反馈来源而切换到报告流程。
+- reportRequired=true 且 sources 恰为 [VIDEO]：把视频 evidence_id 单独提交 create_danmaku_report 生成私有 HTML 报告，不读取评论或弹幕。
+- reportRequired=true 且 sources 还包含 COMMENT 或 DANMAKU：本 Skill 只获取视频证据；读取对应的 audience-report 或 danmaku-analysis Skill 完成反馈分类，提交反馈 evidence_id 及 video_evidence_id，不能用纯视频报告替代反馈报告。空反馈仍须满足所选视频证据要求。
+
+video_id 以当前 confirmed_conditions.conditions 或当前请求的已授权视频上下文为准，不能从旧会话猜测。已知当前视频时无需再询问ID；没有明确对象时只问缺失的视频，不同时索要无关日期。
 
 ## 选择分析范围
 

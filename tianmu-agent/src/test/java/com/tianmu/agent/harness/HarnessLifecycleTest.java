@@ -27,8 +27,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class HarnessLifecycleTest {
     static ToolDispatcher dispatcher(SkillCatalog skills, BusinessQueryPort queries, RuntimeHarness harness) {
+        return dispatcher(skills,queries,harness,null);
+    }
+    static ToolDispatcher dispatcher(SkillCatalog skills, BusinessQueryPort queries, RuntimeHarness harness, com.tianmu.agent.runtime.store.ConversationStore conversations) {
+        return dispatcher(skills,queries,harness,conversations,null);
+    }
+    static ToolDispatcher dispatcher(SkillCatalog skills, BusinessQueryPort queries, RuntimeHarness harness, com.tianmu.agent.runtime.store.ConversationStore conversations, com.tianmu.agent.runtime.store.ReportStore reports) {
         var registry = new ToolRegistry(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new com.tianmu.agent.tool.builtin.QueryAudienceTool(new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(com.tianmu.agent.query.AudienceQueryPort.class)), new QueryVideoCommentsTool(new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(com.tianmu.agent.query.CommentQueryPort.class)), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new CreateDanmakuReportTool(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryVideoMetricsTool(queries)), new ToolCatalog(), skills);
-        return new ToolDispatcher(skills, harness, registry);
+        return new ToolDispatcher(skills, harness, registry, reports, conversations);
     }
     static class Recording implements SpanExporter {
         final List<SpanData> spans = new CopyOnWriteArrayList<>();
