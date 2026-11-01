@@ -219,6 +219,24 @@ ReadSkillTool 仅更新 name.enum，保留原声明中的说明与约束，不�
 
 最终隔离 MySQL8.4 / Redis7.4 全量 verify452项全部通过，失败/错误/跳过均为0，包含 MySQL23项、Redis2项；日志 var/parameter-description-verify.log。打包离线冒烟通过认证、FAQ/Harness与SSE、私有报告、Trace关联及正文脱敏，付费模型调用0；日志 var/parameter-description-smoke.log。发布规则4/4、工作树发布扫描与diff检查通过；本批隔离容器与匿名卷已清理。没有真实模型效果对照，不能据本批测试声称错误率或Token成本下降；说明增加也计入现有请求上限。未推送或部署。
 
+### 推送快照与 S02-B 实施方案（2026-11-01）
+
+已按用户要求先将累计的A01/A04/S01/S02-A实现推送到origin/master，提交 bc88f3d（refactor(agent): isolate host services and harden model context）。推送包含56个文件，基线452项全部通过及打包离线冒烟通过；未部署。此前各批“未推送”为当时快照，以本条更新当前状态。
+
+推送后已设计S02-B，详见 [架构评审：调用前参数错误的有限修正](../tianmu-agent/docs/架构评审与演进方案.md)。首批只对单工具的Schema前置拒绝给最多2次修正反馈；用Dispatcher在Handler前生成的结构化结果证明阶段，不把INVALID_ARGUMENTS码或公开异常子类当作证明。Handler执行异常/业务权限/未知写入结果不增加重试，多调用组保持现有失败退出。问题反馈有界、错误ID配对、Hook不可篡改，累计配额跨工具和成功调用不重置，原总预算/取消/deadline继续有效。
+
+本方案文档在bc88f3d推送后形成；本段为设计时快照。后续实施进度见下节，不以已有452项证明新机制已完成。
+
+### S02-B 前置输入校验的有限修正（2026-11-01）
+
+按用户要求先复核官方资料再实施：[Pydantic AI 重试反馈](https://pydantic.dev/docs/ai/core-concepts/retries/)、[MCP 工具错误语义](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)、[Anthropic 可操作工具反馈](https://www.anthropic.com/research/writing-tools-for-agents)。借鉴可配对、可操作的错误提示；本项目采用更严格的任务累计配额，不随工具切换或成功调用重置。
+
+修复前：单次工具参数格式错误直接终止；Dispatcher还会把部分Handler执行异常映射成INVALID_ARGUMENTS，不能按该错误码统一重试。修复后：Dispatcher仅在Handler之前返回类型明确的ValidationRejected；单调用Runtime将它作为普通工具结果反馈，模型可在原任务和原预算内生成修正调用。业务执行后异常、权限/证据归属拒绝不获得新增修正资格，多调用组保持失败退出。
+
+最多2次修正反馈，第3次校验拒绝终止；既有更严格连续失败上限、总步骤、模型/Token预算、deadline与取消仍生效。反馈最多8个问题、路径最多128个ASCII字符、固定提示文本，构造上限定4KiB以内；不重复回显错值或未知参数名。input_validation是宿主保留字段，Handler伪造及Hook删改/注入均拒绝。拒绝结果无证据或终态答案，不标记调用成功；harness.system升至3.6.0。
+
+新增21项行为回归，覆盖字段/数组约束、有界反馈、实际HTTP工具消息配对、纠正后仅执行一次、Handler执行后失败、Hook篡改、批次、跨工具累计及预算/取消。既有额外参数注入用例更新为有限反馈后终止，并继续断言身份与证据不变。针对性72项全部通过；全量verify为473项全部通过，失败/错误/跳过均为0，包含实际隔离MySQL 23项与Redis 2项，测试容器及其匿名卷已清理。打包离线HTTP/SSE/私有报告/Trace脱敏冒烟通过，发布规则4/4、发布检查与差异格式检查通过。本批尚未推送、部署或调用付费模型；脚本模型与本地HTTP用例验证机制，不作为真实模型纠正率或完成率提升的证据。
+
 ### 已部署插入任务的收尾记录
 
 Agent 的 A03、H01、A02/H02 已随 `272be8e` 推送到 master，尚未部署；上方各批“尚未推送”保留为当时实施快照。本批 A01 仍是未推送的本地改动。

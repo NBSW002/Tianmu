@@ -30,6 +30,7 @@ public class AgentRuntime {
         final Set<ToolCall> successfulCalls = new HashSet<>();
         String failingTool;
         int consecutiveFailures;
+        int argumentCorrections;
         void success(ToolCall call) { successfulCalls.add(new ToolCall(call.name(),call.arguments())); failingTool = null; consecutiveFailures = 0; }
         int failure(String name) {
             consecutiveFailures = name.equals(failingTool) ? consecutiveFailures + 1 : 1;
@@ -133,19 +134,19 @@ public class AgentRuntime {
         run.checkpoint();
         return switch (decision.kind()) {
             case TOOL -> {
-                if(decision.additionalCalls().isEmpty())yield executeTool(run,context,decision.call(),progress);
+                if(decision.additionalCalls().isEmpty())yield executeTool(run,context,decision.call(),progress,true);
                 var batch=new ArrayList<ToolCall>();batch.add(decision.call());batch.addAll(decision.additionalCalls());
                 tools.checkBatch(batch,run);
                 boolean done=false;
                 // Read batches share a model turn but execute serially under the existing deadline/budget controls.
-                for(var call:batch) { run.checkpoint();if(executeTool(run,context,call,progress)){done=true;break;} }
+                for(var call:batch) { run.checkpoint();if(executeTool(run,context,call,progress,false)){done=true;break;} }
                 yield done;
             }
             case CLARIFY -> { delivery.clarification(run, decision.clarification(), delivery.reserve(run)); yield true; }
             case ANSWER -> { delivery.answer(run, decision.answer(), delivery.reserve(run), StopReason.ANSWER); yield true; }
         };
     }
-    private boolean executeTool(RunState run, ModelContext context, ToolCall call, Progress progress) {
+    private boolean executeTool(RunState run, ModelContext context, ToolCall call, Progress progress, boolean allowCorrection) {
         if (call == null) throw new AgentException("INVALID_DECISION", "Missing tool call");
         if (context.availableTools().stream().noneMatch(tool -> tool.name().equals(call.name())))
             throw new AgentException("TOOL_NOT_AVAILABLE", "Tool is not exposed in the current model context");
@@ -153,6 +154,7 @@ public class AgentRuntime {
         run.emit("PROGRESS", Map.of("stage", "tool", "tool", name));
         ToolResult result;
         var executed = new java.util.concurrent.atomic.AtomicReference<ToolCall>(call);
+        var inputRejected = new java.util.concurrent.atomic.AtomicBoolean();
         try {
             int attempt = name.equals(progress.failingTool) ? progress.consecutiveFailures + 1 : 1;
             result = harness.stage(run, "agent.tool", HookPoint.PRE_TOOL, HookPoint.POST_TOOL,
@@ -161,9 +163,23 @@ public class AgentRuntime {
                 ToolCall actual = harness.transform(run, TransformPoint.TOOL_CALL, call);
                 executed.set(actual);
                 if (progress.successfulCalls.contains(new ToolCall(actual.name(),actual.arguments()))) throw new AgentException("NO_PROGRESS", "Repeated successful tool call");
-                ToolResult raw = tools.execute(actual, run);
+                ToolDispatcher.DispatchOutcome dispatched=allowCorrection?tools.dispatch(actual,run):new ToolDispatcher.Completed(tools.execute(actual,run));
+                ToolResult raw;
+                if(dispatched instanceof ToolDispatcher.ValidationRejected rejected) {
+                    run.checkpoint();
+                    int failure=progress.failure(name);
+                    if(progress.argumentCorrections>=2 || failure>=harness.policy().consecutiveToolFailures())
+                        throw new AgentException("TOOL_FAILURE_LIMIT","Tool argument correction limit reached");
+                    progress.argumentCorrections++;inputRejected.set(true);
+                    TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.validation_issue_count",rejected.validation().issues().size(),
+                            "tool.argument_correction",progress.argumentCorrections));
+                    raw=new ToolResult(name,Map.of("error_code","INVALID_ARGUMENTS","retryable",true,"attempt",failure,
+                            "input_validation",Map.of("phase","BEFORE_HANDLER","handler_executed",false,
+                                    "issues",rejected.validation().issues().stream().map(issue->Map.of("path",issue.path(),"code",issue.code().name(),"hint",issue.code().hint())).toList(),
+                                    "issues_truncated",rejected.validation().truncated())),null);
+                } else raw=((ToolDispatcher.Completed)dispatched).result();
                 ToolResult admitted = harness.transform(run, TransformPoint.TOOL_RESULT, raw);
-                progress.success(actual);
+                if(!inputRejected.get())progress.success(actual);
                 return admitted;
             });
         } catch (AgentException e) {
@@ -181,6 +197,10 @@ public class AgentRuntime {
             return false;
         }
         run.execution().observe(executed.get(),result);
+        if(inputRejected.get()) {
+            run.emit("PROGRESS",Map.of("stage","tool_failed","tool",name,"code","INVALID_ARGUMENTS","attempt",progress.consecutiveFailures));
+            return false;
+        }
         run.emit("PROGRESS", Map.of("stage", "tool_completed", "tool", name));
         if (result.terminalAnswer() != null) {
             delivery.answer(run, result.terminalAnswer(), delivery.reserve(run), StopReason.TOOL_DELIVERY);

@@ -19,6 +19,11 @@ import com.tianmu.agent.harness.trace.TraceDetails;
 /** Fixed admission boundary; tool implementations register independently of this dispatcher. */
 @Component
 public class ToolDispatcher {
+    public sealed interface DispatchOutcome permits Completed, ValidationRejected {}
+    public record Completed(ToolResult result) implements DispatchOutcome {}
+    public record ValidationRejected(ToolArguments.Validation validation) implements DispatchOutcome {
+        public ValidationRejected { if(validation.valid())throw new IllegalArgumentException("Expected invalid arguments"); }
+    }
     private final SkillCatalog skills;
     private final com.tianmu.agent.application.BusinessEvidencePolicy business = new com.tianmu.agent.application.BusinessEvidencePolicy();
     private final RuntimeHarness harness;
@@ -55,6 +60,12 @@ public class ToolDispatcher {
         }
     }
     public ToolResult execute(ToolCall call, RunState run) {
+        var outcome=dispatch(call,run);
+        if(outcome instanceof Completed completed)return completed.result();
+        throw new AgentException("INVALID_ARGUMENTS","Tool arguments do not match the declared schema");
+    }
+    /** Only this pre-handler branch can grant input correction; handler exceptions never become this outcome. */
+    public DispatchOutcome dispatch(ToolCall call, RunState run) {
         run.checkpoint();
         if (!permitted(call.name(), run)) throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Tool is outside the frozen source selection");
         AgentTool tool = registry.admit(call.name(), run.execution().activeSkills(), snapshotTools(run));
@@ -62,12 +73,18 @@ public class ToolDispatcher {
             var span = io.opentelemetry.api.trace.Span.current();
             com.tianmu.agent.harness.trace.TraceAttributes.apply(span, Map.of("tool.call_id", span.getSpanContext().getSpanId()));
             TraceDetails.capture("input", call, "TOOL_ARGUMENTS");
-            ToolArguments.validate(call, registry.definition(call.name()));
-            ToolResult result = tool.execute(call, new HostContext(run, tool));
+            com.tianmu.agent.harness.trace.TraceAttributes.apply(span,Map.of("tool.handler_executed",false));
+            var validation=ToolArguments.inspect(call,registry.definition(call.name()));
             run.checkpoint();
-            if (result == null || !call.name().equals(result.tool())) throw new AgentException("INVALID_TOOL_RESULT", "Tool result does not match the registered handler");
+            if(!validation.valid())return new ValidationRejected(validation);
+            var context=new HostContext(run,tool);
+            com.tianmu.agent.harness.trace.TraceAttributes.apply(span,Map.of("tool.handler_executed",true));
+            ToolResult result = tool.execute(call, context);
+            run.checkpoint();
+            if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation"))
+                throw new AgentException("INVALID_TOOL_RESULT", "Tool result does not match the registered handler or uses host-reserved feedback");
             TraceDetails.capture("output", result, "TOOL_RESULT");
-            return result;
+            return new Completed(result);
         } catch (IllegalArgumentException | DateTimeException | ArithmeticException e) {
             throw new AgentException("INVALID_ARGUMENTS", "Tool arguments are invalid");
         }

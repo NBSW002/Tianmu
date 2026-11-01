@@ -132,7 +132,11 @@ class AgentRuntimeTest {
     @Test void unrecognizedArgumentsCannotInjectScope() {
         RunState run = run("x");
         with(ctx -> Decision.tool("list_skills", Map.of("tenant_id", "other"))).execute(run);
-        assertEquals("INVALID_ARGUMENTS", run.snapshot().errorCode());
+        assertEquals("TOOL_FAILURE_LIMIT", run.snapshot().errorCode());
+        assertEquals(2,run.execution().observations().size());
+        assertTrue(run.execution().observations().stream().allMatch(r->r.data().get("error_code").equals("INVALID_ARGUMENTS")));
+        assertTrue(run.execution().observations().stream().noneMatch(r->r.data().toString().contains("tenant_id")));
+        assertEquals(alice(),run.owner);assertTrue(run.execution().evidence().isEmpty());
     }
     @Test void evidenceCannotBeReadFromAnotherRun() {
         RunState first = run("查询视频1001昨天的弹幕数");
