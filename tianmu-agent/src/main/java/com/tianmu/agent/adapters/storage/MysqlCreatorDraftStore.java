@@ -30,7 +30,11 @@ public final class MysqlCreatorDraftStore implements CreatorDraftStore {
         catch (Exception e) { throw new IllegalStateException("Invalid stored creator draft", e); }
     }
     public boolean replace(CreatorDraft expected, CreatorDraft next) {
+        var values=db.queryForList("SELECT payload FROM agent_creator_draft WHERE run_id=?",String.class,expected.runId().toString());
+        if(values.isEmpty())return false;
+        try{if(!json.readValue(values.get(0),CreatorDraft.class).equals(expected))return false;}
+        catch(Exception e){throw new IllegalStateException("Invalid stored creator draft",e);}
         return db.update("UPDATE agent_creator_draft SET payload=? WHERE run_id=? AND BINARY payload=BINARY ?",
-                encode(next), expected.runId().toString(), encode(expected)) == 1;
+                encode(next), expected.runId().toString(), values.get(0)) == 1;
     }
 }

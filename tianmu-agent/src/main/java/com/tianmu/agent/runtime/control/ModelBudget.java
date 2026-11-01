@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /** Shared by every provider call in a run, including parallel preparation and nested video tools. */
-public final class ModelBudget {
+public class ModelBudget {
     private final long limit, reservation;
     private long charged, reported, unknown;
     private boolean exhausted;
@@ -17,8 +17,13 @@ public final class ModelBudget {
         if (limit < 0 || reservation < 1) throw new IllegalArgumentException("Invalid token budget");
         this.limit = limit; this.reservation = reservation;
     }
+    public ModelBudget(com.tianmu.agent.core.PendingOperation.Budget saved){
+        this(saved.limit(),saved.reservation());if(saved.charged()<0 || saved.reported()<0 || saved.unknown()<0)throw new IllegalArgumentException("Invalid saved model budget");
+        charged=saved.charged();reported=saved.reported();unknown=saved.unknown();exhausted=saved.exhausted();
+    }
+    public synchronized com.tianmu.agent.core.PendingOperation.Budget snapshot(){return new com.tianmu.agent.core.PendingOperation.Budget(limit,reservation,charged,reported,unknown,exhausted);}
 
-    private synchronized long reserve(long estimate, Runnable beforeDispatch) {
+    protected synchronized long reserve(long estimate, Runnable beforeDispatch) {
         long reserved=Math.max(reservation,estimate);
         if (exhausted || limit > 0 && (charged > limit || reserved > limit - charged))
             throw new AgentException("MODEL_TOKEN_BUDGET_EXCEEDED", "Request token budget exhausted");
@@ -28,7 +33,7 @@ public final class ModelBudget {
         return reserved;
     }
 
-    private synchronized void settle(JsonNode response,long reserved) {
+    protected synchronized void settle(JsonNode response,long reserved) {
         JsonNode in = response.path("usage").path("prompt_tokens");
         JsonNode out = response.path("usage").path("completion_tokens");
         // Missing/partial usage and transport failures retain the entire reservation.

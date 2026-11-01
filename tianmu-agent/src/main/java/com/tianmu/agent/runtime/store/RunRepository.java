@@ -13,6 +13,7 @@ public interface RunRepository extends ResourceScopeStore {
     Created create(String message, AccessScope owner, UUID sessionId, String idempotencyKey, UUID replyToRunId, com.tianmu.agent.core.RequestContext context);
     RunState load(UUID id, AccessScope caller);
     default List<RunState> recoverQueued() { return List.of(); }
+    default List<RunState> recoverWaiting() { return List.of(); }
     default void refresh(RunState run) {}
     default boolean durable() { return false; }
     /** Read-only readiness check; durable adapters should verify their authority to accept writes. */

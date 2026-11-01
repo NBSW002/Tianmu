@@ -25,6 +25,42 @@ import static org.mockito.Mockito.*;
 /** Opt-in real MySQL/Redis integration. Refuses URLs outside a database ending in _it. */
 @EnabledIfEnvironmentVariable(named="AGENT_STORAGE_IT", matches="true")
 class MysqlStorageIntegrationTest {
+    @Test void pendingOperationSurvivesWriterRestartWithPairedCallAndBudget() {
+        var run=create("后台反馈分析");run.start();
+        run.configureBudget(LoopPolicy.defaults());
+        var op=new PendingOperation(UUID.randomUUID(),"feedback-analysis",run.deadline());
+        run.execution().activateSkill("audience-report");
+        run.execution().observe(new ToolCall("analyze_feedback",Map.of(),"it-provider-call"),new ToolResult("analyze_feedback",Map.of("status","PENDING"),null,null,op));
+        ModelBudget.execute(run.callControl(),"fixture",false,()->mapper.createObjectNode());
+        run.waitFor(op);var budget=run.modelBudget().snapshot();repository.close();
+        repository=new MysqlRunRepository(source,mapper,cache,new FileObjectStore(directory),Duration.ofSeconds(30),16);
+        var recovered=repository.recoverWaiting().stream().filter(r->r.id.equals(run.id)).findFirst().orElseThrow();
+        assertEquals(Status.WAITING_OPERATION,recovered.snapshot().status());assertEquals(budget,recovered.modelBudget().snapshot());assertTrue(budget.charged()>0);
+        assertEquals("it-provider-call",recovered.execution().exchanges().get(0).call().providerCallId());
+        assertTrue(recovered.completeOperation(op,new ToolResult("analyze_feedback",Map.of("status","READY"),"ev_it")));
+        assertEquals(Status.RUNNING,repository.load(run.id,owner).snapshot().status());recovered.cancel();
+    }
+    @Test void feedbackSqlFencesLateResultsAndKeepsUnknownSpendingAcrossClaims() {
+        var run=create("反馈任务");var store=new MysqlFeedbackJobStore(source,mapper,repository::verifyReady);
+        var now=Instant.now();var request=new FeedbackAnalysis.Request(new DanmakuTypes.Query(1001,LocalDate.now().minusDays(1).atStartOfDay(),LocalDate.now().atStartOfDay()),Set.of(FeedbackAnalysis.Source.COMMENT),FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,"feedback-analysis-v1");
+        var j=store.create(new com.tianmu.agent.feedback.FeedbackJobStore.Job(UUID.randomUUID(),run.id,owner,request,FeedbackAnalysis.Phase.QUEUED,now,now.plusSeconds(120),20000,3,0,0,"fixture","hash",null,null,null,null,0,0));
+        var blob=new FeedbackAnalysis.Blob("fb_"+UUID.randomUUID().toString().replace("-","")+".json",2,"0".repeat(64));
+        assertTrue(store.initialize(j.id(),j.version(),new FeedbackAnalysis.Snapshot("feedback-snapshot-v1",now,new FeedbackAnalysis.Counts(1,0,0,0,1),List.of(blob),"0".repeat(64)),null,List.of(blob)));
+        db.update("UPDATE agent_feedback_work SET available_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 10 SECOND) WHERE job_id=?",j.id().toString());
+        assertNull(store.claim(j.id(),Instant.now().plusSeconds(30),Duration.ofSeconds(30)),"Host clock cannot bypass database retry time");
+        db.update("UPDATE agent_feedback_work SET available_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE job_id=?",j.id().toString());
+        var first=store.claim(j.id(),Instant.now(),Duration.ofSeconds(30));assertNotNull(first);store.reserve(j.id(),first.id(),first.fence(),8192);
+        assertThrows(AgentException.class,()->store.reserve(j.id(),first.id(),first.fence(),8192));
+        db.update("UPDATE agent_feedback_work SET lease_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE work_id=?",first.id().toString());
+        var second=store.claim(j.id(),Instant.now(),Duration.ofSeconds(30));assertTrue(second.fence()>first.fence());assertFalse(store.complete(first,blob));
+        store.reserve(j.id(),second.id(),second.fence(),8192);assertEquals(16384,store.get(j.id()).chargedTokens());
+        store.settle(j.id(),second.id(),second.fence(),100,20);assertEquals(8312,store.get(j.id()).chargedTokens());store.settle(j.id(),second.id(),second.fence(),100,20);assertEquals(8312,store.get(j.id()).chargedTokens());
+        store.cancel(j.id());assertFalse(store.complete(second,blob));
+        var index=new MysqlFeedbackObjectIndex(source,repository::verifyReady);var objects=new com.tianmu.agent.feedback.FeedbackObjects(new FileObjectStore(directory),mapper,index);
+        var real=objects.put(j.id(),Map.of("private","fixture"));assertTrue(java.nio.file.Files.exists(directory.resolve(real.key())));
+        run.cancel();repository.deleteSession(run.sessionId,owner);repository.garbageCollect();objects.collectExpired();
+        assertFalse(java.nio.file.Files.exists(directory.resolve(real.key())));assertNull(store.get(j.id()));
+    }
     @TempDir Path directory;
     HikariDataSource source; MysqlRunRepository repository; RedisMemoryCache cache; JdbcTemplate db;
     final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();

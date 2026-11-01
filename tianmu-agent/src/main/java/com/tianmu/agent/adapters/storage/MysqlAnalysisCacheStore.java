@@ -33,7 +33,7 @@ public final class MysqlAnalysisCacheStore implements AnalysisCacheStore {
                     +"expires_at=IF(progress_rank<=VALUES(progress_rank) OR expires_at<=UTC_TIMESTAMP(6),VALUES(expires_at),expires_at)",key,entry.rank(),entry.json(),Timestamp.from(entry.expiresAt()));
         } catch(org.springframework.dao.DataAccessException e){failure();}
     }
-    @org.springframework.scheduling.annotation.Scheduled(fixedDelay=60000)
+    @org.springframework.scheduling.annotation.Scheduled(scheduler="maintenanceScheduler", fixedDelay=60000)
     public void cleanup(){
         if(retryAfter!=0 && System.nanoTime()-retryAfter<0)return;
         try{

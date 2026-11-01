@@ -12,6 +12,7 @@ import javax.sql.DataSource;
 @ConditionalOnProperty(name="agent.bridge.enabled", havingValue="true")
 @EnableConfigurationProperties(BridgeProperties.class)
 public class AgentBridgeConfiguration {
+    @Bean BusinessFeedbackSnapshot businessFeedbackSnapshot(BusinessReadDatabase reader,BridgeProperties properties,com.fasterxml.jackson.databind.ObjectMapper json){return new BusinessFeedbackSnapshot(new JdbcTemplate(reader.source()),properties,json);}
     @Bean(destroyMethod="close") BusinessReadDatabase businessReadDatabase(DataSource existing,
             @Value("${BUSINESS_JDBC_URL:}") String url, @Value("${BUSINESS_DB_USER:}") String user,
             @Value("${BUSINESS_DB_PASSWORD:}") String password) throws Exception {

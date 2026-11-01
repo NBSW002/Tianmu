@@ -1,5 +1,16 @@
 # 视频观众反馈报告
 
+## 后台分析路径（优先）
+
+当当前 tools 中有 analyze_feedback 时，遵循本节，不执行下文旧路径的原文分页分类。来源、反馈时间与视频范围已由 confirmed_conditions 冻结，不得自行扩展。VIDEO 被选择时先 analyze_video_content，将同一视频 evidence_id 传入 analyze_feedback；没有选择 VIDEO 时不读视频。analyze_feedback 由后台完成快照、分批语义分析和层级汇总，主 Agent 不传递原文批次、不轮询模型、不推测完成状态。工具完成后返回 READY 和本轮 feedback evidence_id。
+
+需要细节时 read_result 读取 summary/topics，通过 children 下钻。originals 返回原文预览；需要完整原文时用 original_text、对应叶子 topic_id、original_id 和 Unicode 分页。引用与 ID 必须来自本轮证据。作者发言与观众意见分开，背景父评论不计为新增反馈，采样帧不能核实声音或连续动作。层级合并可能省略细节，应下钻核查反对意见与少数反馈。
+
+reportRequired=true 时，READY 仍不是报告交付；必须 create_feedback_report 保存该 evidence_id 后才能交付。reportRequired=false 时必须先用 read_result 的 topics 从 offset=0 顺序读取全部上层主题，复制 next_offset 直到 complete=true，再基于实际读到的主题回答；仅看到 READY 和数量不能编造讨论内容。不强制生成报告。没有反馈也需完成分析；选择 VIDEO 时仍须读取视频。后台超量、失败或授权过期不能当作已分析成功，更不能退回读取部分原文声称全量完成。
+
+只有未开放 analyze_feedback 时才执行下面的兼容路径。
+
+
 为作者解释观众讨论、视频关联与下一步行动。只读取 confirmed_conditions.conditions 的视频与区间，未指定时间时服务端固定读取所选反馈来源的全部已保留记录，截至本次请求时点，不再追问。使用三个业务工具：query_audience、analyze_video_content、create_danmaku_report。工具不隐藏模型调用。
 
 ## 准备

@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import { createRunMonitor } from '../src/agent/run-monitor.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test('background analysis keeps its model counter separate and exposes authorization pauses', async () => {
+  const turn = { runId: 'run', events: [] };
+  const monitor = createRunMonitor({ notice: { value: '' }, applySnapshot: (t, value) => { t.snapshot = value; },
+    getAgentRun: async () => ({ status: 'SUCCEEDED', totalModelCalls: 3 }),
+    readAgentEvents: async (id, cursor, signal, receive) => {
+      receive({ type: 'PROGRESS', id: '1', payload: { sequence: 1, data: { stage: 'analysis_waiting_auth' } } });
+      receive({ type: 'PROGRESS', id: '2', payload: { sequence: 2, data: { stage: 'feedback_analysis', model_calls: 5 } } });
+    } });
+  try { await monitor.start(turn); assert.equal(turn.events[0].waitingAuth, true); assert.equal(turn.events[1].analysisCalls, 5); assert.equal(turn.snapshot.totalModelCalls, 3); }
+  finally { monitor.stop(); }
+});
 test('closing monitoring aborts the active subscription without cancelling the server task', async () => {
   let signal;
   const monitor = createRunMonitor({ notice: { value: '' }, applySnapshot: () => assert.fail('late snapshot'),

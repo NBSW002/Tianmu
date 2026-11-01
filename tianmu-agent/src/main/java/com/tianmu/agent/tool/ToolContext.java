@@ -24,6 +24,12 @@ public interface ToolContext {
     }
     List<ToolDefinition> definitionsForSkill(String name);
     Evidence evidence(String id);
+    default ToolResult analyzeFeedback(String videoEvidenceId,String analysisId){throw new com.tianmu.agent.core.AgentException("FEEDBACK_ANALYSIS_DISABLED","Background analysis is unavailable");}
+    default Map<String,Object> readFeedback(Evidence evidence,String section,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback result unavailable");}
+    default Map<String,Object> readFeedback(Evidence evidence,String section,String topic,int offset,int limit){return readFeedback(evidence,section,offset,limit);}
+    default Map<String,Object> readFeedbackOriginal(Evidence evidence,String topic,String original,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback original unavailable");}
+    default void checkFeedback(com.tianmu.agent.core.FeedbackAnalysis.Request request){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback analysis is not available");}
+    default void checkFeedbackTopic(Evidence evidence,String topic){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback topic is not available");}
     default boolean reportRequiresVideo(){return true;}
     default com.tianmu.agent.core.AnalysisContract analysisContract(){return null;}
     default String reportCacheVariant(){return "";}

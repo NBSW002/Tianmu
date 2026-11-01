@@ -49,7 +49,7 @@ class CommentAnalysisTest {
     private ToolDispatcher dispatcher(HarnessLifecycleTest.Fixture fixture, CommentQueryPort port) {
         var beans = new DefaultListableBeanFactory(); beans.registerSingleton("comments", port);
         var skills = new SkillCatalog();
-        var handlers = List.<AgentTool>of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()),
+        var handlers = List.<AgentTool>of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()),
                 new QueryVideoCommentsTool(beans.getBeanProvider(CommentQueryPort.class)),
                 new QueryAudienceTool(beans.getBeanProvider(com.tianmu.agent.query.AudienceQueryPort.class)), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError(); }),
                 new AnalyzeVideoContentTool(null, new ObjectMapper().findAndRegisterModules()),

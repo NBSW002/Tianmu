@@ -31,7 +31,15 @@ public final class HarnessSession {
         this.run = run;
         this.hooks = hooks;
         this.tracer = tracer;
-        root = tracer.spanBuilder("agent.run").startSpan();
+        var builder=tracer.spanBuilder("agent.run");
+        var saved=run.continuation();
+        if(saved!=null && saved.traceParent()!=null){
+            String[] parts=saved.traceParent().split("-");
+            if(!parts[1].equals(run.snapshot().traceId()))throw new IllegalArgumentException("Continuation trace differs from run");
+            var parent=SpanContext.createFromRemoteParent(parts[1],parts[2],TraceFlags.fromHex(parts[3],0),TraceState.getDefault());
+            builder.setParent(Context.root().with(Span.wrap(parent)));
+        }
+        root = builder.startSpan();
         TraceNode.begin(root, "agent.run");
         budget = run.modelBudget();
         Context base = Context.current().with(root).with(TraceUsage.KEY, usage);

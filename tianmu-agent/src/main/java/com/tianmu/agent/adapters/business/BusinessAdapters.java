@@ -34,13 +34,70 @@ public class BusinessAdapters {
     }
 }
 
-final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, com.tianmu.agent.query.DanmakuQueryPort, com.tianmu.agent.query.CommentQueryPort, com.tianmu.agent.query.AudienceQueryPort, com.tianmu.agent.video.VideoContentPort, com.tianmu.agent.interaction.CreatorPublicationPort, com.tianmu.agent.query.VideoPagePort {
+final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, com.tianmu.agent.query.DanmakuQueryPort, com.tianmu.agent.query.CommentQueryPort, com.tianmu.agent.query.AudienceQueryPort, com.tianmu.agent.video.VideoContentPort, com.tianmu.agent.interaction.CreatorPublicationPort, com.tianmu.agent.query.VideoPagePort, com.tianmu.agent.feedback.FeedbackSnapshotPort {
     private record RawSample(String id, int bucket, String text, boolean truncated, Long playbackMs) {}
     private record AnalysisResponse(DanmakuTypes.Query query, long totalMessages, long uniqueSenders,
             List<DanmakuTypes.Bucket> buckets, List<RawSample> samples, Instant dataAsOf, String source, boolean demo, com.tianmu.agent.core.AudienceData.Overview audience,com.tianmu.agent.core.AudienceReportData.Sources sources) {}
     private final BusinessProperties config;
     private final ObjectMapper json;
     private final ObjectProvider<ResourceScopeStore> repositories;
+    @Override public void authorize(AccessScope scope,long videoId) {
+        if(!scope.videoIds().contains(videoId))throw new AgentException("FORBIDDEN","Feedback video outside scope");
+        allowed(scope,Set.of(videoId),true);
+    }
+    @Override public com.tianmu.agent.feedback.FeedbackSnapshotPort.Receipt export(com.tianmu.agent.core.FeedbackAnalysis.Request input,AccessScope owner,CallControl control,
+            java.util.function.Consumer<java.util.List<com.tianmu.agent.core.FeedbackAnalysis.Unit>> consumer) {
+        authorize(owner,input.query().videoId());control.checkpoint();
+        long millis=Math.min(90000,Duration.between(Instant.now(),control.deadline()).toMillis());
+        if(millis<1)throw new AgentException("BUSINESS_TIMEOUT","Snapshot deadline exceeded");
+        java.util.concurrent.atomic.AtomicReference<java.io.InputStream> streamRef=new java.util.concurrent.atomic.AtomicReference<>();
+        var finished=new java.util.concurrent.atomic.AtomicBoolean();
+        try {
+            var payload=Map.of("videoId",input.query().videoId(),"start",input.query().start().toString(),"end",input.query().end().toString(),"sources",input.sources());
+            var request=HttpRequest.newBuilder(URI.create(config.baseUrl().toString().replaceAll("/+$","")+"/internal/agent/feedback-snapshot"))
+                    .timeout(Duration.ofMillis(millis)).header("Authorization","Bearer "+credentials.token(owner.authorizationRef()))
+                    .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofByteArray(json.writeValueAsBytes(payload))).build();
+            var future=http.sendAsync(request,HttpResponse.BodyHandlers.ofInputStream());
+            Runnable close=()->{future.cancel(true);var body=streamRef.get();if(body!=null)try{body.close();}catch(java.io.IOException ignored){}};
+            java.util.concurrent.CompletableFuture.runAsync(()->{if(!finished.get())close.run();},java.util.concurrent.CompletableFuture.delayedExecutor(millis,TimeUnit.MILLISECONDS));
+            try(var registration=control.cancellation().onCancel(close)) {
+                var response=future.get(millis,TimeUnit.MILLISECONDS);streamRef.set(response.body());
+                try(var body=new java.io.BufferedInputStream(response.body())) {
+                    if(response.statusCode()==401)throw new AgentException("UNAUTHORIZED","Business login expired");
+                    if(response.statusCode()==403)throw new AgentException("FORBIDDEN","Feedback authorization revoked");
+                      if(response.statusCode()==422){
+                          var error=json.readTree(body.readNBytes(4096));String code=error.path("code").asText();
+                          if(!java.util.Set.of("FULL_ANALYSIS_TOO_LARGE","FEEDBACK_UNIT_TOO_LARGE","COMMENT_CONTEXT_TOO_DEEP","INVALID_COMMENT_CONTEXT").contains(code))code="INVALID_EVIDENCE";
+                          throw new AgentException(code,"Feedback export rejected by its bounded snapshot contract");
+                      }
+                    if(response.statusCode()!=200 || !response.headers().firstValue("Content-Type").orElse("").startsWith("application/x-ndjson"))
+                        throw new AgentException("BUSINESS_UNAVAILABLE","Feedback snapshot export failed");
+                    com.tianmu.agent.feedback.FeedbackSnapshotPort.Receipt receipt=null;long bytes=0;int rows=0;
+                    var batch=new java.util.ArrayList<com.tianmu.agent.core.FeedbackAnalysis.Unit>();
+                    while(true) {
+                        control.checkpoint();var line=new java.io.ByteArrayOutputStream();int next;
+                        while((next=body.read())!=-1 && next!='\n') {
+                            line.write(next);if(line.size()>262144 || ++bytes>67108864)throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Snapshot stream exceeds byte limits");
+                        }
+                        if(line.size()==0 && next==-1)break;
+                        if(receipt!=null)throw new AgentException("INVALID_EVIDENCE","Data after snapshot receipt");
+                        var record=json.readTree(line.toByteArray());if(!record.isObject() || record.size()!=1)throw new AgentException("INVALID_EVIDENCE","Invalid snapshot frame");
+                        if(record.has("unit")) {
+                            if(++rows>20000)throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Snapshot record limit exceeded");
+                            batch.add(json.treeToValue(record.get("unit"),com.tianmu.agent.core.FeedbackAnalysis.Unit.class));
+                            if(batch.size()==100){consumer.accept(java.util.List.copyOf(batch));batch.clear();}
+                        } else if(record.has("receipt"))receipt=json.treeToValue(record.get("receipt"),com.tianmu.agent.feedback.FeedbackSnapshotPort.Receipt.class);
+                        else throw new AgentException("INVALID_EVIDENCE","Unknown snapshot frame");
+                        if(next==-1)break;
+                    }
+                    if(receipt==null || receipt.dataAsOf().isAfter(Instant.now().plusSeconds(5)))throw new AgentException("INVALID_EVIDENCE","Missing valid snapshot receipt");
+                    if(!batch.isEmpty())consumer.accept(java.util.List.copyOf(batch));return receipt;
+                }
+            }
+        } catch(AgentException e){throw e;}
+        catch(Exception e){control.checkpoint();throw new AgentException("BUSINESS_UNAVAILABLE","Feedback snapshot transport unavailable");}
+        finally {finished.set(true);var stream=streamRef.get();if(stream!=null)try{stream.close();}catch(java.io.IOException ignored){}}
+    }
     private final HttpClient http;
     private final BusinessCredentials credentials = new BusinessCredentials();
     @Override public void publish(com.tianmu.agent.interaction.CreatorDraft draft, AccessScope scope) {
@@ -149,6 +206,9 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
     @Override public AccessScope forRun(String credential, UUID id) {
         AccessScope principal = authenticate(credential);
         return grant(principal, repositories.getObject().resourcesForRun(id, principal), true);
+    }
+    @Override public void renew(AccessScope saved,AccessScope authenticated){
+        IdentityPort.super.renew(saved,authenticated);allowed(authenticated,saved.videoIds(),true);credentials.renew(saved.authorizationRef(),authenticated.authorizationRef());
     }
     @Override public AccessScope forSession(String credential, UUID id, long before) {
         AccessScope principal = authenticate(credential);

@@ -30,6 +30,8 @@ public class RunState implements EvidenceContext {
     private final ExecutionState execution;
     private final RunEventStore events;
     private volatile Status status = Status.QUEUED;
+    private com.tianmu.agent.core.PendingOperation.Continuation continuation;
+    private com.tianmu.agent.core.PendingOperation operation;
     private int steps, modelCalls, preparationCalls, externalModelCalls, modelCallLimit = 16;
     private StopReason stopReason;
     private Result prepared;
@@ -78,6 +80,7 @@ public class RunState implements EvidenceContext {
         errorCode = value.errorCode(); stopReason = value.stopReason(); modelCalls = value.modelCalls(); preparationCalls = value.preparationCalls();
         externalModelCalls = Math.max(0, value.totalModelCalls() - modelCalls - preparationCalls);
         traceId = value.traceId(); task = value.task();
+        operation=value.operation();
         if (task != null) modelCallLimit = task.maxModelCalls();
     }
     public void adoptTerminal(Snapshot value) {
@@ -96,11 +99,39 @@ public class RunState implements EvidenceContext {
     public EvidenceStore evidenceStore() { return execution.evidence(); }
     public RunEventStore events() { return events; }
     public synchronized Snapshot snapshot() {
-        if (restored != null) return restored;
+        if (restored != null && com.tianmu.agent.core.AgentTypes.terminal(status)) return restored;
         return new Snapshot(id, status, createdAt, steps, answer, clarification, errorCode, traceId, stopReason, modelCalls,
-                prepared == null ? null : prepared.route(), prepared == null || prepared.faq() == null ? null : prepared.faq().id(),
-                prepared == null || prepared.faq() == null ? null : prepared.faq().version(), prepared == null ? null : prepared.request(), task,
-                preparationCalls, preparationCalls + modelCalls + externalModelCalls, sessionId, turnSeq);
+                prepared == null ? restored==null?null:restored.route() : prepared.route(), prepared == null || prepared.faq() == null ? restored==null?null:restored.faqId() : prepared.faq().id(),
+                prepared == null || prepared.faq() == null ? restored==null?null:restored.faqVersion() : prepared.faq().version(), prepared == null ? restored==null?null:restored.preparation() : prepared.request(), task,
+                preparationCalls, preparationCalls + modelCalls + externalModelCalls, sessionId, turnSeq, operation);
+    }
+    public synchronized com.tianmu.agent.core.PendingOperation.Continuation continuation(){return continuation;}
+    public synchronized void restoreContinuation(com.tianmu.agent.core.PendingOperation.Continuation value){
+        if(value==null)return;
+        if(status!=Status.WAITING_OPERATION || !value.operation().equals(operation))throw new IllegalArgumentException("Invalid durable continuation");
+        continuation=value;memory=value.memory();execution.restore(value);modelBudget=new ModelBudget(value.budget());
+    }
+    public synchronized void executionWindow(Duration timeout){
+        checkpoint();if(task!=null || prepared==null || timeout.compareTo(Duration.ofHours(6))>0 || timeout.isNegative())throw new IllegalStateException("Execution window must be fixed before task assembly");
+        deadline=createdAt.plus(timeout);backend.save(this);
+    }
+    public synchronized void waitFor(com.tianmu.agent.core.PendingOperation pending){
+        checkpoint();if(status!=Status.RUNNING || pending.deadline().isAfter(deadline))throw new IllegalStateException("Invalid operation wait");
+        var span=io.opentelemetry.api.trace.Span.current().getSpanContext();
+        String traceParent=span.isValid()?"00-"+span.getTraceId()+"-"+span.getSpanId()+"-"+span.getTraceFlags().asHex():null;
+        operation=pending;continuation=new com.tianmu.agent.core.PendingOperation.Continuation(pending,execution.activeSkills(),execution.exchanges(),memory,modelBudget.snapshot(),traceParent);
+        status=Status.WAITING_OPERATION;
+        try{backend.save(this);}catch(RuntimeException failure){status=Status.RUNNING;operation=null;continuation=null;throw failure;}
+        emit("PROGRESS",Map.of("stage","waiting_operation","operation_id",pending.id().toString()));
+    }
+    public synchronized boolean completeOperation(com.tianmu.agent.core.PendingOperation expected,ToolResult result){
+        checkpoint();if(status!=Status.WAITING_OPERATION || !expected.equals(operation))return false;
+        var saved=continuation;
+        execution.completeOperation(expected,result);status=Status.RUNNING;operation=null;continuation=null;
+        try{backend.save(this);}catch(RuntimeException failure){
+            status=Status.WAITING_OPERATION;operation=expected;continuation=saved;execution.rollbackOperation(saved);throw failure;
+        }
+        return true;
     }
     public synchronized void prepared(Result result) { checkpoint(); prepared = Objects.requireNonNull(result); backend.save(this); }
     public synchronized PreparedRequest preparedRequest() { return prepared == null ? restored == null ? null : restored.preparation() : prepared.request(); }
@@ -121,7 +152,7 @@ public class RunState implements EvidenceContext {
     public CallControl callControl() { return callControl(deadline, cancellation); }
     public CallControl callControl(Instant until, CancellationToken token) { return new CallControl(until, token, modelBudget, this::externalModelCallStarted); }
     public synchronized ModelBudget modelBudget() { return modelBudget; }
-    public synchronized void configureBudget(LoopPolicy policy) { if (!controlBound) modelBudget = new ModelBudget(policy.maxTokens(), policy.tokenReservation()); }
+    public synchronized void configureBudget(LoopPolicy policy) { if (!controlBound && continuation==null) modelBudget = new ModelBudget(policy.maxTokens(), policy.tokenReservation()); }
     public synchronized boolean bindControl(Duration timeout) {
         return bindControl(timeout, 16);
     }

@@ -62,7 +62,7 @@ class CatalogArchitectureTest {
         List<Resource> all = new ArrayList<>(Arrays.asList(original)); all.add(item); return all.toArray(Resource[]::new);
     }
     List<AgentTool> builtins() {
-        return new ArrayList<>(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new com.tianmu.agent.tool.builtin.QueryAudienceTool(new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(com.tianmu.agent.query.AudienceQueryPort.class)), new QueryVideoCommentsTool(new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(com.tianmu.agent.query.CommentQueryPort.class)), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new CreateDanmakuReportTool(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()),
+        return new ArrayList<>(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new com.tianmu.agent.tool.builtin.QueryAudienceTool(new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(com.tianmu.agent.query.AudienceQueryPort.class)), new QueryVideoCommentsTool(new org.springframework.beans.factory.support.DefaultListableBeanFactory().getBeanProvider(com.tianmu.agent.query.CommentQueryPort.class)), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new CreateDanmakuReportTool(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()),
                 new QueryVideoMetricsTool((q, s) -> { fail("Query must not run"); return null; })));
     }
     @Test void generalToolsAreAlwaysVisibleAndBusinessToolsRequireTheirOwnSkill() {
@@ -149,7 +149,7 @@ class CatalogArchitectureTest {
     }
     @Test void promptRegistryIsImmutableAndAllRuntimePromptsArePackaged() {
         PromptCatalog catalog = new PromptCatalog();
-        assertEquals(Set.of("common.json-output", "common.current-focus-boundary", "preparation.emotion", "preparation.intent", "preparation.understanding", "harness.system", "harness.finalize"), catalog.ids());
+        assertEquals(Set.of("feedback.analysis", "common.json-output", "common.current-focus-boundary", "preparation.emotion", "preparation.intent", "preparation.understanding", "harness.system", "harness.finalize"), catalog.ids());
         assertTrue(catalog.text("harness.finalize").contains("Do not call tools"));
         assertThrows(UnsupportedOperationException.class, () -> catalog.ids().clear());
         assertThrows(IllegalStateException.class, () -> catalog.text("not-registered"));

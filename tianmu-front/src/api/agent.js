@@ -1,6 +1,7 @@
 import { readStoredUser } from '@/lib/auth'
 import { useUserStore } from '@/store/user'
 import { reportPath, sseDecoder, validRunId } from '@/agent/protocol.mjs'
+import { readRunSnapshot } from '@/agent/run-clock.mjs'
 
 export function agentUser() {
   return readStoredUser()
@@ -98,10 +99,13 @@ export async function createAgentRun(body, key, signal) {
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
     body: JSON.stringify(body),
   })
-  return response.json()
+  return readRunSnapshot(response)
 }
 export async function getAgentRun(id, signal) {
-  return (await request(runPath(id), { signal })).json()
+  return readRunSnapshot(await request(runPath(id), { signal }))
+}
+export async function resumeAgentAnalysis(id, signal) {
+  return (await request(`${runPath(id)}/analysis/resume`, { method: 'POST', signal })).json()
 }
 export async function getCreatorDraft(id, signal) {
   const response = await request(`${runPath(id)}/creator-draft`, { signal })
@@ -114,9 +118,9 @@ export async function confirmCreatorDraft(id, items, signal) {
   })).json()
 }
 export async function cancelAgentRun(id, signal) {
-  return (
+  return readRunSnapshot(
     await request(`${runPath(id)}/cancel`, { method: 'POST', signal })
-  ).json()
+  )
 }
 
 export async function readAgentEvents(id, after, signal, consume) {

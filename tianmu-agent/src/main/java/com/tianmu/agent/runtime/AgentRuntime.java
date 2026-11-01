@@ -92,8 +92,12 @@ public class AgentRuntime {
     private void runLoopBody(RunState run, String message) {
         run.emit("PROGRESS", Map.of("stage", "harness"));
         Progress progress = new Progress();
+        for(var exchange:run.execution().exchanges()){
+            if(!exchange.result().data().containsKey("error_code"))progress.success(exchange.call());
+            else{progress.failure(exchange.call().name());if(exchange.result().data().containsKey("input_validation"))progress.argumentCorrections++;}
+        }
         int max = maxTurns(run);
-        for (int step = 0; step < max; step++) {
+        for (int step = run.snapshot().steps(); step < max; step++) {
             run.checkpoint();
             run.nextStep();
             final int remaining = max - step;
@@ -202,6 +206,7 @@ public class AgentRuntime {
             return false;
         }
         run.emit("PROGRESS", Map.of("stage", "tool_completed", "tool", name));
+        if(result.pending()!=null){run.waitFor(result.pending());return true;}
         if (result.terminalAnswer() != null) {
             delivery.answer(run, result.terminalAnswer(), delivery.reserve(run), StopReason.TOOL_DELIVERY);
             return true;

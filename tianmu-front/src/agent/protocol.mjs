@@ -156,6 +156,10 @@ export function progressLabel(data = {}) {
     query_danmaku: '查询并抽取弹幕',
     create_danmaku_report: '归纳话题并生成报告',
     query_audience: '读取完整弹幕与评论',
+    analyze_feedback: '后台分析观众反馈',
+    create_feedback_report: '生成反馈报告',
+    prepare_comment_draft: '生成评论草稿',
+    prepare_danmaku_draft: '生成弹幕草稿',
     read_skill: '加载分析方法',
     read_result: '读取查询结果',
     query_video_metrics: '查询视频指标',
@@ -165,6 +169,12 @@ export function progressLabel(data = {}) {
     queued: '任务已排队',
     running: '正在思考',
     finalizing: '正在整理回复',
+    waiting_operation: '已提交后台分析，正在处理',
+    analysis_waiting_auth: '分析已暂停，请重新验证登录后继续',
+  }
+  if (data.stage === 'feedback_analysis') {
+    const phase = { SNAPSHOTTING:'正在固定分析数据', ANALYZING:'正在分批分析反馈', MERGING:'正在归并讨论主题', VALIDATING:'正在核对分析结果' }[data.phase] || '正在准备后台分析'
+    return `${phase} · 已完成 ${Number.isSafeInteger(data.completed_work) ? data.completed_work : 0} 个处理单元`
   }
   if (data.stage === 'tool_completed')
     return `${tools[data.tool] || '分析步骤'}已完成`

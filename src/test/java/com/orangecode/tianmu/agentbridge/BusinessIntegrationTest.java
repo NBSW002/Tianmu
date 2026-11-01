@@ -21,6 +21,26 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfEnvironmentVariable(named="BUSINESS_IT", matches="true")
 class BusinessIntegrationTest {
+    @Test void feedbackExportStreamsTwentyThousandOriginalsWithExactCountsAndReplyContext()throws Exception {
+        db.update("DELETE FROM comment WHERE video_id IN (1001,1002)");
+        comment(900000,1001,881L,null,"区间外的作者问题",start().minusSeconds(1));
+        var ids=java.util.stream.IntStream.range(0,10000).boxed().toList();
+        db.batchUpdate("INSERT INTO bullet(bullet_id,video_id,user_id,content,playback_time,create_time) VALUES(?,1001,882,?,1,?)",ids,500,(ps,i)->{ps.setInt(1,1000000+i);ps.setString(2,"弹幕"+i);ps.setTimestamp(3,Timestamp.from(start()));});
+        db.batchUpdate("INSERT INTO comment(comment_id,video_id,user_id,parent_comment_id,content,create_time) VALUES(?,1001,882,900000,?,?)",ids,500,(ps,i)->{ps.setInt(1,1000000+i);ps.setString(2,"评论"+i);ps.setTimestamp(3,Timestamp.from(start()));});
+        var service=new BusinessFeedbackSnapshot(db,new BridgeProperties("tianmu",Set.of("normal"),"Asia/Shanghai",10),new com.fasterxml.jackson.databind.ObjectMapper());
+        var request=new BusinessFeedbackSnapshot.Request(1001,day.atStartOfDay(),day.plusDays(1).atStartOfDay(),Set.of("COMMENT","DANMAKU"));
+        java.nio.file.Path path;
+        try(var export=service.export(principal(),request)){
+            path=export.file();var lines=java.nio.file.Files.readAllLines(path);assertEquals(20001,lines.size());
+            var json=new com.fasterxml.jackson.databind.ObjectMapper();var counts=json.readTree(lines.get(20000)).path("receipt").path("counts");
+            assertEquals(10000,counts.path("comments").asInt());assertEquals(10000,counts.path("danmaku").asInt());assertEquals(1,counts.path("uniqueAudience").asInt());
+            var comment=json.readTree(lines.get(10000)).path("unit");assertTrue(comment.path("replyContext").asText().contains("区间外的作者问题"));assertTrue(comment.path("replyContext").asText().contains("true"));
+            assertEquals(start(),Instant.parse(comment.path("createdAt").asText()));
+        }
+        assertFalse(java.nio.file.Files.exists(path));
+        comment(2000000,1001,882L,null,"超过容量",start());
+        assertEquals("FULL_ANALYSIS_TOO_LARGE",assertThrows(BridgeException.class,()->service.export(principal(),request)).code());
+    }
     @Test void jointSnapshotKeepsSourceCountsAndSeparatesAuthorsBeforeCompression() {
         db.update("DELETE FROM comment WHERE video_id=1001");
         bullet(5001,start());
@@ -107,7 +127,7 @@ class BusinessIntegrationTest {
         String url = System.getenv("BUSINESS_JDBC_URL");
         assertTrue(url.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):[0-9]+/[A-Za-z0-9_]+_it(?:\\?.*)?"), "Dedicated local _it database required");
         HikariConfig config = new HikariConfig(); config.setJdbcUrl(url); config.setUsername(System.getenv("BUSINESS_DB_USER"));
-        config.setPassword(System.getenv("BUSINESS_DB_PASSWORD")); config.setMaximumPoolSize(4); config.setConnectionInitSql("SET time_zone='+00:00'");
+        config.setPassword(System.getenv("BUSINESS_DB_PASSWORD")); config.setMaximumPoolSize(4); config.addDataSourceProperty("rewriteBatchedStatements","true"); config.setConnectionInitSql("SET time_zone='+00:00'");
         source = new HikariDataSource(config); db = new JdbcTemplate(source);
         new ResourceDatabasePopulator(new ClassPathResource("business-schema.sql")).execute(source);
         if(db.queryForObject("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='video' AND COLUMN_NAME='duration'",Integer.class)==0)

@@ -18,6 +18,9 @@ public final class ReportTaskStateView {
         var spec = task.specification();
         var query = ((TaskConditions.Report)spec.typed()).query();
         var progress = new ReportProgressService(context, execution);
+        var completed=context.evidenceStore().snapshot().values().stream().filter(e->e.runId().equals(context.runId()) && e.owner().equals(context.scope()) && e.feedback()!=null && e.feedback().request().query().equals(query))
+                .map(e->new ReportTaskState.Feedback(e.id(),Math.toIntExact(e.feedback().counts().total()),Math.toIntExact(e.feedback().counts().total()),true,execution.hasReport(e.id()))).toList();
+        if(!completed.isEmpty())return new ReportTaskState(spec.type(),completed);
         var feedback = context.evidenceStore().snapshot().values().stream()
                 .filter(e -> e.runId().equals(context.runId()) && e.owner().equals(context.scope())
                         && e.analysis() != null && e.analysis().audience() != null && e.analysis().query().equals(query))

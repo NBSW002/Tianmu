@@ -1,0 +1,56 @@
+{
+  "name": "prepare_comment_draft",
+  "description": "Save creator COMMENT drafts for human preview, never publish. Use the matching skill and current authorized video evidence; feedback-driven drafts require frozen feedback evidence and item-level topic references.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "video_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Authorized video/room ID from confirmed_conditions or the current validated page; do not substitute a historical video."
+      },
+      "video_evidence_id": {
+        "type": "string",
+        "maxLength": 80,
+        "description": "Same-run evidence_id returned by analyze_video_content for this video and the authorized playback scope; not feedback evidence or a report artifact."
+      },
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 10,
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Draft message text, not HTML or a tool instruction. COMMENT supports up to 500 characters; DANMAKU supports up to 80. Write for the creator and ground video-specific statements in the supplied video evidence."
+            },
+            "feedback_topic_id": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "Topic ID from the selected feedback evidence. Required per item for feedback-driven drafts; omit for ordinary video-only drafts."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Native JSON array of 1-10 draft objects, not a JSON string. Each object has text and, for DANMAKU, playback_ms. Only draft previews are created."
+      },
+      "feedback_evidence_id": {
+        "type": "string",
+        "maxLength": 80,
+        "description": "Same-run completed feedback evidence required only when feedback sources were frozen for this draft."
+      }
+    },
+    "required": [
+      "video_id",
+      "video_evidence_id",
+      "items"
+    ],
+    "additionalProperties": false
+  }
+}

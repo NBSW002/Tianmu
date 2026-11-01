@@ -33,5 +33,18 @@ public final class ExecutionState {
         observations.add(value);exchanges.add(new com.tianmu.agent.core.AgentTypes.ToolExchange(call,value));
     }
     public synchronized List<com.tianmu.agent.core.AgentTypes.ToolExchange> exchanges() { return List.copyOf(exchanges); }
+    public synchronized void restore(com.tianmu.agent.core.PendingOperation.Continuation continuation){
+        if(!exchanges.isEmpty())throw new IllegalStateException("Execution was already restored");
+        activeSkills.addAll(continuation.skills());exchanges.addAll(continuation.exchanges());continuation.exchanges().forEach(e->observations.add(e.result()));
+    }
+    public synchronized void rollbackOperation(com.tianmu.agent.core.PendingOperation.Continuation saved){
+        exchanges.clear();observations.clear();activeSkills.clear();restore(saved);
+    }
+    public synchronized void completeOperation(com.tianmu.agent.core.PendingOperation pending,ToolResult result){
+        int index=exchanges.size()-1;if(index<0)throw new IllegalStateException("No pending tool call");var last=exchanges.get(index);
+        if(!pending.equals(last.result().pending()) || !last.call().name().equals(result.tool()) || result.pending()!=null || result.terminalAnswer()!=null)
+            throw new IllegalArgumentException("Operation result does not match pending execution");
+        exchanges.set(index,new com.tianmu.agent.core.AgentTypes.ToolExchange(last.call(),result));observations.set(index,result);
+    }
     public EvidenceStore evidence() { return evidence; }
 }

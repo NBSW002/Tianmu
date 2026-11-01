@@ -1,5 +1,10 @@
 [
   {
+    "id": "feedback.analysis",
+    "version": "1.0.0",
+    "path": "feedback/analysis.md"
+  },
+  {
     "id": "common.json-output",
     "version": "1.0.0",
     "path": "common/json-output.md"
@@ -26,7 +31,7 @@
   },
   {
     "id": "harness.system",
-    "version": "3.7.0",
+    "version": "6.0.0",
     "path": "harness/system.md"
   },
   {

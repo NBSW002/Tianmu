@@ -28,6 +28,17 @@ management:
         readiness:
           include: readinessState,agentStorage
 agent:
+  feedback:
+    enabled: ${AGENT_FEEDBACK_ENABLED:false}
+    max-records: 20000
+    max-snapshot-bytes: 67108864
+    batch-bytes: 24000
+    batch-groups: 40
+    merge-fan-in: 8
+    max-model-calls: 2000
+    max-tokens: 16000000
+    timeout: 1h
+    model-timeout: 30s
   faq:
     location: ${AGENT_FAQ_LOCATION:classpath:faq/business.json}
   qa:

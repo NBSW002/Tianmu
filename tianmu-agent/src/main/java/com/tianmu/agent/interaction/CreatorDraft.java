@@ -5,11 +5,15 @@ import java.util.*;
 
 /** Immutable publication payloads; IDs are strings so browsers never round 64-bit IDs. */
 public record CreatorDraft(UUID runId, String tenantId, String userId, String videoId, String kind,
-                           String state, List<Item> items) {
+                           String state, List<Item> items, Basis basis) {
+    public record Basis(String videoEvidenceId,String feedbackEvidenceId,Map<String,String> itemTopics){public Basis{itemTopics=Map.copyOf(itemTopics);}}
+    public CreatorDraft(UUID runId,String tenantId,String userId,String videoId,String kind,String state,List<Item> items){this(runId,tenantId,userId,videoId,kind,state,items,null);}
     public record Item(String id, String text, Long playbackMs) {}
     public CreatorDraft { items = List.copyOf(items); }
     public CreatorDraft with(String state, List<Item> items) {
-        return new CreatorDraft(runId, tenantId, userId, videoId, kind, state, items);
+        Basis selected=basis;
+        if(basis!=null){var refs=new HashMap<String,String>();for(var item:items)if(basis.itemTopics().containsKey(item.id()))refs.put(item.id(),basis.itemTopics().get(item.id()));selected=new Basis(basis.videoEvidenceId(),basis.feedbackEvidenceId(),refs);}
+        return new CreatorDraft(runId, tenantId, userId, videoId, kind, state, items, selected);
     }
     public static void validate(String kind, List<Item> items) {
         if (!Set.of("COMMENT", "DANMAKU").contains(kind) || items == null || items.isEmpty() || items.size() > 10)

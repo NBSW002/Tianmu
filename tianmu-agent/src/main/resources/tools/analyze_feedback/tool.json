@@ -1,0 +1,22 @@
+{
+  "name": "analyze_feedback",
+  "description": "Start or reuse complete analysis of the feedback sources and collection interval frozen in this task. This invokes budgeted background models. Read required video evidence first. PENDING is not analysis/report completion; the host waits and resumes, do not poll with model calls. No data is published.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "video_evidence_id": {
+        "type": "string",
+        "maxLength": 80,
+        "description": "Current-run video evidence required when VIDEO is selected. Must match the authorized playback range."
+      },
+      "analysis_id": {
+        "type": "string",
+        "minLength": 36,
+        "maxLength": 36,
+        "description": "Optional explicitly referenced completed analysis UUID. Reuse requires current authorization and exact task compatibility; not an arbitrary result lookup."
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  }
+}

@@ -13,6 +13,10 @@ public final class AnalysisExecutionPolicy {
         if (spec == null || spec.analysis() == null) return true;
         var contract = spec.analysis();
         return switch (tool) {
+            case "analyze_feedback" -> !contract.textSources().isEmpty() && (spec.typed() instanceof TaskConditions.Report && Set.of("audience.report","danmaku.report","comments.analysis").contains(spec.type()) || spec.typed() instanceof TaskConditions.Interaction draft && draft.feedback()!=null);
+            case "create_feedback_report" -> contract.reportRequired() && !contract.textSources().isEmpty();
+            case "prepare_comment_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("COMMENT");
+            case "prepare_danmaku_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("DANMAKU");
             case "analyze_video_content" -> contract.includes(VIDEO);
             case "query_video_comments" -> contract.includes(COMMENT) && "comments.analysis".equals(spec.type());
             case "query_danmaku" -> contract.includes(DANMAKU) && Set.of("danmaku.report", "danmaku.overview").contains(spec.type());
@@ -35,6 +39,11 @@ public final class AnalysisExecutionPolicy {
         var required = spec.analysis();
         var covered = EnumSet.noneOf(AnalysisContract.Source.class);
         for (Evidence item : evidence) {
+            if(item.feedback()!=null){
+                FeedbackTaskPolicy.require(spec,item.feedback().request());
+                item.feedback().request().sources().forEach(s->covered.add(AnalysisContract.Source.valueOf(s.name())));
+                if(item.feedback().request().grounding()==FeedbackAnalysis.Grounding.VIDEO_GROUNDED)covered.add(VIDEO);
+            }
             if (item.videoContent() != null) covered.add(VIDEO);
             if (item.comments() != null) covered.add(COMMENT);
             if (item.data() != null) covered.add(DANMAKU);

@@ -41,4 +41,10 @@ public class ExecutionConfiguration {
         var scheduler = new ThreadPoolTaskScheduler(); scheduler.setPoolSize(1);
         scheduler.setThreadNamePrefix("agent-deadline-"); scheduler.setRemoveOnCancelPolicy(true); return scheduler;
     }
+    /** Default for maintenance annotations; deadlineScheduler is reserved for fast control signals. */
+    @Bean(name={"maintenanceScheduler", "taskScheduler"}) ThreadPoolTaskScheduler maintenanceScheduler() {
+        var scheduler = new ThreadPoolTaskScheduler(); scheduler.setPoolSize(2);
+        scheduler.setThreadNamePrefix("agent-maintenance-"); scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setDaemon(true); return scheduler;
+    }
 }

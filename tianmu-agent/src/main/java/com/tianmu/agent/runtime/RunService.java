@@ -73,15 +73,24 @@ public class RunService {
         return run;
     }
     private void submit(RunState run) {
+        track(run);
+        Runnable work = () -> orchestrator.execute(run);
+        run.onTerminal(snapshot -> executor.getThreadPoolExecutor().remove(work));
+        executor.execute(work);
+        if (com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status())) executor.getThreadPoolExecutor().remove(work);
+    }
+    private void track(RunState run){
         harness.start(run);
         run.onTerminal(snapshot->completionListeners.forEach(listener->{
             try{listener.completed(run,snapshot);}
             catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(RunService.class).warn("completion_listener_failed run_id={} type={}",run.id,e.getClass().getSimpleName());}
         }));
-        Runnable work = () -> orchestrator.execute(run);
-        run.onTerminal(snapshot -> executor.getThreadPoolExecutor().remove(work));
-        executor.execute(work);
-        if (com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status())) executor.getThreadPoolExecutor().remove(work);
+    }
+    public List<RunState> waiting(){return runs.values().stream().filter(r->r.snapshot().status()==Status.WAITING_OPERATION).toList();}
+    public void resumeOperation(RunState run,com.tianmu.agent.core.PendingOperation expected,ToolResult result){
+        if(!run.completeOperation(expected,result))return;
+        try{executor.execute(()->orchestrator.resume(run));}
+        catch(RejectedExecutionException full){run.fail("QUEUE_FULL");}
     }
     public RunState owned(UUID id, AccessScope caller) {
         RunState run = repository.load(id, caller);
@@ -112,7 +121,7 @@ public class RunService {
     }
     public long pendingTerminals() { return runs.values().stream().filter(RunState::terminalPending).count(); }
     public java.util.List<com.tianmu.agent.core.MemoryTypes.Message> messages(UUID session, AccessScope owner, long before) { return conversations.messages(session, owner, before); }
-    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 1000)
+    @org.springframework.scheduling.annotation.Scheduled(scheduler="maintenanceScheduler", fixedDelay = 1000)
     public void maintain() {
         Instant now = Instant.now();
         // Retry only durable outcomes, oldest due first. Bound work per tick and isolate each failure.
@@ -138,6 +147,7 @@ public class RunService {
                     }
                 });
         try {
+            for(RunState run:repository.recoverWaiting())if(runs.putIfAbsent(run.id,run)==null)track(run);
             for (RunState run : repository.recoverQueued()) if (runs.putIfAbsent(run.id, run) == null) {
                 try { submit(run); }
                 catch (AgentException e) { run.fail(e.code()); }
@@ -146,7 +156,7 @@ public class RunService {
         } catch (Exception e) { org.slf4j.LoggerFactory.getLogger(RunService.class).warn("storage_maintenance_failed type={}", e.getClass().getSimpleName()); }
     }
     @PreDestroy public void shutdown() {
-        runs.values().forEach(run -> { try { run.cancel(StopReason.SHUTDOWN); } catch (Exception e) { /* Durable state is reconciled on restart. */ } });
+        runs.values().forEach(run -> { try { if(!(repository.durable() && run.snapshot().status()==Status.WAITING_OPERATION))run.cancel(StopReason.SHUTDOWN); } catch (Exception e) { /* Durable state is reconciled on restart. */ } });
         if (ownsExecutor) executor.shutdown();
         try { executor.getThreadPoolExecutor().awaitTermination(2, TimeUnit.SECONDS); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); }

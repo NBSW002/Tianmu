@@ -1,6 +1,7 @@
 package com.tianmu.agent.runtime;
 
 import com.tianmu.agent.core.AgentException;
+import com.tianmu.agent.core.AgentTypes.Status;
 import com.tianmu.agent.core.PreparationTypes.*;
 import com.tianmu.agent.harness.RuntimeHarness;
 import com.tianmu.agent.harness.hook.*;
@@ -55,5 +56,9 @@ public class RequestOrchestrator {
             });
         } catch (AgentException e) { run.fail(e.code()); }
         catch (Exception e) { run.fail("INTERNAL_ERROR"); }
+    }
+    public void resume(RunState run){
+        try{harness.execute(run,()->{if(run.snapshot().status()!=Status.RUNNING || run.task()==null)throw new AgentException("INVALID_OPERATION_STATE","No resumable prepared task");assembler.verify(run.task());runtime.runPrepared(run,run.task());});}
+        catch(AgentException e){run.fail(e.code());}catch(Exception e){run.fail("INTERNAL_ERROR");}
     }
 }

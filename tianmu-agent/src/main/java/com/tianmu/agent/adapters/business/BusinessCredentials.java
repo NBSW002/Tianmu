@@ -23,4 +23,10 @@ final class BusinessCredentials {
         }
         return entry.token();
     }
+    synchronized void renew(String saved,String authenticated){
+        String token=token(authenticated);Instant now=Instant.now();entries.values().removeIf(e->!e.expires().isAfter(now));
+        if(saved==null || !saved.matches("[a-f0-9-]{36}"))throw new AgentException("AUTH_CONTEXT_EXPIRED","Invalid saved credential reference");
+        if(!entries.containsKey(saved) && entries.size()>=1024)throw new AgentException("CAPACITY_EXCEEDED","Credential context capacity reached");
+        entries.put(saved,new Entry(token,now.plusSeconds(600)));
+    }
 }

@@ -22,17 +22,21 @@ public sealed interface TaskConditions {
         }
     }
     record Other(String type) implements TaskConditions {}
-    record Interaction(Video video, String kind) implements TaskConditions {}
+    record Interaction(Video video, String kind, DanmakuTypes.Query feedback) implements TaskConditions {
+        public Interaction(Video video,String kind){this(video,kind,null);}
+    }
 
     static TaskConditions read(String type, Map<String, Object> values) {
         return switch (type) {
             case "creator.draft" -> {
                 boolean bounded = values.containsKey("start_ms") || values.containsKey("end_ms");
-                keys(values, bounded ? Set.of("video_id", "kind", "start_ms", "end_ms") : Set.of("video_id", "kind"));
+                boolean feedback=values.containsKey("feedback_start") || values.containsKey("feedback_end");
+                var expected=new java.util.HashSet<>(bounded ? Set.of("video_id", "kind", "start_ms", "end_ms") : Set.of("video_id", "kind"));
+                if(feedback)expected.addAll(Set.of("feedback_start","feedback_end"));keys(values,expected);
                 String kind = (String)values.get("kind");
                 if (!Set.of("COMMENT", "DANMAKU").contains(kind)) throw new IllegalArgumentException("Invalid draft kind");
                 yield new Interaction(new Video(integer(values,"video_id"), bounded ? integer(values,"start_ms") : null,
-                        bounded ? integer(values,"end_ms") : null), kind);
+                        bounded ? integer(values,"end_ms") : null), kind,feedback?new DanmakuTypes.Query(integer(values,"video_id"),LocalDateTime.parse((String)values.get("feedback_start")),LocalDateTime.parse((String)values.get("feedback_end"))):null);
             }
             case "video.metric" -> {
                 keys(values, Set.of("video_id", "date", "metric"));

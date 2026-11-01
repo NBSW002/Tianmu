@@ -20,6 +20,7 @@ class BusinessAdapterTest {
     ObjectMapper mapper=new ObjectMapper().findAndRegisterModules();
     List<String> headers=new CopyOnWriteArrayList<>(); Set<Long> allowed=Set.of(1001L); volatile int metricStatus=200;
     volatile boolean oversized;
+    volatile String feedbackBody="";volatile int feedbackStatus=200;
     final List<String> paths=new CopyOnWriteArrayList<>();
     volatile boolean completeAudience;
     volatile List<?> authorizationOverride;
@@ -32,6 +33,10 @@ class BusinessAdapterTest {
         server.createContext("/internal/agent/", exchange -> {
             headers.add(exchange.getRequestHeaders().getFirst("Authorization"));
             String path=exchange.getRequestURI().getPath(); paths.add(path); Object value; int status=200;
+            if(path.endsWith("feedback-snapshot")){
+                byte[] bytes=feedbackBody.getBytes(java.nio.charset.StandardCharsets.UTF_8);exchange.getResponseHeaders().set("Content-Type",feedbackStatus==200?"application/x-ndjson":"application/json");
+                exchange.sendResponseHeaders(feedbackStatus,bytes.length);exchange.getResponseBody().write(bytes);exchange.close();return;
+            }
             if(path.endsWith("principal")) value=Map.of("tenantId","tianmu","userId","881");
             else if(path.endsWith("authorize")) {
                 JsonNode body=mapper.readTree(exchange.getRequestBody()); Set<Long> result=new HashSet<>();
@@ -69,6 +74,20 @@ class BusinessAdapterTest {
         adapter=new RemoteBusinessAdapter(new BusinessProperties(URI.create("http://127.0.0.1:"+server.getAddress().getPort()),5000),mapper,provider);
     }
     @AfterEach void stop(){server.stop(0);}
+    @Test void feedbackStreamRequiresAReceiptAndPreservesQuotaErrorsWithoutReturningCredentials()throws Exception {
+        var scope=adapter.forCreate("token","分析视频1001的评论报告",null);
+        var end=LocalDateTime.now(com.tianmu.agent.core.DanmakuTypes.ZONE).minusHours(1).withNano(0);
+        var request=new com.tianmu.agent.core.FeedbackAnalysis.Request(new com.tianmu.agent.core.DanmakuTypes.Query(1001,end.minusDays(1),end),Set.of(com.tianmu.agent.core.FeedbackAnalysis.Source.COMMENT),com.tianmu.agent.core.FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,"v1");
+        feedbackBody=mapper.writeValueAsString(Map.of("unit",new com.tianmu.agent.core.FeedbackAnalysis.Unit("C:1",com.tianmu.agent.core.FeedbackAnalysis.Source.COMMENT,"1","评论😀","",false,null,"882",Instant.now())))+"\n";
+        var control=new CallControl(Instant.now().plusSeconds(10),new CancellationToken());
+        assertEquals("INVALID_EVIDENCE",assertThrows(AgentException.class,()->adapter.export(request,scope,control,rows->{})).code());
+        feedbackBody+=mapper.writeValueAsString(Map.of("receipt",new com.tianmu.agent.feedback.FeedbackSnapshotPort.Receipt(Instant.now(),new com.tianmu.agent.core.FeedbackAnalysis.Counts(1,0,0,0,1))))+"\n";
+        var originals=new ArrayList<com.tianmu.agent.core.FeedbackAnalysis.Unit>();var receipt=adapter.export(request,scope,control,originals::addAll);
+        assertEquals(1,receipt.counts().total());assertEquals("评论😀",originals.get(0).text());
+        feedbackBody+="{}\n";assertEquals("INVALID_EVIDENCE",assertThrows(AgentException.class,()->adapter.export(request,scope,control,rows->{})).code());
+        feedbackStatus=422;feedbackBody="{\"code\":\"FULL_ANALYSIS_TOO_LARGE\"}";
+        assertEquals("FULL_ANALYSIS_TOO_LARGE",assertThrows(AgentException.class,()->adapter.export(request,scope,control,rows->{})).code());
+    }
     @Test void selectiveAudienceRequestsOnlyChosenBridgeAndMarksUnqueriedSources() {
         var end=LocalDateTime.now(com.tianmu.agent.core.DanmakuTypes.ZONE).minusHours(1).withNano(0);
         var q=new com.tianmu.agent.core.DanmakuTypes.Query(1001,end.minusDays(7),end);

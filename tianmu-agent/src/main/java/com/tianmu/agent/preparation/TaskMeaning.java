@@ -25,7 +25,7 @@ public class TaskMeaning {
         }
         Specification spec = matches.get(0);
         var baseline = com.tianmu.agent.core.AnalysisContract.legacy(spec.type());
-        var reading = "creator.draft".equals(spec.type()) ? baseline : AnalysisSourceSelection.select(text, baseline);
+        var reading = "creator.draft".equals(spec.type()) ? spec.analysis()==null?baseline:spec.analysis() : AnalysisSourceSelection.select(text, baseline);
         reading = playback(text, spec, reading);
         return selected(spec,reading,date,requestedAt);
     }

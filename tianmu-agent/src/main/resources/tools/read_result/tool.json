@@ -20,6 +20,28 @@
         "minimum": 1,
         "maximum": 4096,
         "description": "Text-page size in Unicode code points, 1-4096 (default 2048 when paging). Supplying offset or limit requests a page even for a small result."
+      },
+      "section": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "topics",
+          "children",
+          "originals",
+          "original_text"
+        ],
+        "description": "Feedback: summary, topics, children or originals (record offset; limit up to 10). Lists may return fewer records to bound bytes: copy next_offset. Original lists contain previews. original_text requires topic_id and original_id and uses Unicode offset/limit for complete private JSON."
+      },
+      "topic_id": {
+        "type": "string",
+        "maxLength": 120,
+        "description": "A topic ID returned by this same feedback result. children descends the theme hierarchy; originals reads a leaf topic original page. Never use a topic from another analysis."
+      },
+      "original_id": {
+        "type": "string",
+        "description": "Original ID from this same leaf topic; required for original_text.",
+        "minLength": 3,
+        "maxLength": 21
       }
     },
     "required": [

@@ -106,10 +106,11 @@
                 </div>
                 <div v-if="turn.snapshot" class="execution-summary">
                   <span v-if="!isTerminal(turn.snapshot.status)"
-                    >已等待 {{ elapsed(turn.snapshot.createdAt) }}</span
+                    >已等待 {{ elapsed(turn.waitClock) }}</span
                   ><span v-if="turn.snapshot.totalModelCalls"
-                    >模型调用 {{ turn.snapshot.totalModelCalls }} 次</span
+                    >主流程模型调用 {{ turn.snapshot.totalModelCalls }} 次</span
                   ><span v-if="turn.snapshot.steps">已执行 {{ turn.snapshot.steps }} 轮</span>
+                  <span v-if="turn.events.some(event => event.analysisCalls !== undefined)">后台分析模型调用 {{ Math.max(...turn.events.map(event => event.analysisCalls || 0)) }} 次</span>
                 </div>
                 <div
                   v-if="!isTerminal(turn.snapshot?.status)"
@@ -122,6 +123,7 @@
                       : '正在准备回复…'
                   }}
                 </div>
+                <button v-if="turn.snapshot?.status === 'WAITING_OPERATION' && turn.events.some(event => event.waitingAuth)" type="button" class="text-button" @click="resumeAnalysis(turn)">验证登录并继续分析</button>
                 <p v-if="turn.snapshot?.status === 'NEEDS_INPUT'" class="answer-text clarification">
                   {{ turn.snapshot.clarification }}
                 </p>
@@ -253,11 +255,13 @@ import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from '@/store/user';
 import { useAgentRunMonitor } from '@/composables/useAgentRunMonitor';
 import { useAgentHistory } from '@/composables/useAgentHistory';
+import { runWaitClock, formatRunWait } from '@/agent/run-clock.mjs';
 import {
   cancelAgentRun,
   createAgentRun,
   getAgentReport,
   getAgentRun,
+  resumeAgentAnalysis,
 } from '@/api/agent';
 import {
   answerReport,
@@ -309,7 +313,7 @@ const focus = ref(''),
 const submitting = ref(false),
   cancelling = ref(false),
   loadingRun = ref(false),
-  clock = ref(Date.now()),
+  clock = ref(performance.now()),
   resultsElement = ref(null);
 const activeTurn = computed(() => turns.value[turns.value.length - 1]);
 const activeRunId = computed(() => activeTurn.value?.runId);
@@ -324,7 +328,7 @@ let submitController,
 const { readHistory, saveHistory } = useAgentHistory({ ownerId, history, turns });
 const runMonitor = useAgentRunMonitor({ applySnapshot, notice });
 const clockTimer = setInterval(() => {
-  clock.value = Date.now();
+  clock.value = performance.now();
 }, 1000);
 
 function statusLabel(status) {
@@ -332,6 +336,7 @@ function statusLabel(status) {
     {
       QUEUED: '排队中',
       RUNNING: '思考中',
+      WAITING_OPERATION: '后台分析中',
       SUCCEEDED: '已完成',
       NEEDS_INPUT: '等你补充',
       FAILED: '回复未完成',
@@ -375,8 +380,7 @@ function formatTime(value) {
     : '';
 }
 function elapsed(value) {
-  const seconds = Math.max(0, Math.floor((clock.value - Date.parse(value)) / 1000));
-  return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+  return formatRunWait(value, clock.value);
 }
 function displayAnswer(text) {
   return text.replace(
@@ -411,6 +415,7 @@ async function loadReport(turn) {
   }
 }
 function applySnapshot(turn, snapshot) {
+  turn.waitClock = runWaitClock(snapshot, turn.waitClock);
   turn.snapshot = snapshot;
   turn.reportPath = answerReport(turn.runId, snapshot.answer?.text) || turn.reportPath;
   saveHistory(turn);
@@ -558,6 +563,10 @@ function resume() {
   notice.value = '';
   if (activeTurn.value) runMonitor.start(activeTurn.value);
   else if (validRunId(currentQueryRun.value)) restoreRun(currentQueryRun.value);
+}
+async function resumeAnalysis(turn) {
+  try { await resumeAgentAnalysis(turn.runId); turn.events.forEach(event => { event.waitingAuth = false; }); notice.value = ''; }
+  catch (error) { notice.value = error.message; }
 }
 async function cancel() {
   if (!activeTurn.value || cancelling.value) return;

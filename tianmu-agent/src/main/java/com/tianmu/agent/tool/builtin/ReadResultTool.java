@@ -15,6 +15,15 @@ public class ReadResultTool implements AgentTool {
     public Exposure exposure() { return Exposure.GENERAL; }
     public ToolResult execute(ToolCall call, ToolContext context) {
         Evidence evidence = context.evidence(ToolArguments.text(call, "result_id"));
+        if(evidence.feedback()!=null && "original_text".equals(call.arguments().get("section")))return new ToolResult(name(),context.readFeedbackOriginal(evidence,
+                ToolArguments.text(call,"topic_id"),ToolArguments.text(call,"original_id"),
+                call.arguments().containsKey("offset")?Math.toIntExact(ToolArguments.integer(call,"offset")):0,
+                call.arguments().containsKey("limit")?Math.toIntExact(ToolArguments.integer(call,"limit")):2048),evidence.id());
+        if(evidence.feedback()!=null)return new ToolResult(name(),context.readFeedback(evidence,
+                call.arguments().containsKey("section")?ToolArguments.text(call,"section"):"summary",
+                call.arguments().containsKey("topic_id")?ToolArguments.text(call,"topic_id"):null,
+                call.arguments().containsKey("offset")?Math.toIntExact(ToolArguments.integer(call,"offset")):0,
+                call.arguments().containsKey("limit")?Math.min(10,Math.toIntExact(ToolArguments.integer(call,"limit"))):10),evidence.id());
         final String body;
         try { body = JSON.writeValueAsString(evidence.facts()); }
         catch (com.fasterxml.jackson.core.JsonProcessingException e) {

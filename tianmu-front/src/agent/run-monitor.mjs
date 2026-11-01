@@ -54,6 +54,8 @@ function start(turn) {
               sequence: seq,
               label: progressLabel(data),
               at: payload.at,
+              waitingAuth: data.stage === 'analysis_waiting_auth',
+              analysisCalls: data.stage === 'feedback_analysis' && Number.isSafeInteger(data.model_calls) ? data.model_calls : undefined,
             });
             turn.events = turn.events.slice(-60);
           }

@@ -18,6 +18,9 @@ public class TaskAssembler {
     private final Map<String, String> versions;
     private final Set<String> registrySnapshot;
     private final TaskMeaning meaning;
+    private com.tianmu.agent.feedback.FeedbackPolicy feedbackPolicy=com.tianmu.agent.feedback.FeedbackPolicy.defaults();
+    @org.springframework.beans.factory.annotation.Autowired
+    void feedbackPolicy(com.tianmu.agent.feedback.FeedbackPolicy policy){feedbackPolicy=policy;}
     public TaskAssembler(SkillCatalog skills, PromptCatalog prompts, ToolCatalog tools) { this(skills, prompts, tools, TaskMeaning.defaults()); }
     @org.springframework.beans.factory.annotation.Autowired
     public TaskAssembler(SkillCatalog skills, PromptCatalog prompts, ToolCatalog tools, TaskMeaning meaning) {
@@ -41,6 +44,10 @@ public class TaskAssembler {
             specification.provenance().keySet().forEach(key -> provenance.put(key, "server_validated_input"));
             specification = new Specification(specification.type(), specification.conditions(), provenance, specification.analysis());
         }
+        if(feedbackPolicy.enabled()){
+            try{FeedbackTaskPolicy.request(specification);run.executionWindow(feedbackPolicy.timeout());}
+            catch(com.tianmu.agent.core.AgentException notAnalysis){if(!"TASK_CONSTRAINT_VIOLATION".equals(notAnalysis.code()))throw notAnalysis;}
+        }
         return new PreparedTask(run.id, run.message, preparation.query(), run.businessDate, "Asia/Shanghai", run.owner,
                 preparation, specification, versions, registrySnapshot, run.deadline(), run.modelCallLimit());
     }
@@ -49,5 +56,9 @@ public class TaskAssembler {
             var mapper = new com.fasterxml.jackson.databind.ObjectMapper().configure(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
             return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(definition)));
         } catch (Exception e) { throw new IllegalStateException("Cannot fingerprint tool definition"); }
+    }
+    public void verify(PreparedTask task){
+        if(task==null || !versions.equals(task.resourceVersions()) || !registrySnapshot.equals(task.allowedTools()))
+            throw new com.tianmu.agent.core.AgentException("RESOURCE_VERSION_MISMATCH","Prepared task resources changed; restart with the new version");
     }
 }

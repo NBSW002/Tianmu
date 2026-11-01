@@ -8,7 +8,7 @@ import com.tianmu.agent.core.PreparationTypes.*;
 /** Shared contracts. Business adapters and model adapters depend on these types. */
 public final class AgentTypes {
     private AgentTypes() {}
-    public enum Status { QUEUED, RUNNING, SUCCEEDED, NEEDS_INPUT, FAILED, CANCELLED }
+    public enum Status { QUEUED, RUNNING, WAITING_OPERATION, SUCCEEDED, NEEDS_INPUT, FAILED, CANCELLED }
     public enum Kind { TOOL, ANSWER, CLARIFY }
     public record AccessScope(String tenantId, String userId, Set<Long> videoIds, String authorizationRef) {
         public AccessScope(String tenantId, String userId, Set<Long> videoIds) { this(tenantId, userId, videoIds, ""); }
@@ -79,10 +79,11 @@ public final class AgentTypes {
     public record ToolDefinition(String name, String description, Map<String, Object> inputSchema) {
         public ToolDefinition { inputSchema = ImmutablePayload.map(inputSchema); }
     }
-    public record ToolResult(String tool, Map<String, Object> data, String evidenceId, Answer terminalAnswer) {
+    public record ToolResult(String tool, Map<String, Object> data, String evidenceId, Answer terminalAnswer, PendingOperation pending) {
+        public ToolResult(String tool,Map<String,Object> data,String evidenceId,Answer answer){this(tool,data,evidenceId,answer,null);}
         public ToolResult(String tool, Map<String, Object> data, String evidenceId) { this(tool, data, evidenceId, null); }
-        public ToolResult { data = ImmutablePayload.map(data); }
-        public ToolResult withData(Map<String, Object> value) { return new ToolResult(tool, value, evidenceId, terminalAnswer); }
+        public ToolResult { data = ImmutablePayload.map(data);if(pending!=null && (terminalAnswer!=null || evidenceId!=null))throw new IllegalArgumentException("Pending operation cannot claim evidence or delivery"); }
+        public ToolResult withData(Map<String, Object> value) { return new ToolResult(tool, value, evidenceId, terminalAnswer, pending); }
     }
     public record Skill(String name, String version, String description,
                         String instructions, Set<String> tools) {
@@ -93,7 +94,8 @@ public final class AgentTypes {
                              String metricVersion, String source, Instant dataAsOf,
                              String timezone, boolean complete, boolean demo) {}
     public record Evidence(String id, UUID runId, AccessScope owner, MetricData data, DanmakuTypes.Dataset analysis,
-                           com.tianmu.agent.core.VideoContent.Facts videoContent, VideoComments.Dataset comments,ReportCheckpoint reportCheckpoint) {
+                           com.tianmu.agent.core.VideoContent.Facts videoContent, VideoComments.Dataset comments,ReportCheckpoint reportCheckpoint, FeedbackAnalysis.Binding feedback) {
+        public Evidence(String id,UUID runId,AccessScope owner,MetricData data,DanmakuTypes.Dataset analysis,VideoContent.Facts video,VideoComments.Dataset comments,ReportCheckpoint checkpoint){this(id,runId,owner,data,analysis,video,comments,checkpoint,null);}
         public Evidence(String id,UUID runId,AccessScope owner,MetricData data,DanmakuTypes.Dataset analysis,VideoContent.Facts video,VideoComments.Dataset comments){this(id,runId,owner,data,analysis,video,comments,null);}
         public Evidence(String id, UUID runId, AccessScope owner, MetricData data, DanmakuTypes.Dataset analysis, VideoContent.Facts video) {
             this(id, runId, owner, data, analysis, video, null);
@@ -101,17 +103,21 @@ public final class AgentTypes {
         public Evidence(String id, UUID runId, AccessScope owner, MetricData data) { this(id, runId, owner, data, null, null); }
         public Evidence(String id, UUID runId, AccessScope owner, MetricData data, DanmakuTypes.Dataset analysis) { this(id, runId, owner, data, analysis, null); }
         public Evidence {
-            if ((data == null ? 0 : 1) + (analysis == null ? 0 : 1) + (videoContent == null ? 0 : 1) + (comments == null ? 0 : 1) + (reportCheckpoint==null?0:1) != 1)
+            if ((data == null ? 0 : 1) + (analysis == null ? 0 : 1) + (videoContent == null ? 0 : 1) + (comments == null ? 0 : 1) + (reportCheckpoint==null?0:1) + (feedback==null?0:1) != 1)
                 throw new IllegalArgumentException("Evidence must contain exactly one fact type");
         }
-        public Object facts() { return reportCheckpoint!=null?reportCheckpoint:comments != null ? comments : videoContent != null ? videoContent : analysis == null ? data : analysis; }
+        public Object facts() { return feedback!=null?feedback:reportCheckpoint!=null?reportCheckpoint:comments != null ? comments : videoContent != null ? videoContent : analysis == null ? data : analysis; }
     }
     public record Event(long sequence, String type, Object data, Instant at) {}
     public record Snapshot(UUID runId, Status status, Instant createdAt, int steps,
                            Answer answer, String clarification, String errorCode, String traceId,
                            StopReason stopReason, int modelCalls, Route route, String faqId, String faqVersion, PreparedRequest preparation, PreparedTask task,
-                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq) {}
+                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq, PendingOperation operation) {
+        public Snapshot(UUID runId,Status status,Instant createdAt,int steps,Answer answer,String clarification,String errorCode,String traceId,
+                        StopReason stopReason,int modelCalls,Route route,String faqId,String faqVersion,PreparedRequest preparation,PreparedTask task,
+                        int preparationCalls,int totalModelCalls,UUID sessionId,long turnSeq){this(runId,status,createdAt,steps,answer,clarification,errorCode,traceId,stopReason,modelCalls,route,faqId,faqVersion,preparation,task,preparationCalls,totalModelCalls,sessionId,turnSeq,null);}
+    }
     public static boolean terminal(Status status) {
-        return status != Status.QUEUED && status != Status.RUNNING;
+        return status != Status.QUEUED && status != Status.RUNNING && status != Status.WAITING_OPERATION;
     }
 }

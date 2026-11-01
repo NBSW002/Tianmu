@@ -215,7 +215,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         var request = decode(row.get("request_json"),com.fasterxml.jackson.databind.JsonNode.class);
         if (request.hasNonNull("context")) run.pageContext(decode(request.get("context"),RequestContext.class));
         run.bindPersistedControl((int) number(row, "max_model_calls"));
-        if (restored) run.restore(snapshot(row)); return run;
+        if (restored) {run.restore(snapshot(row));if(row.get("continuation_json")!=null)run.restoreContinuation(decode(row.get("continuation_json"),com.tianmu.agent.core.PendingOperation.Continuation.class));} return run;
     }
     private final class Backend implements RunBackend {
         private final Meta meta;
@@ -225,8 +225,8 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
             Snapshot other = write(() -> {
                 var sess = session(meta.session(), meta.owner(), true); var row = row(meta.id(), meta.owner(), true);
                 if (terminal(row)) return snapshot(row); active(sess, row, meta);
-                db.update("UPDATE agent_run SET status=?,snapshot_json=?,prepared_task_json=?,route=?,trace_id=?,step_count=?,preparation_calls=?,model_calls=?,max_model_calls=?,deadline_at=?,updated_at=UTC_TIMESTAMP(6),version=version+1 WHERE tenant_id=? AND run_id=?",
-                        proposed.status().name(), encode(proposed), proposed.task() == null ? null : encode(proposed.task()), proposed.route() == null ? null : proposed.route().name(), proposed.traceId(), proposed.steps(), proposed.preparationCalls(), proposed.modelCalls(), run.modelCallLimit(), stamp(run.deadline()), meta.owner().tenantId(), meta.id().toString());
+                db.update("UPDATE agent_run SET status=?,snapshot_json=?,prepared_task_json=?,route=?,trace_id=?,step_count=?,preparation_calls=?,model_calls=?,max_model_calls=?,deadline_at=?,continuation_json=?,updated_at=UTC_TIMESTAMP(6),version=version+1 WHERE tenant_id=? AND run_id=?",
+                        proposed.status().name(), encode(proposed), proposed.task() == null ? null : encode(proposed.task()), proposed.route() == null ? null : proposed.route().name(), proposed.traceId(), proposed.steps(), proposed.preparationCalls(), proposed.modelCalls(), run.modelCallLimit(), stamp(run.deadline()),run.continuation()==null?null:encode(run.continuation()), meta.owner().tenantId(), meta.id().toString());
                 return null;
             });
             if (other != null) { run.adoptTerminal(other); throw new AgentException("RUN_TERMINATED", "Task is already terminal"); }
@@ -265,7 +265,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         }
         long seq = number(row, "last_event_seq"); Instant now = Instant.now(), expiry = now.plus(Duration.ofDays(30));
         boolean visible = target.status() == Status.SUCCEEDED || target.status() == Status.NEEDS_INPUT;
-        db.update("UPDATE agent_run SET status=?,stop_reason=?,error_code=?,snapshot_json=?,history_visible=?,route=?,terminal_at=?,updated_at=?,last_event_seq=?,data_expires_at=?,version=version+1 WHERE tenant_id=? AND run_id=?",
+        db.update("UPDATE agent_run SET status=?,stop_reason=?,error_code=?,snapshot_json=?,history_visible=?,route=?,terminal_at=?,updated_at=?,last_event_seq=?,data_expires_at=?,continuation_json=NULL,version=version+1 WHERE tenant_id=? AND run_id=?",
                 target.status().name(), target.stopReason().name(), target.errorCode(), encode(target), visible ? 1 : 0, target.route() == null ? null : target.route().name(), stamp(now), stamp(now), seq + 2, stamp(expiry), m.owner().tenantId(), m.id().toString());
         if (visible) {
             String content = target.answer() != null ? target.answer().text() : target.clarification();
@@ -431,13 +431,16 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
             if (!terminal(row)) finishLocked(m, row, terminalSnapshot(snapshot(row), Status.FAILED, "RUNNER_LOST", StopReason.ERROR), "ERROR", Map.of("code", "RUNNER_LOST")); return null;
         });
         write(() -> {
-            db.update("UPDATE agent_run SET lease_owner=?,lease_token=lease_token+1 WHERE status='QUEUED'", instance); return null;
+            db.update("UPDATE agent_run SET lease_owner=?,lease_token=lease_token+1 WHERE status IN ('QUEUED','WAITING_OPERATION')", instance); return null;
         });
     }
     @Override public List<RunState> recoverQueued() {
         return read(() -> db.queryForList("SELECT r.* FROM agent_run r JOIN agent_session s ON s.tenant_id=r.tenant_id AND s.session_id=r.session_id WHERE r.status='QUEUED' AND r.lease_owner=? AND r.data_expires_at>UTC_TIMESTAMP(6) AND s.status='OPEN' AND s.expires_at>UTC_TIMESTAMP(6) ORDER BY r.created_at LIMIT 32", instance).stream().map(row -> materialize(row, false)).toList());
     }
-    @Scheduled(fixedDelay=1000)
+    @Override public List<RunState> recoverWaiting(){
+        return read(()->db.queryForList("SELECT r.* FROM agent_run r JOIN agent_session s ON s.tenant_id=r.tenant_id AND s.session_id=r.session_id WHERE r.status='WAITING_OPERATION' AND r.lease_owner=? AND r.data_expires_at>UTC_TIMESTAMP(6) AND s.status='OPEN' AND s.expires_at>UTC_TIMESTAMP(6) AND s.current_run_id=r.run_id ORDER BY r.created_at LIMIT 32",instance).stream().map(row->materialize(row,true)).toList());
+    }
+    @Scheduled(scheduler="maintenanceScheduler", fixedDelay=1000)
     public void deliverOutbox() {
         try {
             List<Map<String, Object>> batch = write(() -> {
@@ -484,7 +487,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         });
         listeners.values().forEach(actions -> actions.values().forEach(action -> { try { action.run(); } catch (RuntimeException ignored) {} }));
     }
-    @Scheduled(fixedDelay=5000)
+    @Scheduled(scheduler="maintenanceScheduler", fixedDelay=5000)
     public void garbageCollect() {
         try {
             // Files are removed outside transactions. DELETING/expired records are already unreadable.

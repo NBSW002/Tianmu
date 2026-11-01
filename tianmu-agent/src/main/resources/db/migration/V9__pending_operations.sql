@@ -1,0 +1,3 @@
+ALTER TABLE agent_run DROP CHECK ck_run_status;
+ALTER TABLE agent_run ADD CONSTRAINT ck_run_status CHECK (status IN ('QUEUED','RUNNING','WAITING_OPERATION','SUCCEEDED','NEEDS_INPUT','FAILED','CANCELLED'));
+ALTER TABLE agent_run ADD COLUMN continuation_json JSON NULL;

@@ -30,6 +30,10 @@ public class ToolDispatcher {
     private final ToolRegistry registry;
     private final com.tianmu.agent.application.ReportArtifacts artifacts;
     private final com.tianmu.agent.runtime.store.ConversationStore conversations;
+    private com.tianmu.agent.feedback.FeedbackAnalysisService feedback;
+    private boolean feedbackEnabled;
+    @org.springframework.beans.factory.annotation.Autowired
+    void feedbackService(com.tianmu.agent.feedback.FeedbackAnalysisService feedback,com.tianmu.agent.feedback.FeedbackPolicy policy){this.feedback=feedback;feedbackEnabled=policy.enabled();}
     @org.springframework.beans.factory.annotation.Autowired
     public ToolDispatcher(SkillCatalog skills,RuntimeHarness harness,ToolRegistry registry,com.tianmu.agent.runtime.store.ReportStore reports,
                           com.tianmu.agent.runtime.store.ConversationStore conversations) {
@@ -46,7 +50,13 @@ public class ToolDispatcher {
         return registry.definitions(run.execution().activeSkills(), snapshotTools(run)).stream()
                 .filter(t -> permitted(t.name(), run)).toList();
     }
-    private boolean permitted(String name, RunState run) { return com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification()); }
+    private boolean permitted(String name, RunState run) {
+        if(Set.of("analyze_feedback","create_feedback_report").contains(name) && !feedbackEnabled)return false;
+        if(feedbackEnabled && run.task()!=null && com.tianmu.agent.application.AnalysisExecutionPolicy.permits("analyze_feedback",run.task().specification())
+                && Set.of("query_audience","query_video_comments","query_danmaku","create_danmaku_report").contains(name))return false;
+        return com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification());
+    }
+    private static Evidence bindFeedback(RunState run,com.tianmu.agent.core.FeedbackAnalysis.Asset asset){return com.tianmu.agent.application.FeedbackEvidenceBinding.bind(run,asset);}
     private Set<String> snapshotTools(RunState run) { return run.task() == null ? registry.names() : run.task().allowedTools(); }
     public void checkBatch(List<ToolCall> calls,RunState run) {
         if(calls.size()<2 || calls.size()>4)throw new AgentException("INVALID_DECISION","Native read batch must contain two to four calls");
@@ -149,6 +159,40 @@ public class ToolDispatcher {
             if (value == null || !value.owner().equals(run.owner) || !value.runId().equals(run.id))
                 throw new AgentException("RESULT_NOT_FOUND", "Result is not accessible in this run");
             return value;
+        }
+        public void checkFeedback(com.tianmu.agent.core.FeedbackAnalysis.Request request){
+            run.checkpoint();com.tianmu.agent.application.FeedbackTaskPolicy.require(run.task()==null?null:run.task().specification(),request);
+            if(!run.owner.videoIds().contains(request.query().videoId()))throw new AgentException("FORBIDDEN","Feedback video outside scope");
+        }
+        public ToolResult analyzeFeedback(String videoEvidenceId,String analysisId){
+            if(feedback==null || !feedbackEnabled || !tool.name().equals("analyze_feedback"))throw new AgentException("FEEDBACK_ANALYSIS_DISABLED","Background analysis unavailable");
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.request(run.task()==null?null:run.task().specification());checkFeedback(request);
+            VideoContent.Facts video=null;
+            if(videoEvidenceId!=null){var ev=evidence(videoEvidenceId);video=ev.videoContent();if(video==null)throw new AgentException("INVALID_EVIDENCE","Expected current video evidence");business.checkVideoQuery(run,video.videoId(),video.startMs(),video.endMs());}
+            if(analysisId!=null){
+                var asset=feedback.asset(UUID.fromString(analysisId),run.owner,request);
+                if(request.grounding()==com.tianmu.agent.core.FeedbackAnalysis.Grounding.VIDEO_GROUNDED && (video==null || !video.sourceVersion().equals(asset.video().sourceVersion()) || video.startMs()!=asset.video().startMs() || video.endMs()!=asset.video().endMs()))
+                    throw new AgentException("INVALID_EVIDENCE","Reused analysis must match the current video version and evidence interval");
+                var ev=bindFeedback(run,asset);
+                return new ToolResult(tool.name(),Map.of("status","READY","evidence_id",ev.id(),"summary",feedback.read(asset,"summary",0,1)),ev.id());
+            }
+            var job=feedback.submit(run.id,run.owner,request,video,run.deadline());
+            if(job.phase()==com.tianmu.agent.core.FeedbackAnalysis.Phase.READY){var asset=feedback.asset(job.id(),run.owner,request);var ev=bindFeedback(run,asset);return new ToolResult(tool.name(),Map.of("status","READY","evidence_id",ev.id(),"summary",feedback.read(asset,"summary",0,1)),ev.id());}
+            if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Analysis cannot be started in this state");
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-analysis",job.deadline()));
+        }
+        public Map<String,Object> readFeedback(Evidence evidence,String section,int offset,int limit){
+            checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());return feedback.read(asset,section,offset,limit);
+        }
+        public Map<String,Object> readFeedback(Evidence evidence,String section,String topic,int offset,int limit){
+            checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());return feedback.read(asset,section,topic,offset,limit);
+        }
+        public void checkFeedbackTopic(Evidence evidence,String topic){
+            checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());
+            feedback.topic(asset,topic);
+        }
+        public Map<String,Object> readFeedbackOriginal(Evidence evidence,String topic,String original,int offset,int limit){
+            checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());return feedback.originalText(asset,topic,original,offset,limit);
         }
         public void checkQuery(MetricQuery query) { business.checkQuery(run, query); }
         public void checkCommentQuery(com.tianmu.agent.core.DanmakuTypes.Query query) { business.checkCommentQuery(run, query); }

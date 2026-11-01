@@ -1,0 +1,19 @@
+{
+  "name": "create_feedback_report",
+  "description": "Render and save a requested private report from completed current-run feedback analysis. All selected sources must already be analyzed. Pure host rendering: this does not invent missing video grounding or run another summarization model.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "evidence_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Completed current-run feedback evidence returned by analyze_feedback, not a pending operation ID or old-run evidence."
+      }
+    },
+    "required": [
+      "evidence_id"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -38,6 +38,9 @@ public final class LoopControl implements AutoCloseable {
         run.onTerminal(snapshot -> deadline.cancel(false));
     }
     private void expire(RunState run) {
+        if(java.time.Instant.now().isBefore(run.deadline())) {
+            ScheduledFuture<?> extended=timer.schedule(()->expire(run),run.deadline());run.onTerminal(snapshot->extended.cancel(false));return;
+        }
         // Cancellation callbacks are the host's quick adapter/future cancellation registrations, never AgentHooks.
         if (!run.signalTimeout()) return;
         try {
