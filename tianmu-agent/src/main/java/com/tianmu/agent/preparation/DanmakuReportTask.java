@@ -16,6 +16,7 @@ public final class DanmakuReportTask {
     }
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     public static Query parse(String text, LocalDate date, ZonedDateTime requestedAt) {
+        text = TaskTimeText.normalize(text);
         var ids = DanmakuTarget.matcher(text).results().toList();
         if (ids.size() != 1) throw new IllegalArgumentException("请明确一个videoId，例如视频1001或直播间1001。");
         if(Pattern.compile("今天|前天|明天|后天|上周|本周|这周|上月|本月").matcher(text).find())
@@ -26,6 +27,11 @@ public final class DanmakuReportTask {
         else if (!times.isEmpty()) throw new IllegalArgumentException("请提供完整的开始和结束时间，例如2026-10-23 20:00到2026-10-23 22:00。");
         else {
             var dates = Pattern.compile("\\d{4}-\\d{2}-\\d{2}").matcher(text).results().map(m -> m.group()).toList();
+            if(dates.size()==1) {
+                String day=Pattern.quote(dates.get(0));
+                if(Pattern.compile("(?:从|自|截至|截止到?|到|至)\\s*"+day+"|"+day+"\\s*(?:之后|之前|以前|以后|以来|起)").matcher(text).find())
+                    throw new IllegalArgumentException("请提供完整的开始和结束时间，不能将单侧时间范围当作一天。");
+            }
             if (dates.isEmpty() && !text.contains("昨天")) {
                 if (Pattern.compile("\\d{1,2}:\\d{2}|\\d{1,2}点|今天|前天|上周|本周|上月|本月|近\\s*\\d+\\s*天|过去\\s*\\d+\\s*天").matcher(text).find()
                         && !text.matches("(?s).*(过去|最近|近)\\s*(7|七)\\s*天.*"))

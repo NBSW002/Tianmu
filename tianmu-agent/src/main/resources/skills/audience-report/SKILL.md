@@ -28,6 +28,8 @@ query_audience 先用代码统计、合并完全相同的表达并保留原始 I
 
 ## 代码汇总与交付
 
+所选反馈总数为0时也必须调用 create_danmaku_report，保存并交付空数据报告。使用反馈 evidence_id，省略 topics_json 和 offset；若选择 VIDEO，仍先读取所要求的视频并附 video_evidence_id。task_state 的 reportStage=AWAITING_REPORT 和 emptyFeedback=true 表示无需分类但仍待保存，classification.complete=true 不能替代 reportStored 回执。报告说明所选区间没有记录，不编造话题或建议。
+
 最后一批通过前只保存分类进度，不能把 classification.complete 或 classificationMerged 当成报告已存储。最后一批通过后，工具用代码按稳定 topic_key 累计归属与次数、保留各批画面依据，校验全量覆盖并自动生成报告 JSON、渲染 HTML、交付。无需额外的模型汇总、merge_json 或参考读取。不同话题不按文本相似度强行合并；语义归类只在读取该批原文时进行。
 
 数字由服务端计算，不在描述中猜测人数、次数或比例。两个来源的参与账号可能重叠，不能将人数相加。正文写给作者，直接说明观众的问题、不同观点和具体行动；不输出 HTML、CSS、脚本或内部字段名，不臆造点赞、转化率、流失或因果。

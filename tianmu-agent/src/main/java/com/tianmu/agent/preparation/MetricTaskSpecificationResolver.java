@@ -14,6 +14,8 @@ public class MetricTaskSpecificationResolver implements TaskSpecificationResolve
     }
     public Optional<Specification> resolve(String original, LocalDate businessDate, Instant requestedAt) {
         if (CreatorInteractionTask.requested(original) || AudienceReportTask.requested(original) || DanmakuReportTask.requested(original) || com.tianmu.agent.core.ConversationTopics.general(original)) return Optional.empty();
+        try { original = TaskTimeText.normalize(original); }
+        catch (IllegalArgumentException | DateTimeException invalid) { return Optional.empty(); }
         var ids = DanmakuTarget.matcher(original).results().map(m -> m.group(1)).toList();
         var dates = Pattern.compile("\\d{4}-\\d{2}-\\d{2}").matcher(original).results().map(m -> m.group()).toList();
         if(original.contains("弹幕") && ids.size()==1 && (dates.isEmpty() && !original.contains("昨天")

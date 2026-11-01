@@ -1,0 +1,53 @@
+.header-bar { gap: 20px; }
+.header-category { display: inline-flex; align-items: center; height: 64px; text-decoration: none; color: var(--text1); font-size: 14px; white-space: nowrap; transition: color .18s; }
+.header-category:hover { color: #00aeec; }
+.left-entry { gap: 17px; margin-right: 0; }
+.entry-title { margin-right: 0; }
+.nav-search-btn { border: 0; background: transparent; padding: 0; }
+.default-login { border: 0; font-family: inherit; cursor: pointer; }
+.creator-entry { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.creator-entry .el-icon { font-size: 22px; }
+.header-bar:not(.header-bar--hero) .entry-title,
+.header-bar:not(.header-bar--hero) .right-entry--outside,
+.header-bar:not(.header-bar--hero) .creator-entry { color: #18191c; }
+.header-bar--home { max-width: none; gap: 28px; padding: 0 clamp(20px,2vw,48px); height: 64px; }
+.header-bar--home .left-entry { flex: 0 1 auto; min-width: 0; }
+.header-bar--home .center-search-container { min-width: 160px; flex: 1; }
+.header-bar--home .center-search__bar { max-width: 560px; }
+.header-bar--home .right-entry { display: flex; align-items: center; flex: 0 0 auto; gap: 18px; margin: 0; }
+.header-bar--home .header-avatar-wrap { margin-right: 0; }
+.header-bar--home .right-entry--outside { margin: 0; padding: 0; font-size: 11px; min-width: 30px; }
+.header-bar--home .right-entry--outside .iconfont { font-size: 22px; }
+.header-bar--home .right-entry-item--upload { margin: 0; }
+.right-entry-item--upload { border: 0; padding: 0; background: none; font-family: inherit; }
+.header-bar--home .upload-buttom { height: 36px; min-width: 90px; padding: 0 13px; margin-left: 0; gap: 4px; border-radius: 8px; background: #fb7299; color: #fff; font-size: 14px; }
+.header-bar--home .upload-buttom:hover { background: #fc8daf; }
+.header-bar--hero .header-category,
+.header-bar--hero .entry-title,
+.header-bar--hero .creator-entry,
+.header-bar--hero .right-entry--outside { color: #fff; text-shadow: 0 1px 5px #14392e66; }
+.header-bar--home.slide-down { background: #fffffff5; backdrop-filter: blur(12px); box-shadow: 0 1px 8px #18191c12; animation: none; }
+.header-bar--home #nav-searchform { border: 1px solid #e3e5e750; background: #ffffffe3; height: 40px; }
+.header-bar--home:not(.header-bar--hero) #nav-searchform { background: #f1f2f3; border-color: #f1f2f3; }
+.header-bar--home .search-panel { width: 100%; left: 0; right: 0; }
+.header-bar--home :focus-visible { outline: 2px solid #00aeec; outline-offset: 3px; }
+@media (max-width: 1550px) { .header-bar--home { gap: 22px; } .header-bar--home .header-category:nth-of-type(n+5) { display: none; } .header-bar--home .right-entry { gap: 15px; } }
+@media (max-width: 1199px) { .header-bar--home .header-category:nth-of-type(n+3) { display: none; } .header-bar--home { gap: 20px; } .header-bar--home .right-entry { gap: 12px; } }
+@media (max-width: 959px) { .header-bar--home .header-category { display: none; } .header-bar--home { padding: 0 24px; gap: 20px; } .header-bar--home .right-entry { gap: 14px; } }
+@media (max-width: 699px) {
+  .header-bar--home { height: 112px; display: grid; grid-template-columns: 1fr auto; grid-template-rows: 48px 48px; gap: 0 12px; padding: 2px 16px 10px; }
+  .header-bar--home .left-entry { grid-column: 1; grid-row: 1; } .header-bar--home .entry-title { height: 40px; line-height: 40px; }
+  .header-bar--home .right-entry { grid-column: 2; grid-row: 1; gap: 13px; }
+  .header-bar--home .center-search-container { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; height: 36px; }
+  .header-bar--home .center-search__bar { min-width: 0; max-width: none; }
+  .header-bar--home #nav-searchform { height: 36px; padding-right: 0; }
+  .header-bar--home .nav-search-btn { height: 30px; width: 30px; right: 5px; }
+  .header-bar--home .creator-entry, .header-bar--home .v-popover-wrap { display: none; }
+  .header-bar--home .default-login { height: 31px; width: 31px; font-size: 11px; }
+  .header-bar--home .header-avatar-wrap { width: 31px; height: 31px; }
+  .header-bar--home .upload-buttom { height: 29px; width: auto; min-width: 64px; padding: 0 9px; font-size: 12px; }
+  .header-bar--home .upload-buttom span { display: inline; }
+  .header-bar--home .upload-buttom .iconfont { font-size: 15px; }
+  .header-bar--home .search-panel { top: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .header-category { transition: none; } }

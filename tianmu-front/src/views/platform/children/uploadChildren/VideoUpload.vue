@@ -47,8 +47,8 @@
       </div>
       <div class="footer-item">
         <span
-          >上传视频，即表示您已同意 <a target="_blank">天幕使用协议</a> 与
-          <a target="_blank">天幕社区公约</a>
+          >上传视频，即表示您已同意 <a target="_blank">EchoFrame使用协议</a> 与
+          <a target="_blank">EchoFrame社区公约</a>
           ，请勿上传色情，反动等违法视频。</span
         >
       </div>

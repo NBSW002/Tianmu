@@ -1,5 +1,5 @@
 <template>
-  <div class="header-bar" :class="isFixHeaderBar ? 'slide-down' : ''">
+  <div class="header-bar" :class="{ 'slide-down': isFixHeaderBar, 'header-bar--home': hero, 'header-bar--hero': hero && !isFixHeaderBar }">
     <!-- 左边导航栏 -->
     <div class="left-entry">
       <!-- <div
@@ -15,12 +15,13 @@
         <i class="iconfont icon-tv" style="margin-right: 5px"></i>
         <span>首页</span>
       </div>
+      <router-link v-for="item in headerCategories" :key="item.categoryId" class="header-category" :to="`/category/${item.categoryId}`">{{ item.categoryName }}</router-link>
       <!-- <div class="default-entry" @click="noPage">
         <span>直播</span>
       </div> -->
     </div>
     <!-- 中间搜索框 -->
-    <div class="center-search-container">
+    <div v-if="isShowSearchInput" class="center-search-container">
       <div class="center-search__bar">
         <!-- 输入框 -->
         <div id="nav-searchform" ref="searchForm">
@@ -29,7 +30,8 @@
               class="nav-search-input"
               :class="isSearchPopShow ? 'nav-search-input-active' : ''"
               v-model="searchInput"
-              placeholder="请输入搜索内容"
+              placeholder="搜索你感兴趣的视频"
+              aria-label="搜索视频"
               @focus="searchPopShow()"
               @keyup.enter="goSearch"
             ></el-input>
@@ -43,9 +45,9 @@
             <el-icon size="16"><CircleCloseFilled /></el-icon>
           </div>
           <!-- 搜索按钮 -->
-          <div class="nav-search-btn" @click="goSearch">
+          <button type="button" class="nav-search-btn" aria-label="搜索" @click="goSearch">
             <i class="iconfont icon-sousuo"></i>
-          </div>
+          </button>
         </div>
 
         <!-- 搜索历史气泡框 -->
@@ -92,7 +94,7 @@
     <div class="right-entry">
       <!-- 未登录状态 -->
       <div class="header-avatar-wrap" v-if="!isLogin">
-        <div class="default-login" @click="updateDialogVisible(true)">登录</div>
+        <button type="button" class="default-login" @click="updateDialogVisible(true)">登录</button>
       </div>
       <!-- 登录后显示头像 -->
       <div
@@ -309,6 +311,7 @@
         </VPopover>
       </div> -->
       <!-- 创作中心 -->
+      <button type="button" class="creator-entry" @click="openNewPage('/platform/home')"><el-icon><EditPen /></el-icon><span>创作中心</span></button>
       <!-- <div class="right-entry-item" @click="openNewPage('/platform')">
         <div class="right-entry--outside">
           <i class="iconfont icon-dengpao"></i>
@@ -316,7 +319,7 @@
         </div>
       </div> -->
       <!-- 投稿 -->
-      <div
+      <button type="button"
         class="right-entry-item right-entry-item--upload"
         @click="openNewPage('/platform/upload')"
       >
@@ -324,12 +327,14 @@
           <i class="iconfont icon-shangchuan"></i>
           <span>投稿</span>
         </div>
-      </div>
+      </button>
     </div>
   </div>
 
   <!-- 登录注册对话框 -->
   <el-dialog
+    class="account-dialog"
+    width="min(450px, calc(100vw - 32px))"
     v-model="dialogVisibleComputed"
     :close-on-click-modal="false"
     destroy-on-close
@@ -348,6 +353,7 @@ import { handleNum } from "@/lib/utils.js";
 import { mediaUrl } from "@/lib/media";
 import defaultAvatar from "@/assets/img/default-avatar.svg";
 import { useUserStore } from "@/store/user.js";
+import { useVideoStore } from "@/store/video";
 import { mapState, mapActions } from "pinia";
 import { fetchLogout } from "@/api/user.js";
 import { ElMessage } from "element-plus";
@@ -377,6 +383,7 @@ export default {
     };
   },
   props: {
+    hero: { type: Boolean, default: false },
     // 是否是固钉导航栏
     isFixHeaderBar: {
       type: Boolean,
@@ -395,6 +402,7 @@ export default {
   computed: {
     ...mapState(useUserStore, ["user", "isLogin", "dialogVisible"]),
     ...mapState(useSearchStore, ["searchHistories"]),
+    ...mapState(useVideoStore, { headerCategories: store => store.categoryList.slice(0, 5) }),
     headerAvatarUrl() {
       return this.user?.avatar && !this.headerAvatarFailed
         ? mediaUrl(this.user.avatar)
@@ -422,11 +430,11 @@ export default {
       this.searchPopHide();
       let input = this.searchInput.trim();
       if (input === "") {
-        // 输入空白符跳转搜索首页
-        this.openNewPage("/search");
+        // 空关键词保留输入焦点。
+        this.$refs.searchForm?.querySelector('input')?.focus();
       } else {
         // 否则就跳搜索详情页
-        this.openNewPage(`/search/video?keyword=${input}`);
+        window.open(this.$router.resolve(`/search/video?keyword=${encodeURIComponent(input)}`).href, '_blank', 'noopener');
       }
       if (!input) {
         return;
@@ -1390,3 +1398,4 @@ export default {
   line-height: 45px;
 }
 </style>
+<style scoped src="./header-layout.css"></style>

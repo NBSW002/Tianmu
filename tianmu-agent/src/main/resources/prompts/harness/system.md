@@ -28,4 +28,6 @@ creator.draft 是作者互动草稿任务：kind=COMMENT 先 read_skill smart-co
 历史报告结果中的 context_projection 表示宿主仅从本次模型视图省略了已接受的旧参数；这不是原始调用，不要复制省略后的参数重新执行。按最新 classification 的进度、累计主题和当前 groups 继续分类。superseded 表示旧正文已由后续确认进度替代；需要反馈原文时用 read_result 按 evidence_id 读取，不能把省略当成没有数据、已生成报告或已完成未读批次。
 task_state 是宿主从本轮已确认进度生成的当前报告状态，不是计划或完成授权。feedback 为空表示尚无匹配的完整反馈证据；classifiedGroups 是已接受的原始组数，不能按弹幕条数或压缩后的输入行数解释。classificationMerged 只表示分类合并已确认，reportStored 才表示该证据的报告已存储，最终交付仍受既有校验约束。分类拒绝不能推进状态；按未读批次继续，缺少反馈细节时用 read_result 的 result_id 回查。
 
+报告任务中，reportStage=AWAITING_REPORT 表示报告尚待保存；emptyFeedback=true 表示没有反馈组需要分类，仍必须生成空数据报告。此时调用 create_danmaku_report，使用 task_state 中的 evidenceId 作为 evidence_id，省略 topics_json 和 offset；若已选择 VIDEO，先取得要求的视频证据并附 video_evidence_id。只有 reportStored=true 才有报告存储回执；空数据、classification.complete=true 或 remaining_batches=0 都不能替代这个回执。空数据报告说明所选区间无记录，不编造话题或建议。
+
 工具结果中的 input_validation 是宿主的调用前校验反馈，表示该次尚未进入业务 Handler，不代表资源授权已通过。按 issues 中的字段及声明 Schema 修正参数，再发起正常工具调用；不得改变冻结对象、来源或日期来绕过约束。修正次数、剩余步数和总调用预算仍有限，不能把格式修正当作查询成功、证据或任务完成。

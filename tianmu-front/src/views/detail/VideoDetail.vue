@@ -209,7 +209,7 @@
             </div>
           </div>
             <section v-if="isVideoAuthor" class="operations-entry">
-            <div class="operations-entry-heading"><span class="operations-icon">✦</span><div><strong>天幕运营助手</strong><span>你的内容运营搭档</span></div><small>AI</small></div>
+            <div class="operations-entry-heading"><span class="operations-icon">✦</span><div><strong>EchoFrame运营助手</strong><span>你的内容运营搭档</span></div><small>AI</small></div>
             <p>聊聊观众反馈，一起找到<br>下一个内容灵感。</p>
             <button class="open-assistant" @click="openAssistant">和助手聊聊 <span>↗</span></button>
           </section>
@@ -258,7 +258,7 @@
         </div>
       </div>
     </div>
-    <el-drawer v-model="assistantOpen" class="operations-drawer" title="天幕运营助手" append-to-body size="min(1120px, 96vw)" :with-header="false" :close-on-click-modal="false" @closed="assistantClosed">
+    <el-drawer v-model="assistantOpen" class="operations-drawer" title="EchoFrame运营助手" append-to-body size="min(1120px, 96vw)" :with-header="false" :close-on-click-modal="false" @closed="assistantClosed">
       <AgentWorkspace v-if="assistantMounted && isVideoAuthor" embedded :video-id="String($route.params.videoId)" :video-title="videoDetail.title || ''" @close="assistantOpen = false" />
     </el-drawer>
   </div>

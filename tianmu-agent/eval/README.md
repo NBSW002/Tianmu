@@ -10,6 +10,8 @@
 - `baselines/engineering-v1.json`：2026-10-26 实际运行并核对源码指纹的首份参考结果，7个工程绑定通过；不是业务语义质量成绩。
 - `baselines/real-video-v1.md`：服务器现有版本的一次真实视频观测；素材与 SQL 已核对，内容由助手预标注，等待人工复核，不作为候选代码的在线验收。
 - `baselines/real-video-v2.md`：架构迭代版本上线后的真实验收；功能链路通过，记录了视频连续运动推断问题，语义状态未通过人工验收。
+- `baselines/real-harness-v3.md`：2026-11-01在服务器运行6730009候选与一条线上参照；真实模型/业务接口，记录中文日期丢失约束和空数据报告失败。候选采用隔离内存存储，没有切换线上或声称受控A/B收益。
+- `baselines/real-harness-v4.md`：修复日期解释与空反馈报告状态后，同服务器真实复测；中文/ISO日期均与SQL一致、空报告3次保存成功，附497项工程回归与发布边界。
 - `../src/test/java/com/tianmu/agent/evaluation/EvaluationBaselineTest.java`：真实 HTTP Controller/任务执行/SSE 链路中的确定性回归。
 
 ## 运行

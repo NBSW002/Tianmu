@@ -1,667 +1,76 @@
 <template>
-  <div class="header-channel">
-    <!-- 左边 -->
-    <div class="channel-icons">
-      <div class="channel-icons__item">
-        <div class="icon-bg icon-bg__dynamic">
-          <picture class="v-img icon-bg--up" v-if="dynamicPic">
-            <img
-              src="https://cdn.acwing.com/media/user/profile/photo/240972_md_e16c066264.jpg"
-              alt=""
-            />
-          </picture>
-          <i class="iconfont icon-fengche" v-else></i>
-        </div>
-        <span class="icon-title">动态</span>
-      </div>
-      <div class="channel-icons__item">
-        <div class="icon-bg icon-bg__popular">
-          <i class="iconfont icon-huo"></i>
-        </div>
-        <span class="icon-title">热门</span>
+  <nav class="header-channel" aria-label="视频频道">
+    <div class="channel-shortcuts">
+      <button type="button" class="channel-shortcut" @click="openFollowing"><span class="shortcut-circle following"><el-icon><Star /></el-icon></span><span>动态</span></button>
+      <a class="channel-shortcut" href="/#recommended-feed"><span class="shortcut-circle recommend"><el-icon><Sunny /></el-icon></span><span>推荐</span></a>
+    </div>
+    <div class="channel-categories">
+      <div v-if="loading && !categoryList.length" class="channel-skeleton" aria-label="频道加载中"><span v-for="i in 12" :key="i"></span></div>
+      <div v-else-if="!categoryList.length" class="channel-unavailable"><span>频道暂未加载</span><button type="button" @click="loadCategories">重试</button></div>
+      <div v-else class="channel-grid" :style="{ '--channel-columns': Math.ceil((visibleCategories.length + (hasMore ? 1 : 0)) / 2) }">
+        <router-link v-for="item in visibleCategories" :key="item.key" :to="item.to" :title="item.hint" class="channel-link" :class="{ 'is-active': item.categoryId != null && String($route.params.categoryId) === String(item.categoryId) }">{{ item.label }}</router-link>
+        <details v-if="hasMore" class="more-channels"><summary>更多<el-icon><ArrowDown /></el-icon></summary><div class="more-channel-panel"><router-link v-for="item in categoryList.slice(20)" :key="item.categoryId" :to="`/category/${item.categoryId}`">{{ item.categoryName }}</router-link></div></details>
       </div>
     </div>
-    <!-- 右边 -->
-    <div v-if="categoryList.length > 1" class="right-channel-container">
-      <!-- 中间频道 -->
-      <div class="channel-items__left">
-        <div
-          v-for="item in categoryList.slice(0, 21)"
-          :key="item.categoryId"
-          class="channel-link"
-          :style="
-            $route.params.categoryId == item.categoryId
-              ? 'color:var(--main-color)'
-              : ''
-          "
-          @click="openNewPage(`/category/${item.categoryId}`)"
-        >
-          <span>{{ item.categoryName }}</span>
-        </div>
-        <VPopover
-          placement="bottom"
-          popStyle="z-index: 2000;"
-          @mouseenter="isOpen = true"
-          @mouseleave="isOpen = false"
-        >
-          <template #reference>
-            <div id="channel-entry-more" class="channel-entry-more__link">
-              <span style="margin-left: -8px">更多</span>
-              <i
-                class="iconfont icon-arrow-down"
-                :class="isOpen ? 'arrow-down' : ''"
-              ></i>
-            </div>
-          </template>
-          <template #content>
-            <div class="more-channel-popover__wrap">
-              <div
-                class="more-channel"
-                v-for="item in categoryList.slice(21)"
-                :key="item.categoryId"
-                :style="
-                  $route.params.categoryId == item.categoryId
-                    ? 'color:var(--main-color)'
-                    : ''
-                "
-                @click="openNewPage(`/category/${item.categoryId}`)"
-              >
-                {{ item.categoryName }}
-              </div>
-            </div>
-          </template>
-        </VPopover>
-      </div>
-      <!-- 右边 -->
-      <!-- <div class="channel-items__right">
-        <div class="channel-link__right" @click="openNewPage(`/read/home`)">
-          <i class="iconfont icon-zhuanlan"></i>
-          <span>专栏</span>
-        </div>
-        <div class="channel-link__right" @click="openNewPage(`/live`)">
-          <i class="iconfont icon-zhibo"></i>
-          <span>直播</span>
-        </div>
-        <div class="channel-link__right" @click="openNewPage(`/activity`)">
-          <i class="iconfont icon-huodong"></i>
-          <span>活动</span>
-        </div>
-        <div class="channel-link__right" @click="openNewPage(`/cheese`)">
-          <i class="iconfont icon-ketang"></i>
-          <span>课堂</span>
-        </div>
-        <div class="channel-link__right" @click="openNewPage(`/community`)">
-          <i class="iconfont icon-gonggao"></i>
-          <span>社区中心</span>
-        </div>
-        <div class="channel-link__right" @click="openNewPage(`/song`)">
-          <i class="iconfont icon-xinge"></i>
-          <span>新歌热榜</span>
-        </div>
-      </div> -->
+    <div class="channel-utilities">
+      <router-link to="/search/video"><el-icon><Compass /></el-icon><span>发现视频</span></router-link>
+      <router-link to="/platform/home"><el-icon><EditPen /></el-icon><span>创作中心</span></router-link>
+      <router-link to="/platform/upload"><el-icon><Upload /></el-icon><span>发布作品</span></router-link>
+      <a href="/#recommended-feed"><el-icon><VideoPlay /></el-icon><span>精选推荐</span></a>
     </div>
-  </div>
+  </nav>
 </template>
-
 <script>
-import VPopover from "@/components/popover/VPopover.vue";
-import { useVideoStore } from "@/store/video";
-import { mapActions, mapState } from "pinia";
+import { mapActions, mapState } from 'pinia';
+import { useVideoStore } from '@/store/video';
+import { useUserStore } from '@/store/user';
 export default {
-  name: "HeaderChannel",
-  components: {
-    VPopover,
-  },
-  data() {
-    return {
-      // 是否有新动态以显示其头像，后面可改成获取动态详情
-      dynamicPic: false,
-      // 是否展开显示更多频道
-      isOpen: false,
-    };
-  },
-  created() {
-    this.getCategoryList();
-  },
-  mounted() {},
+  name: 'HeaderChannel', data: () => ({ loading: false }),
   computed: {
-    ...mapState(useVideoStore, ["categoryList"]),
-  },
-  methods: {
-    ...mapActions(useVideoStore, ["getCategoryList"]),
-    // 打开新标签页
-    openNewPage(route) {
-      window.open(this.$router.resolve(route).href, "_blank");
+    ...mapState(useVideoStore, ['categoryList']), ...mapState(useUserStore, ['user', 'isLogin']),
+    visibleCategories() {
+      const categories = this.categoryList.map(item => ({ key: `category-${item.categoryId}`, categoryId: item.categoryId, label: item.categoryName, to: `/category/${item.categoryId}`, hint: `进入${item.categoryName}分区` }));
+      const names = new Set(categories.map(item => item.label));
+      const topics = ['游戏','音乐','影视','知识','科技','数码','美食','生活','动物','运动','旅行','舞蹈','国创','娱乐','Vlog','资讯','二次元','摄影','手工','日常'].filter(label => !names.has(label)).map(label => ({ key: `topic-${label}`, label, to: `/search/video?keyword=${encodeURIComponent(label)}`, hint: `搜索与“${label}”相关的视频` }));
+      return [...categories, ...topics].slice(0, 20);
     },
+    hasMore() { return this.categoryList.length > 20; },
+  },
+  created() { if (!this.categoryList.length) this.loadCategories(); },
+  methods: {
+    ...mapActions(useVideoStore, ['getCategoryList']), ...mapActions(useUserStore, ['updateDialogVisible']),
+    async loadCategories() { if (this.loading) return; this.loading = true; try { await this.getCategoryList(); } finally { this.loading = false; } },
+    openFollowing() { if (!this.isLogin) return this.updateDialogVisible(true); this.$router.push(`/user/${this.user.userId}/upload`); },
   },
 };
 </script>
-
 <style scoped>
-.header-channel {
-  position: relative;
-  width: 100%;
-  max-width: calc(1980px + 2 * var(--layout-padding));
-  margin: 0 auto;
-  padding: 0 var(--layout-padding);
-  display: flex;
-  align-items: center;
-  background: var(--bg1);
-}
-
-@media (max-width: 1139.9px) {
-  .header-channel {
-    width: 1020px;
-  }
-}
-
-@media (max-width: 1366.9px) {
-  .header-channel {
-    height: 100px;
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .header-channel {
-    height: 110px;
-  }
-}
-
-@media (min-width: 1701px) and (max-width: 2199.9px) {
-  .header-channel {
-    height: 120px;
-  }
-}
-
-@media (min-width: 2200px) {
-  .header-channel {
-    height: 130px;
-  }
-}
-
-.channel-icons {
-  z-index: 0;
-  display: flex;
-  align-items: center;
-}
-
-@media (max-width: 1366.9px) {
-  .channel-icons {
-    margin-right: 4px;
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .channel-icons {
-    margin-right: 8px;
-  }
-}
-
-@media (min-width: 1701px) {
-  .channel-icons {
-    margin-right: 20px;
-  }
-}
-
-.channel-icons__item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  margin-right: 16px;
-  color: var(--text1);
-  cursor: pointer;
-}
-
-@media (max-width: 1099.9px) {
-  .channel-icons__item {
-    margin-right: 10px;
-  }
-}
-
-@media (min-width: 1100px) and (max-width: 1366.9px) {
-  .channel-icons__item {
-    margin-right: 16px;
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 2199.9px) {
-  .channel-icons__item {
-    margin-right: 24px;
-  }
-}
-
-@media (min-width: 2200px) {
-  .channel-icons__item {
-    margin-right: 32px;
-  }
-}
-
-.icon-bg {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 6px;
-  border-radius: 50%;
-  transition: background-color 0.3s;
-  color: #fff;
-}
-
-@media (min-width: 1367px) {
-  .icon-bg {
-    width: 46px;
-    height: 46px;
-  }
-}
-
-@media (max-width: 1366.9px) {
-  .icon-bg {
-    width: 40px;
-    height: 40px;
-  }
-}
-
-.icon-bg__dynamic {
-  background: #48cc69;
-}
-
-.icon-bg__dynamic:hover {
-  background: #6eda89;
-}
-
-.v-img {
-  position: relative;
-  display: inline-block;
-  line-height: 1;
-  width: 100%;
-  height: 100%;
-  vertical-align: middle;
-  background-color: var(--graph_bg_regular);
-}
-
-.icon-bg--up {
-  overflow: hidden;
-  border-radius: 50%;
-}
-
-.icon-bg--up > img {
-  border-radius: 50%;
-}
-
-.v-img img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: inherit;
-}
-
-.icon-title {
-  text-align: center;
-  font-size: 13px;
-  line-height: 18px;
-}
-
-@media (min-width: 1367px) and (max-width: 2199.9px) {
-  .icon-title {
-    font-size: 14px;
-    line-height: 20px;
-  }
-}
-
-@media (min-width: 2200px) {
-  .icon-title {
-    font-size: 15px;
-    line-height: 20px;
-  }
-}
-
-.icon-bg__popular {
-  background: #f07775;
-}
-
-.icon-bg__popular:hover {
-  background: #eb908f;
-}
-
-.icon-bg .iconfont {
-  width: 25px;
-  height: 25px;
-  font-size: 24px;
-  line-height: 25px;
-  margin-left: 2px;
-}
-
-.right-channel-container {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-}
-
-.channel-items__left {
-  position: relative;
-  display: grid; /* 网格布局 */
-  width: 100%;
-  grid-auto-flow: column;
-  grid-column: span 4; /* 元素应该跨越4个网格列 */
-  grid-gap: 10px; /* 子元素之间的间隔 */
-  grid-template-rows: repeat(
-    2,
-    1fr
-  ); /* 有两行，每行的高度是 1fr，表示等分可用高度 */
-}
-
-@media (max-width: 1366.9px) {
-  .channel-items__left {
-    padding-right: 20px;
-    /* grid-template-columns: repeat(9, 1fr); */
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .channel-items__left {
-    padding-right: 30px;
-    /* grid-template-columns: repeat(11, 1fr); */
-  }
-}
-
-@media (min-width: 1701px) and (max-width: 2199.9px) {
-  .channel-items__left {
-    padding-right: 30px;
-    /* grid-template-columns: repeat(12, 1fr); */
-  }
-}
-
-@media (min-width: 2200px) {
-  .channel-items__left {
-    padding-right: 30px;
-    /* grid-template-columns: repeat(14, 1fr); */
-  }
-}
-
-.channel-link:not(:nth-of-type(23)):not(:nth-of-type(24)):not(
-    :nth-of-type(26)
-  ) {
-  letter-spacing: 2px;
-}
-
-.channel-link {
-  cursor: pointer;
-}
-
-.channel-link,
-.channel-entry-more__link {
-  display: inline-block;
-  box-sizing: content-box;
-  width: 100%;
-  height: 100%;
-  border: 1px solid var(--line_light);
-  border-radius: 6px;
-  background-color: var(--graph_bg_thin);
-  color: var(--text2);
-  text-align: center;
-  font-weight: 400;
-  transition: background-color 0.3s, color 0.3s;
-}
-
-.channel-link:hover,
-.channel-entry-more__link:hover {
-  color: var(--text1);
-  background-color: var(--graph_bg_thick);
-}
-
-.channel-entry-more__link {
-  /* display: flex;
-  align-items: center;
-  justify-content: center; */
-  cursor: default;
-  transition: color 0.3s, background-color 0.3s;
-}
-
-.icon-arrow-down {
-  position: absolute;
-  transition: transform 0.3s;
-  transform: rotate(0);
-}
-
-.arrow-down {
-  transform: rotate(180deg) !important;
-}
-
-@media (max-width: 2199.9px) {
-  #channel-entry-more {
-    display: inline-block;
-  }
-}
-
-@media (min-width: 2200px) {
-  /* #channel-entry-more {
-    display: none;
-  } */
-}
-
-@media (max-width: 1099.9px) {
-  .channel-link,
-  .channel-entry-more__link {
-    font-size: 13px;
-    height: 22px;
-    line-height: 22px;
-  }
-
-  .channel-link:nth-of-type(1n + 18) {
-    display: none !important; /* 第18个元素及之后的隐藏 */
-  }
-}
-
-@media (min-width: 1100px) and (max-width: 1366.9px) {
-  .channel-link,
-  .channel-entry-more__link {
-    font-size: 13px;
-    height: 26px;
-    line-height: 26px;
-  }
-
-  .channel-link:nth-of-type(1n + 18) {
-    display: none !important; /* 第18个元素及之后的隐藏 */
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .channel-link,
-  .channel-entry-more__link {
-    font-size: 14px;
-    height: 26px;
-    line-height: 26px;
-  }
-
-  .channel-link:nth-of-type(1n + 22) {
-    display: none !important; /* 第22个元素及之后的隐藏 */
-  }
-}
-
-@media (min-width: 1701px) and (max-width: 2199.9px) {
-  .channel-link,
-  .channel-entry-more__link {
-    font-size: 14px;
-    height: 30px;
-    line-height: 30px;
-  }
-
-  .channel-link:nth-of-type(1n + 24) {
-    display: none !important; /* 第24个元素及之后的隐藏 */
-  }
-}
-
-@media (min-width: 2200px) {
-  .channel-link,
-  .channel-entry-more__link {
-    font-size: 15px;
-    height: 30px;
-    line-height: 30px;
-  }
-}
-
-.channel-children-container {
-  display: flex;
-  padding: 8px 16px;
-  justify-items: flex-start;
-  letter-spacing: normal;
-}
-
-.sub-item {
-  display: flex;
-  flex-direction: column;
-  flex-wrap: nowrap;
-  margin-right: 8px;
-  max-height: 148px;
-}
-
-.sub-item:last-child {
-  margin-right: 0;
-}
-
-.channel-children,
-.more-channel {
-  display: block;
-  padding: 0 6px;
-  height: 32px;
-  border-radius: 4px;
-  color: var(--text1);
-  text-align: left;
-  white-space: nowrap;
-  font-size: 13px;
-  line-height: 32px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-  text-align: center;
-}
-
-.channel-children:hover,
-.more-channel:hover {
-  background-color: var(--graph_bg_thick);
-}
-
-.more-channel-popover__wrap {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  padding: 8px 16px;
-}
-
-@media (min-width: 1701px) and (max-width: 2199.9px) {
-  /* .more-channel-popover__wrap {
-    display: grid;
-    grid-auto-flow: column;
-    grid-template-rows: repeat(3, 1fr);
-  } */
-}
-
-@media (max-width: 1700.9px) {
-  /* .more-channel-popover__wrap {
-    display: grid;
-    grid-auto-flow: column;
-    grid-template-rows: repeat(4, 1fr);
-  } */
-}
-
-@media (max-width: 1366.9px) {
-  .more-channel-popover__wrap > *:nth-of-type(-1n + 17) {
-    /* display: none !important; 前17个隐藏 */
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .more-channel-popover__wrap > *:nth-of-type(-1n + 21) {
-    /* display: none !important; 前21个隐藏 */
-  }
-}
-
-@media (min-width: 1701px) and (max-width: 2199.9px) {
-  .more-channel-popover__wrap > *:nth-of-type(-1n + 23) {
-    /* display: none !important; 前23个隐藏 */
-  }
-}
-
-@media (min-width: 2200px) {
-  .more-channel-popover__wrap > * {
-    /* display: none !important; 全部隐藏 */
-  }
-}
-
-.channel-items__right {
-  grid-column: span 1;
-  grid-row-gap: 10px;
-  grid-auto-flow: column;
-  display: grid;
-  grid-template-rows: repeat(2, 1fr);
-  flex-shrink: 0;
-}
-
-@media (max-width: 1099.9px) {
-  .channel-items__right {
-    width: 210px;
-  }
-}
-
-@media (min-width: 1100px) and (max-width: 1366.9px) {
-  .channel-items__right {
-    width: 230px;
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .channel-items__right {
-    width: 240px;
-  }
-}
-
-@media (min-width: 1701px) {
-  .channel-items__right {
-    width: 258px;
-  }
-}
-
-.channel-link__right {
-  letter-spacing: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  width: 100%;
-  height: 100%;
-  color: var(--text2);
-  text-align: center;
-  font-weight: 400;
-  transition: color 0.3s;
-  cursor: pointer;
-}
-
-.channel-link__right:hover {
-  color: var(--brand_blue);
-}
-
-@media (max-width: 1366.9px) {
-  .channel-link__right {
-    font-size: 13px;
-    height: 28px;
-  }
-}
-
-@media (min-width: 1367px) and (max-width: 1700.9px) {
-  .channel-link__right {
-    font-size: 14px;
-    height: 28px;
-  }
-}
-
-@media (min-width: 1701px) and (max-width: 2199.9px) {
-  .channel-link__right {
-    font-size: 14px;
-    height: 32px;
-  }
-}
-
-@media (min-width: 2200px) {
-  .channel-link__right {
-    font-size: 15px;
-    height: 32px;
-  }
-}
+.header-channel { --channel-gutter: clamp(20px,4vw,96px); display:flex; align-items:center; gap:28px; max-width:2160px; width:100%; padding:26px var(--channel-gutter) 25px; margin:0 auto; color:#18191c; background:#fff; }
+.channel-shortcuts { display:flex; flex:0 0 auto; gap:22px; }
+.channel-shortcut { display:flex; flex-direction:column; align-items:center; gap:8px; min-width:48px; background:none; border:0; padding:0; font:inherit; color:inherit; text-decoration:none; cursor:pointer; }
+.shortcut-circle { display:grid; place-items:center; width:48px; height:48px; border-radius:50%; color:#fff; font-size:27px; transition:transform .18s; }
+.channel-shortcut:hover .shortcut-circle { transform:translateY(-3px); }
+.following { background:#f3b369; } .recommend { background:#f77d82; }
+.channel-categories { flex:1; min-width:0; }
+.channel-grid { display:grid; grid-template-columns:repeat(var(--channel-columns),minmax(0,1fr)); grid-template-rows:repeat(2,32px); grid-auto-flow:column; gap:9px; }
+.channel-link,.more-channels summary { display:flex; justify-content:center; align-items:center; height:32px; padding:0 7px; border:1px solid #f0f1f2; border-radius:6px; background:#f6f7f8; color:#61666d; font-size:13px; text-decoration:none; white-space:nowrap; cursor:pointer; transition:background .18s,color .18s; }
+.channel-link:hover,.channel-link.is-active { background:#e8f7fd; color:#00aeec; border-color:#d9f1fb; }
+.more-channels { position:relative; } .more-channels summary { list-style:none; gap:4px; } .more-channels summary::-webkit-details-marker { display:none; }
+.more-channel-panel { position:absolute; z-index:50; top:calc(100% + 8px); right:0; display:grid; grid-template-columns:repeat(3,minmax(70px,1fr)); gap:6px; padding:16px; border-radius:10px; background:#fff; box-shadow:0 6px 30px #18191c1c; border:1px solid #f1f2f3; }
+.more-channel-panel a { padding:8px; color:#61666d; text-decoration:none; white-space:nowrap; border-radius:4px; } .more-channel-panel a:hover { color:#00aeec; background:#f6f7f8; }
+.channel-utilities { display:grid; grid-template-columns:repeat(2,max-content); gap:19px 20px; padding-left:24px; border-left:1px solid #e3e5e7; }
+.channel-utilities a { display:flex; align-items:center; gap:7px; color:#61666d; text-decoration:none; font-size:13px; } .channel-utilities a:hover { color:#00aeec; } .channel-utilities .el-icon { font-size:18px; }
+.channel-skeleton { display:grid; grid-template-columns:repeat(6,1fr); gap:9px; } .channel-skeleton span { height:32px; border-radius:6px; background:#f6f7f8; }
+.channel-unavailable { display:flex; gap:10px; color:#9499a0; font-size:13px; } .channel-unavailable button { color:#00aeec; background:none; border:0; cursor:pointer; }
+@media(max-width:1399px) { .header-channel { gap:22px; } .channel-utilities { gap:18px 14px; padding-left:18px; } .channel-utilities a { font-size:12px; } .channel-grid { gap:9px 7px; } }
+@media(max-width:1199px) { .channel-utilities { display:none; } .channel-link { font-size:12px; } }
+@media(max-width:959px) { .header-channel { --channel-gutter:24px; gap:20px; } .channel-shortcuts { gap:14px; } .shortcut-circle { width:40px; height:40px; font-size:23px; } }
+@media(max-width:699px) {
+  .header-channel { --channel-gutter:16px; gap:16px; padding-top:20px; padding-bottom:24px; align-items:flex-start; }
+  .channel-shortcuts { gap:12px; padding-top:1px; } .channel-shortcut { min-width:32px; font-size:11px; } .shortcut-circle { width:34px; height:34px; font-size:20px; }
+  .channel-categories { overflow-x:auto; padding-bottom:4px; scrollbar-width:thin; }
+  .channel-grid { width:max-content; grid-template-columns:repeat(var(--channel-columns),62px); grid-template-rows:repeat(2,28px); gap:6px; }
+  .channel-link,.more-channels summary { height:28px; font-size:11px; } .more-channel-panel { position:fixed; top:275px; left:16px; right:16px; }
+}
+@media(prefers-reduced-motion:reduce) { .shortcut-circle { transition:none; } }
 </style>

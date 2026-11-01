@@ -1,6 +1,6 @@
 {
   "name": "danmaku-analysis",
-  "version": "3.4.1",
+  "version": "3.4.2",
   "description": "视频房间的区间弹幕统计与完整话题报告；默认全量、明确时间时按区间，仅在选择 VIDEO 时结合画面，保留原文例子、建议和互动用户榜。",
   "tools": [
     "query_danmaku",

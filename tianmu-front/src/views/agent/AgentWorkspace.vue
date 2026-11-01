@@ -1,7 +1,7 @@
 <template>
   <div class="agent-workspace" :class="{ embedded }">
     <aside class="workspace-sidebar">
-      <a class="workspace-brand" href="/">天幕<span>运营助手</span></a>
+      <a class="workspace-brand" href="/">EchoFrame<span>运营助手</span></a>
       <button class="new-analysis" :disabled="busy" @click="newAnalysis">＋ 开启新对话</button>
       <div class="history-heading">
         最近对话 <span>{{ history.length }}</span>
@@ -21,13 +21,13 @@
           >
         </button>
       </nav>
-      <div class="sidebar-footer"><span class="online-dot" /> 天幕 AI · 和你一起做好内容</div>
+      <div class="sidebar-footer"><span class="online-dot" /> EchoFrame AI · 和你一起做好内容</div>
     </aside>
     <main class="workspace-main">
       <header class="workspace-header">
         <div class="assistant-identity">
           <span class="brand-symbol">✦</span>
-          <div><strong>天幕运营助手</strong><span>内容洞察，从对话开始</span></div>
+          <div><strong>EchoFrame运营助手</strong><span>内容洞察，从对话开始</span></div>
         </div>
         <button
           v-if="embedded"
@@ -97,7 +97,7 @@
               <section class="assistant-result">
                 <div class="result-heading">
                   <span class="assistant-avatar" aria-hidden="true">✦</span
-                  ><strong>天幕运营助手</strong
+                  ><strong>EchoFrame运营助手</strong
                   ><span
                     class="status-badge"
                     :class="(turn.snapshot?.status || '').toLowerCase()"

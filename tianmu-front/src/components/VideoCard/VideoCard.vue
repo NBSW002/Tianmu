@@ -22,7 +22,7 @@
           <!-- 视频封面 -->
           <div class="video-card__image--wrap">
             <picture class="video-card__cover">
-              <img :src="mediaUrl(item.coverUrl)" alt="" @error="useFallbackImage" />
+              <img :src="mediaUrl(item.coverUrl)" :alt="item.title" loading="lazy" decoding="async" @error="useFallbackImage" />
             </picture>
           </div>
           <!-- 播放数、弹幕数、时长 -->
@@ -120,6 +120,7 @@ export default {
   methods: {
     mediaUrl,
     useFallbackImage(event) {
+      event.target.onerror = null;
       event.target.src = videoPlaceholder;
     },
     // 处理大于1万的数字

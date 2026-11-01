@@ -26,6 +26,8 @@ body {
 }
 
 html.agent-workspace-page,
-html.agent-workspace-page body {
+html.agent-workspace-page body,
+html.home-page,
+html.home-page body {
   min-width: 0;
 }

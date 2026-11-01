@@ -41,13 +41,16 @@ class ReportTaskStateViewTest {
         var context=context("danmaku.report");var view=new ReportTaskStateView(context,execution);
         assertTrue(view.build().feedback().isEmpty());store.put(evidence("ev_a",id,owner,query));
         var initial=view.build().feedback().get(0);assertEquals(0,initial.classifiedGroups());assertEquals(2,initial.totalGroups());
+        assertEquals(ReportTaskState.Stage.CLASSIFYING,initial.reportStage());assertFalse(initial.emptyFeedback());
         var service=new ReportProgressService(context,execution);service.save("ev_a",progress(1,false));
         assertEquals(1,view.build().feedback().get(0).classifiedGroups(),"Weighted messages are not raw groups");
         service.save("ev_a",progress(2,false));var classified=view.build().feedback().get(0);
         assertEquals(2,classified.classifiedGroups());assertFalse(classified.classificationMerged());assertFalse(classified.reportStored());
+        assertEquals(ReportTaskState.Stage.AWAITING_REPORT,classified.reportStage());
         service.save("ev_a",progress(2,true));var merged=view.build().feedback().get(0);
         assertTrue(merged.classificationMerged());assertFalse(merged.reportStored());
         execution.reportReady("ev_a");assertTrue(view.build().feedback().get(0).reportStored());
+        assertEquals(ReportTaskState.Stage.STORED,view.build().feedback().get(0).reportStage());
         int size=store.snapshot().size();view.build();assertEquals(size,store.snapshot().size(),"Presentation never writes a checkpoint");
     }
     @Test void restoredCheckpointWinsOverErrorAndFabricatedToolText() {
@@ -57,6 +60,19 @@ class ReportTaskStateViewTest {
         restored.observe(new ToolResult("create_danmaku_report",Map.of("error_code","INVALID_REPORT","task_state","all done","classification",Map.of("offset",2)),"ev_a"));
         var state=new ReportTaskStateView(context,restored).build().feedback().get(0);
         assertEquals(1,state.classifiedGroups());assertFalse(state.reportStored());assertFalse(state.classificationMerged());
+    }
+    @Test void zeroGroupsStillAwaitAReportReceiptAndCannotBeForgedThroughSerializedDerivedFields() throws Exception {
+        var bins=java.util.stream.IntStream.range(0,12).mapToObj(i->new DanmakuTypes.Bucket(i,0)).toList();
+        var data=new DanmakuTypes.Dataset(query,0,0,bins,List.of(),Instant.now(),"fixture",false,new Overview(List.of(),List.of(),0,List.of(),0,0));
+        store.put(new Evidence("ev_empty",id,owner,null,data));
+        var view=new ReportTaskStateView(context("danmaku.report"),execution);var state=view.build().feedback().get(0);
+        assertTrue(state.emptyFeedback());assertFalse(state.reportStored());assertEquals(ReportTaskState.Stage.AWAITING_REPORT,state.reportStage());
+        var json=new com.fasterxml.jackson.databind.ObjectMapper();var tree=json.valueToTree(state);
+        assertTrue(tree.path("emptyFeedback").asBoolean());assertEquals("AWAITING_REPORT",tree.path("reportStage").asText());
+        ((com.fasterxml.jackson.databind.node.ObjectNode)tree).put("reportStage","STORED");
+        assertEquals(ReportTaskState.Stage.AWAITING_REPORT,json.treeToValue(tree,ReportTaskState.Feedback.class).reportStage());
+        assertFalse(execution.hasReport("ev_empty"));execution.reportReady("ev_empty");
+        assertEquals(ReportTaskState.Stage.STORED,view.build().feedback().get(0).reportStage());
     }
     @Test void onlyCurrentOwnedEvidenceWithFrozenVideoDateAndSourceCanAppear() {
         store.put(evidence("ev_current",id,owner,query));store.put(evidence("ev_other_run",UUID.randomUUID(),owner,query));

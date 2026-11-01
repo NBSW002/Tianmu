@@ -16,7 +16,7 @@ const fileInput = ref(null)
 const importError = ref('')
 const importing = ref(false)
 const previousTitle = document.title
-document.title = 'Trace Studio · 天幕运行追踪'
+document.title = 'Trace Studio · EchoFrame运行追踪'
 onBeforeUnmount(() => { document.title = previousTitle })
 
 const trace = computed(() => traces.value.find((item) => item.id === activeId.value) || traces.value[0])
@@ -71,7 +71,7 @@ function downloadExample() {
 <template>
   <div class="trace-studio">
     <header class="studio-topbar">
-      <a class="studio-brand" href="/trace" aria-label="天幕 Trace Studio"><span class="brand-symbol"><TraceIcon name="trace" :size="22" /></span><strong>天幕<span>TIANMU</span></strong></a>
+      <a class="studio-brand" href="/trace" aria-label="EchoFrame Trace Studio"><span class="brand-symbol"><TraceIcon name="trace" :size="22" /></span><strong>EchoFrame<span>TRACE</span></strong></a>
       <span class="topbar-separator" />
       <span class="studio-product">Trace Studio</span><span class="version-tag">BETA</span>
       <div class="topbar-right"><span class="local-status"><i />本地工作区</span><span class="avatar">T</span></div>
@@ -131,7 +131,7 @@ function downloadExample() {
           </div>
         </aside>
       </div>
-      <footer class="studio-footer"><span><i />Tianmu Trace Studio<span class="footer-divider">/</span>场景 C · 多模型行为分析</span><span>{{ trace.demo ? '演示数据，不代表模型评测结果' : '数据来源：本地导入日志' }}<span class="footer-divider">·</span>前端预览 v0.1</span></footer>
+      <footer class="studio-footer"><span><i />EchoFrame Trace Studio<span class="footer-divider">/</span>场景 C · 多模型行为分析</span><span>{{ trace.demo ? '演示数据，不代表模型评测结果' : '数据来源：本地导入日志' }}<span class="footer-divider">·</span>前端预览 v0.1</span></footer>
     </main>
   </div>
 </template>

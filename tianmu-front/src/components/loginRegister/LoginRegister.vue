@@ -160,7 +160,7 @@ export default {
       },
       loginRules: {
         account: [
-          { required: true, message: "请输入天幕账号", trigger: "blur" },
+          { required: true, message: "请输入EchoFrame账号", trigger: "blur" },
         ],
         password: [
           {
@@ -172,7 +172,7 @@ export default {
       },
       registerRules: {
         account: [
-          { required: true, message: "请输入天幕账号", trigger: "blur" },
+          { required: true, message: "请输入EchoFrame账号", trigger: "blur" },
         ],
         password: [
           {
@@ -422,7 +422,7 @@ export default {
       if (newVal === 1) {
         this.loginRules = {
           account: [
-            { required: true, message: "请输入天幕账号", trigger: "blur" },
+            { required: true, message: "请输入EchoFrame账号", trigger: "blur" },
           ],
           password: [
             {
@@ -435,7 +435,7 @@ export default {
       } else if (newVal === 2) {
         this.loginRules = {
           account: [
-            { required: true, message: "请输入天幕账号", trigger: "blur" },
+            { required: true, message: "请输入EchoFrame账号", trigger: "blur" },
           ],
           code: [{ required: true, message: "请输入验证码", trigger: "blur" }],
         };
@@ -455,14 +455,20 @@ export default {
 
 .login-register-container {
   display: block;
-  width: 450px;
-  height: 400px;
+  width: 100%;
+  min-width: 0;
+  min-height: 400px;
   padding: 30px 40px;
 }
 
 .login-tabs {
   width: 90%;
   margin: 0 auto;
+}
+
+@media (max-width: 699px) {
+  .login-register-container { padding: 28px 20px 20px; }
+  .login-tabs { width: 100%; }
 }
 
 .login-box,

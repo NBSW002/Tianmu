@@ -16,6 +16,12 @@
     border-radius: 4px;
 }
 
+.el-dialog.account-dialog {
+    width: min(450px, calc(100vw - 32px));
+    padding: 0;
+    border-radius: 12px;
+}
+
 .el-dialog__headerbtn {
     z-index: 3000;
     top: 10px;

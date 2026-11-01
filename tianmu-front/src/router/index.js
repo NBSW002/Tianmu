@@ -73,6 +73,7 @@ router.beforeEach(async (to, from, next) => {
   return next();
 });
 router.afterEach((to) => {
+  document.documentElement.classList.toggle('home-page', to.name === 'Index')
   document.documentElement.classList.toggle('agent-workspace-page', to.name === 'AgentWorkspace')
   document.documentElement.classList.toggle('trace-workspace-page', to.name === 'TraceWorkspace')
 })

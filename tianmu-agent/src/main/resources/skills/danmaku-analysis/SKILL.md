@@ -36,4 +36,4 @@
 
 ## 空数据与兼容
 
-总数为0时不提交 topics_json 或虚构话题：未选择 VIDEO 时只提交反馈 evidence_id；已选择 VIDEO 时仍须先取得同一视频的证据，再同时提交反馈 evidence_id 与 video_evidence_id。空反馈不免除已选择的视频读取要求。danmaku.overview 仅查询数量和时间范围后直接回答，不读视频、不生成报告。旧演示/历史数据没有 audience 时才使用 samples 与 sections_json 的旧接口；生产新报告不使用此兼容路径。
+报告任务总数为0时，仍必须调用 create_danmaku_report 保存并交付空数据报告；task_state 的 reportStage=AWAITING_REPORT 表示尚未保存。classification.complete=true 只是无需再分类，不是报告回执。省略 topics_json 和 offset，不虚构话题：未选择 VIDEO 时只提交反馈 evidence_id；已选择 VIDEO 时仍须先取得同一视频的证据，再同时提交反馈 evidence_id 与 video_evidence_id。空反馈不免除已选择的视频读取要求。danmaku.overview 仅查询数量和时间范围后直接回答，不读视频、不生成报告。旧演示/历史数据没有 audience 时才使用 samples 与 sections_json 的旧接口；生产新报告不使用此兼容路径。

@@ -1,6 +1,10 @@
-# 天幕前端
+# EchoFrame 前端
 
-Vue 3 视频平台与天幕运营助手，与仓库根目录的业务后端、`tianmu-agent/` 协作。
+Vue 3 视频平台与 EchoFrame 运营助手，与仓库根目录的业务后端、`tianmu-agent/` 协作。
+
+对外标题由 `vue.config.js` 的页面title设置。按用户最新要求，标签页图标使用B站公开首页favicon，页面引用 `public/bilibili-favicon-v1.ico`，同时同步 `public/favicon.ico`。替换图标时更新文件名及 `public/index.html` 引用，避免浏览器复用旧缓存。横幅与图标的原始地址见 `src/assets/img/home/README.md`。
+
+首页使用荷塘横幅、叠加导航、双排频道与响应式推荐网格；视频卡片和轮播均使用本项目数据。已有分区跳转真实categoryId，其余话题入口进入带关键词的视频搜索，不创建虚构分区。换一换重新请求第一页并轮换该页顺序，保留后续分页顺序；搜索允许游客访问，投稿和个人入口沿用登录校验。
 
 ## Trace Studio 第一版
 

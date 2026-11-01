@@ -9,3 +9,9 @@ Third-party libraries, middleware, container images and services retain their
 own licenses and terms. MIT applies to the project-owned source and documents;
 it does not relicense dependencies, model services, trademarks or user data.
 See docs/THIRD_PARTY.md for the dependency inventory and attribution process.
+
+The homepage pond illustration and tab favicon were retrieved from Bilibili's
+public homepage at the user's request. They retain their respective owners'
+rights and are not relicensed under the project's MIT license. Exact source
+URLs and retrieval details are recorded in
+tianmu-front/src/assets/img/home/README.md.
