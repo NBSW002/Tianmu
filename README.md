@@ -1,8 +1,8 @@
 <div align="center">
 
-# Tianmu · 天幕
+# EchoFrame
 
-**面向视频创作者的开源视频平台与 AI 运营助手**
+**开源视频社区 · 弹幕互动 · 创作者 Agent**
 
 连接视频内容、弹幕与评论，让创作者更好地理解观众，规划内容，开展互动。
 
@@ -10,17 +10,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 17](https://img.shields.io/badge/Java-17-orange.svg)](pom.xml)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883.svg)](tianmu-front/package.json)
-[![GitHub stars](https://img.shields.io/github/stars/blackirlsama/Tianmu?style=flat)](https://github.com/blackirlsama/Tianmu/stargazers)
 
 [功能特性](#功能特性) · [后端架构](#后端架构) · [Agent 架构](#agent-架构) · [快速开始](#快速开始) · [文档](#文档) · [贡献](#参与贡献)
 
 </div>
 
-![天幕视频平台首页](images/3.png)
+![EchoFrame 视频社区首页](images/3.png)
 
 ## 项目介绍
 
-天幕是一套基于 **Spring Boot + Vue 3** 的视频平台，提供视频上传、播放、搜索、弹幕、评论和用户互动能力，并集成独立部署的 **Java Agent**，帮助创作者从观众反馈中发现内容方向。
+EchoFrame 是一套基于 **Spring Boot + Vue 3** 的视频平台，提供视频上传、播放、搜索、弹幕、评论和用户互动能力，并集成独立部署的 **创作者 Agent**，帮助创作者从观众反馈中发现内容方向。
 
 视频后端负责业务与数据，Agent 负责理解需求、调用工具和生成结果。两者通过鉴权接口连接，可以分别开发、测试与部署。
 
@@ -36,10 +35,9 @@
 | **视频理解** | 画面概括、指定片段分析、内容选题建议 |
 | **智能互动** | 生成作者评论与弹幕草稿，编辑确认后发布 |
 | **对话助手** | 多轮沟通、任务进度、取消与结果查看 |
-| **配置化问答** | 人工维护常见问题与标准回答 |
 | **Trace Studio** | 调用关系图、时间线、节点详情与日志导入 |
 
-在自己的视频页打开助手，可以这样开始：
+接入真实业务与模型后，登录作者可在自己的视频页打开助手：
 
 ```text
 分析这个视频的弹幕和评论，结合画面生成观众反馈报告。
@@ -47,6 +45,8 @@
 结合当前视频，给我几个下一条视频的选题方向。
 生成几条引导观众讨论的作者评论，先给我草稿。
 ```
+
+报告以实际入库的互动为依据；画面理解来自采样帧，未配置转写时不包含音频理解。联合分析受任务时限、上下文与数据量限制，超限会明确失败；能力边界见 [Agent 文档](tianmu-agent/README.md)。
 
 ## 后端架构
 
@@ -105,7 +105,7 @@ flowchart TB
 
 ## Agent 架构
 
-![天幕运营助手：视频页对话与观众反馈报告](images/agent-workspace.png)
+![创作者 Agent：视频页对话与观众反馈报告](images/agent-workspace.png)
 
 Agent 是独立的 Spring Boot 服务，分为**前置处理**和 **Harness Loop** 两个阶段。前置处理确定“用户要做什么、能访问什么、执行条件是否齐全”；Harness 根据准备好的任务，组织模型与工具协作完成工作。
 
@@ -120,7 +120,7 @@ flowchart TB
     FAQ -->|是| Answer["直接返回回答"]
     FAQ -->|否| Memory["准备上下文<br/>对话历史 / 视频信息 / 当前目标"]
     Memory --> Understand["规则解析与条件检查"]
-    Memory -. 模型辅助模式 .-> Assist["问题理解 / 意图识别<br/>情绪识别：可选"]
+    Memory -. 模型辅助模式 .-> Assist["问题理解 / 意图识别<br/>情绪识别：可选，默认关闭"]
     Assist -. 候选结果回验 .-> Understand
     Understand --> Ready{"执行条件是否齐全？"}
     Ready -->|条件缺失或冲突| Clarify["返回澄清问题<br/>等待用户补充"]
@@ -137,7 +137,7 @@ flowchart TB
     class Answer,Clarify,Supplement,Task,Enter result
 ```
 
-默认采用规则路由，跳过前置模型调用；情绪识别默认关闭。模型辅助准备的结果仍须经过条件校验，不会直接改变用户权限或任务范围。
+默认优先采用规则解析；无法明确解析的请求可进入模型理解与意图识别。情绪识别可选且默认关闭。模型辅助准备的结果仍须经过条件校验，不会直接改变用户权限或任务范围。
 
 ### Harness Loop：模型决策与工具结果形成闭环
 
@@ -151,7 +151,7 @@ flowchart TB
         Context["构建本轮上下文<br/>任务 + 历史 + 可用工具 + 已有结果"]
         Model["调用模型<br/>原生 messages / tools"]
         Decision{"模型决策"}
-        Tools["工具调度<br/>检查可用能力、参数与权限"]
+        Tools["工具调度<br/>Skill 按需激活工具 / 参数与权限校验"]
         Execute["执行 Skill / Tool<br/>读取数据、理解视频、生成产物"]
         Observation["接收工具结果<br/>更新证据与执行状态"]
 
@@ -183,7 +183,7 @@ flowchart TB
 | 澄清 | 在准备阶段或模型决策中发现需要补充的信息，返回问题，待用户回复后继续处理 |
 | PreparedTask | 将准备结果固定为明确的执行目标、数据范围和资源版本 |
 | Harness | 组织每轮上下文、模型决策、工具调用与结果反馈，控制执行边界 |
-| 模型适配器 | 对接文本与视频模型，负责理解和决策 |
+| 模型适配器 | 文本模型负责决策，视觉模型提供采样画面事实 |
 | Skill / Tool | Skill 组织能力，Tool 通过业务接口读取数据或执行操作 |
 | 存储与追踪 | 保存对话、任务和产物，记录调用过程，支持恢复与排查 |
 
@@ -193,20 +193,21 @@ Agent 不直接修改业务数据库，发布操作由用户确认后交给业�
 
 ## 快速开始
 
-### 环境准备
+### 选择运行方式
 
-| 组件 | 环境 |
-| --- | --- |
-| 后端与 Agent | JDK 17、Maven 3.6.3+ |
-| 前端 | Node.js 22、npm |
-| 完整网站 | MySQL、Redis、MinIO、Elasticsearch、RocketMQ、Canal 等，见部署文档 |
+| 方式 | 必要依赖 | 可选接入 |
+| --- | --- | --- |
+| Agent Demo | JDK 17、Maven 3.6.3+ | 无需模型 Key 或中间件 |
+| Trace Studio | Node.js 22、npm | 导入真实 Trace 文件；无需后端 |
+| 完整视频社区 | JDK 17、Maven、Node.js、MySQL、Redis、MinIO、Elasticsearch（IK）、RocketMQ、Canal | 创作者 Agent 与模型服务 |
+| 真实创作者 Agent | 业务后端与登录、文本模型凭据；持久化模式另需 Agent 专用 MySQL、Redis 与私有对象存储 | 画面理解需 FFmpeg / ffprobe 与视觉模型；转写单独配置；Kafka / ClickHouse 用于可选 Trace 存储 |
 
 ```bash
 git clone --depth 1 https://github.com/blackirlsama/Tianmu.git
 cd Tianmu
 ```
 
-仓库包含约 185 MB 的[视频素材](materials/README.md)，首次拉取需要下载这些文件。
+项目对外名称为 **EchoFrame**；仓库地址、目录、构建产物与配置键仍沿用 `Tianmu` / `tianmu`，以下命令保留实际名称。仓库包含[视频素材](materials/README.md)，首次克隆会一并下载。
 
 ### 方式一：体验 Agent Demo
 
@@ -233,7 +234,16 @@ curl -s -H 'Authorization: Bearer demo-alice' \
   http://127.0.0.1:8201/api/agent/runs/RUN_ID
 ```
 
-Demo 使用模拟身份和脚本模型，不调用付费服务。以上为 Bash 命令；PowerShell 可使用 `curl.exe`，并将请求命令写在一行。
+Demo 使用模拟身份、脚本模型和内存存储，适合验证任务流程，不代表真实视频分析效果。以上请求使用 Bash；PowerShell 可使用：
+
+```powershell
+$headers = @{ Authorization = "Bearer demo-alice" }
+$body = @{ message = "查询视频1001昨天的弹幕数" } | ConvertTo-Json
+$run = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8201/api/agent/runs" -Headers $headers -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes($body))
+Invoke-RestMethod -Uri "http://127.0.0.1:8201/api/agent/runs/$($run.runId)" -Headers $headers
+```
+
+任务异步执行；若仍在运行，稍后再次查询。
 
 ### 方式二：体验 Trace Studio
 
@@ -249,7 +259,9 @@ npm run serve
 
 ### 方式三：运行完整网站
 
-先按[网站部署说明](deploy/site/README.md)初始化业务库和中间件，再参考 [`.env.example`](.env.example) 注入配置。直接运行 Java 不会自动读取 `.env` 文件。
+先按[部署参考](docs/DEPLOYMENT.md)准备业务库和中间件，再参考 [`.env.example`](.env.example) 设置 `TIANMU_*`、登录密钥与邮件配置。直接运行 Java 不会自动读取 `.env` 文件。
+
+[网站容器部署说明](deploy/site/README.md)面向已有单机验收环境，依赖既有共享网络与服务，不是空环境一键启动脚本。以下命令用于依赖就绪后的本地启动。
 
 在仓库根目录构建后端与 Agent：
 
@@ -258,7 +270,7 @@ mvn -B package
 mvn -B -f tianmu-agent/pom.xml package
 ```
 
-分别在两个 Bash 终端启动服务：
+分别在两个 Bash 终端启动服务。真实 Agent 需先配置 `DEEPSEEK_API_KEY`、Agent 专用 `AGENT_JDBC_URL` / `AGENT_DB_*`、`AGENT_REDIS_*` 与 MinIO 凭据。业务桥接须使用与网站登录一致的 JWT 密钥和 Redis 会话配置：
 
 ```bash
 # 视频业务后端
@@ -267,11 +279,14 @@ AGENT_BRIDGE_ENABLED=true java -jar target/tianmu-0.0.1-SNAPSHOT.jar
 
 ```bash
 # 接入真实业务、模型和持久化存储的 Agent
+BUSINESS_BASE_URL=http://127.0.0.1:8101/api \
 SPRING_PROFILES_ACTIVE=business,deepseek,persistent \
   java -jar tianmu-agent/target/operations-agent-0.7.0-SNAPSHOT.jar
 ```
 
-然后启动前端：
+需要画面理解时，再启用视觉模型并为业务后端安装 FFmpeg / ffprobe，配置见[网站部署的视频内容理解说明](deploy/site/README.md#视频内容理解)。`deepseek` 配置默认开启视频工具；视觉服务不支持图片输入时，应设置 `VIDEO_CONTENT_ENABLED=false`，或配置可用的 `VIDEO_MODEL_*`。
+
+然后启动前端（默认代理指向本地 8101 / 8201）：
 
 ```bash
 cd tianmu-front
@@ -286,7 +301,7 @@ npm run serve
 | 弹幕 WebSocket | 端口 `9101` |
 | 前端 | 以开发服务器输出为准 |
 
-真实模式需配置数据库、登录、中间件及模型凭据，模型调用可能产生费用。前端代理、外部 FAQ 和模型参数的配置分别见[前端说明](tianmu-front/README.md)、[Agent 说明](tianmu-agent/README.md)。容器部署可选择[独立 Agent 栈](deploy/README.md)或[完整网站栈](deploy/site/README.md)。
+真实模式需配置数据库、登录、中间件及模型凭据，模型调用可能产生费用。前端代理和模型参数的配置分别见[前端说明](tianmu-front/README.md)、[Agent 说明](tianmu-agent/README.md)。容器部署可选择[独立 Agent 栈](deploy/README.md)或[完整网站栈](deploy/site/README.md)。
 
 ## 项目结构
 
@@ -340,7 +355,7 @@ npm run build
 2. Fork 仓库，从最新 `master` 创建开发分支。
 3. 完成修改与相关测试，提交 [Pull Request](https://github.com/blackirlsama/Tianmu/pulls)。
 
-提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请通过 [SECURITY.md](SECURITY.md) 中的方式反馈。感谢每一位[贡献者](https://github.com/blackirlsama/Tianmu/graphs/contributors)，也欢迎用 Star 支持项目。
+提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请通过 [SECURITY.md](SECURITY.md) 中的方式反馈。感谢每一位[贡献者](https://github.com/blackirlsama/Tianmu/graphs/contributors)，欢迎分享使用反馈。
 
 ## 许可证
 
