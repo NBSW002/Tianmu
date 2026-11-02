@@ -29,16 +29,16 @@ class TraceDetailIntegrationTest {
     @Test void snapshotsFollowAsyncModelAndToolCallsAndRequireCurrentRunOwnership() throws Exception {
         var run = runs.create("分析直播间1001昨天的弹幕并生成报告", new AccessScope("demo", "alice", Set.of(1001L)));
         long deadline = System.nanoTime() + 10_000_000_000L;
-        while (exported.stream().noneMatch(s -> s.name().equals("agent.run") && run.id.toString().equals(s.attributes().get("run.id"))) && System.nanoTime() < deadline) Thread.sleep(20);
+        while ((!com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status()) || exported.stream().noneMatch(s -> s.name().equals("agent.tool") && "create_feedback_report".equals(s.attributes().get("tool.name")) && run.id.toString().equals(s.attributes().get("run.id")))) && System.nanoTime() < deadline) Thread.sleep(20);
         assertEquals(Status.SUCCEEDED, run.snapshot().status());
         var spans = exported.stream().filter(s -> run.id.toString().equals(s.attributes().get("run.id"))).toList();
-        var query = spans.stream().filter(s -> s.name().equals("agent.tool") && "query_danmaku".equals(s.attributes().get("tool.name"))).findFirst().orElseThrow();
+        var query = spans.stream().filter(s -> s.name().equals("agent.tool") && "create_feedback_report".equals(s.attributes().get("tool.name"))).findFirst().orElseThrow();
         assertEquals("TOOL", query.attributes().get("node.type"));
         assertEquals("SUCCEEDED", query.attributes().get("node.status"));
         String path = "/api/agent/runs/" + run.id + "/trace-payloads/" + query.attributes().get("detail.output_ref");
         String body = mvc.perform(get(path).header("Authorization", "Bearer demo-alice")).andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        assertEquals(8, json.readTree(body).path("value").path("data").path("analysis").path("samples").size());
+        assertEquals("READY", json.readTree(body).path("value").path("data").path("status").asText());
         mvc.perform(get(path)).andExpect(status().isUnauthorized());
         mvc.perform(get(path).header("Authorization", "Bearer demo-bob")).andExpect(status().isNotFound());
         var model = spans.stream().filter(s -> s.name().equals("agent.model")).findFirst().orElseThrow();

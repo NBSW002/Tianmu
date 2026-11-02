@@ -41,12 +41,6 @@ public final class QueryDanmakuTool implements AgentTool {
             visible=new Dataset(query,data.totalMessages(),data.uniqueSenders(),data.buckets(),List.of(),data.dataAsOf(),data.source(),data.demo(),redacted);
         }
         Map<String,Object> result=new LinkedHashMap<>();result.put("analysis",visible);result.put("evidence_id",evidence.id());
-        if(data.audience()==null)result.put("sampling_method",data.samplingMethod());
-        else {
-            if(data.audience().corpusMessages()!=data.totalMessages() || data.audience().corpus().stream().anyMatch(AudienceData.TextGroup::truncated))
-                throw new AgentException("FULL_ANALYSIS_INCOMPLETE","未读取全部弹幕，无法生成全量报告，请缩小时间范围后重试。");
-            result.put("classification",Objects.requireNonNullElse(context.reportClassification(evidence.id()),DanmakuClassification.empty()).view(data.audience()));
-        }
         return new ToolResult(name(),result,evidence.id());
     }
     private static String redact(String text) { return text.replaceAll("(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}", "[email]").replaceAll("(?<!\\d)1[3-9]\\d{9}(?!\\d)", "[phone]"); }

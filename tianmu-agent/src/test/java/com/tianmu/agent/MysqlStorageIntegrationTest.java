@@ -55,7 +55,12 @@ class MysqlStorageIntegrationTest {
         var second=store.claim(j.id(),Instant.now(),Duration.ofSeconds(30));assertTrue(second.fence()>first.fence());assertFalse(store.complete(first,blob));
         store.reserve(j.id(),second.id(),second.fence(),8192);assertEquals(16384,store.get(j.id()).chargedTokens());
         store.settle(j.id(),second.id(),second.fence(),100,20);assertEquals(8312,store.get(j.id()).chargedTokens());store.settle(j.id(),second.id(),second.fence(),100,20);assertEquals(8312,store.get(j.id()).chargedTokens());
-        store.cancel(j.id());assertFalse(store.complete(second,blob));
+        var correction=new FeedbackAnalysis.Blob("fb_"+UUID.randomUUID().toString().replace("-","")+".json",2,"1".repeat(64));
+        assertFalse(store.retry(first,"INVALID_ANALYSIS",Instant.now().minusSeconds(1),3,correction));
+        assertEquals(blob,store.work(second.id()).input(),"A stale worker cannot overwrite correction input");
+        assertTrue(store.retry(second,"INVALID_ANALYSIS",Instant.now().minusSeconds(1),3,correction));
+        var third=store.claim(j.id(),Instant.now(),Duration.ofSeconds(30));assertEquals(correction,third.input());
+        store.cancel(j.id());assertFalse(store.complete(third,blob));
         var index=new MysqlFeedbackObjectIndex(source,repository::verifyReady);var objects=new com.tianmu.agent.feedback.FeedbackObjects(new FileObjectStore(directory),mapper,index);
         var real=objects.put(j.id(),Map.of("private","fixture"));assertTrue(java.nio.file.Files.exists(directory.resolve(real.key())));
         run.cancel();repository.deleteSession(run.sessionId,owner);repository.garbageCollect();objects.collectExpired();
@@ -120,7 +125,7 @@ class MysqlStorageIntegrationTest {
         assertTrue(((List<?>)new com.tianmu.agent.application.HistoryQueryService(repository,current.sessionId,owner,current.turnSeq).read(Long.MAX_VALUE,4,"").get("messages")).isEmpty());
         current.cancel();
     }
-    @Test void privateReportProgressRestoresAfterReloadAndCannotBeReplacedByAnotherOwner() {
+    @Test void historicalReportCheckpointRemainsReadableAfterReloadAndRequiresOwnership() {
         var run=create("report checkpoint");run.start();
         var q=new DanmakuTypes.Query(1001,run.businessDate.minusDays(1).atStartOfDay(),run.businessDate.atStartOfDay());
         var groups=List.of(new AudienceData.TextGroup("1","问题一",1,500L,false),new AudienceData.TextGroup("2","问题二",1,500L,false));
@@ -129,14 +134,11 @@ class MysqlStorageIntegrationTest {
                 new AudienceData.Overview(List.of(),List.of(new AudienceData.Position(0,1000,2)),0,groups,2,2));
         String id="ev_"+UUID.randomUUID();run.execution().evidence().put(new Evidence(id,run.id,owner,null,data));
         var topic=new AudienceData.Topic("T1","讨论","原文","",List.of("1"),1,"",List.of());
-        var first=new DanmakuClassification(1,List.of(topic));
-        new com.tianmu.agent.application.ReportProgressService(run,run.execution()).save(id,first);
+        var first=new DanmakuClassification(1,List.of(topic),null,false);
+        run.execution().evidence().put(new Evidence("ev_"+UUID.randomUUID(),run.id,owner,null,null,null,null,new ReportCheckpoint("audience-report-checkpoint-v1",id,first)));
         var loaded=repository.load(run.id,owner);
-        assertFalse(loaded.execution().hasClassification(id));
-        var restored=new com.tianmu.agent.application.ReportProgressService(loaded,loaded.execution());
-        assertEquals(first,restored.load(id));
+        assertEquals(first,loaded.execution().evidence().snapshot().values().stream().filter(e->e.reportCheckpoint()!=null).findFirst().orElseThrow().reportCheckpoint().classification());
         assertEquals(1,loaded.execution().evidence().snapshot().values().stream().filter(e->e.reportCheckpoint()!=null).count());
-        assertEquals("INVALID_REPORT",assertThrows(AgentException.class,()->restored.save(id,new DanmakuClassification(0,List.of()))).code());
         assertEquals("RUN_NOT_FOUND",assertThrows(AgentException.class,()->repository.load(run.id,new AccessScope(owner.tenantId(),"bob",owner.videoIds()))).code());
         run.cancel();
     }
@@ -416,17 +418,7 @@ class MysqlStorageIntegrationTest {
         assertNull(repository.load(run.id, owner).snapshot().answer());
         assertEquals(1, repository.load(run.id, owner).events().after(0).events().stream().filter(e -> e.type().equals("DONE")).count());
     }
-    @Test void reportCacheRanksSurviveNewAdaptersAndExpiredRowsCanRestartAtALowerRank(){
-        var store=new MysqlAnalysisCacheStore(source);String key=UUID.randomUUID().toString().replace("-","").repeat(2);
-        try{
-            store.put(key,new com.tianmu.agent.runtime.store.AnalysisCacheStore.Entry(80,"accepted",Instant.now().plusSeconds(60)));
-            store.put(key,new com.tianmu.agent.runtime.store.AnalysisCacheStore.Entry(40,"slower",Instant.now().plusSeconds(60)));
-            assertEquals("accepted",new MysqlAnalysisCacheStore(source).get(key).json());
-            db.update("UPDATE agent_report_cache SET expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE cache_key=?",key);
-            store.put(key,new com.tianmu.agent.runtime.store.AnalysisCacheStore.Entry(20,"fresh",Instant.now().plusSeconds(60)));
-            assertEquals(20,store.get(key).rank());assertEquals("fresh",store.get(key).json());
-        }finally{db.update("DELETE FROM agent_report_cache WHERE cache_key=?",key);}
-    }
+
     @Test void qaAdmissionIsDurableAndSessionReplayDoesNotInflateCounts()throws Exception{
         var policy=new com.tianmu.agent.faq.QaPolicy(true,2,1,30,7,256);
         var qa=new com.tianmu.agent.faq.QaCatalog(new MysqlQaStore(source,mapper),policy);
@@ -441,13 +433,5 @@ class MysqlStorageIntegrationTest {
             assertEquals(answer,restarted.find(new Input(question,LocalDate.now(),owner)).orElseThrow().text());
         }finally{db.update("DELETE FROM agent_qa_catalog WHERE owner_key=?",ownerKey);}
     }
-    @Test void reportLeasesCoordinateSeparateAdaptersAndCanRecoverAfterExpiry(){
-        var first=new MysqlAnalysisCacheStore(source);var second=new MysqlAnalysisCacheStore(source);
-        String key=UUID.randomUUID().toString().replace("-","").repeat(2);UUID a=UUID.randomUUID(),b=UUID.randomUUID();
-        try{
-            assertTrue(first.acquire(key,a));assertFalse(second.acquire(key,b));second.release(b);assertFalse(second.acquire(key,b));
-            db.update("UPDATE agent_report_leases SET valid_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE cache_key=?",key);
-            assertTrue(second.acquire(key,b));first.release(a);assertFalse(first.acquire(key,a));
-        }finally{db.update("DELETE FROM agent_report_leases WHERE cache_key=?",key);}
-    }
+
 }

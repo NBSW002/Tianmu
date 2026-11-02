@@ -73,14 +73,14 @@ public class DemoAdapters {
                 var d=(com.tianmu.agent.core.DanmakuTypes.Dataset)found.get().data().get("analysis");
                 return Decision.answer("【模拟数据】范围 "+d.query().start()+" 至 "+d.query().end()+"；弹幕 "+d.totalMessages()+" 条，参与用户 "+d.uniqueSenders()+" 人。",List.of(found.get().evidenceId()));
             }
-            if (context.task() != null && context.task().specification().type().equals("danmaku.report")) {
-                if (!context.activeSkills().contains("danmaku-analysis")) return Decision.tool("read_skill", Map.of("name", "danmaku-analysis"));
-                var observation = context.observations().stream().filter(r -> r.tool().equals("query_danmaku")).findFirst();
-                if (observation.isEmpty()) return Decision.tool("query_danmaku", context.task().specification().conditions());
-                ToolResult value = observation.get();
-                String sections = "[{\"title\":\"发货时效咨询\",\"observation\":\"抽样片段中多次出现关于发货时间的询问，这是内容线索，不代表全量弹幕中的占比。\",\"recommendation\":\"在讲解或置顶信息中补充预计发货时效。\",\"sample_ids\":[\"100000\"]},"
-                        + "{\"title\":\"优惠领取咨询\",\"observation\":\"抽样片段中出现优惠券领取方式相关提问；不能据此判断全场观众的关注比例。\",\"recommendation\":\"说明优惠券入口、领取条件和使用期限。\",\"sample_ids\":[\"100001\"]}]";
-                return Decision.tool("create_danmaku_report", Map.of("evidence_id", value.evidenceId(), "sections_json", sections));
+            if(context.task()!=null && context.task().specification().reading()!=null && com.tianmu.agent.application.AnalysisExecutionPolicy.permits("analyze_feedback",context.task().specification())) {
+                String skill="comments.analysis".equals(context.task().specification().type())?"comment-analysis":context.task().specification().type().equals("audience.report")?"audience-report":"danmaku-analysis";
+                if(!context.activeSkills().contains(skill))return Decision.tool("read_skill",Map.of("name",skill));
+                var analyzed=context.observations().stream().filter(r->r.tool().equals("analyze_feedback")).findFirst();
+                if(analyzed.isEmpty())return Decision.tool("analyze_feedback",Map.of());
+                if(context.task().specification().reading().reportRequired())return Decision.tool("create_feedback_report",Map.of("evidence_id",analyzed.get().evidenceId()));
+                if(context.observations().stream().noneMatch(r->r.tool().equals("read_result")))return Decision.tool("read_result",Map.of("result_id",analyzed.get().evidenceId(),"section","topics"));
+                return Decision.answer("【模拟数据】后台已完成所选来源的反馈分析，这是确定性演示结果。",List.of(analyzed.get().evidenceId()));
             }
             var id = DanmakuTarget.matcher(context.message());
             if (!id.find() || !context.message().contains("弹幕"))

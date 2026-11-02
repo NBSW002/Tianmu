@@ -14,7 +14,6 @@ public final class ReportArtifacts {
         if (value == null || !value.owner().equals(run.owner) || !value.runId().equals(run.id))
             throw new AgentException("RESULT_NOT_FOUND", "Result is not accessible in this run");
         if(value.feedback()!=null){FeedbackTaskPolicy.require(run.task()==null?null:run.task().specification(),value.feedback().request());if(!run.task().specification().reading().reportRequired())throw new AgentException("TASK_CONSTRAINT_VIOLATION","Report was not requested");}
-        else if (value.analysis() != null) policy.checkDanmakuQuery(run, value.analysis().query());
         else if (value.videoContent() != null && run.task()!=null && run.task().specification().analysis()!=null
                 && run.task().specification().analysis().sources().equals(java.util.Set.of(AnalysisContract.Source.VIDEO))
                 && run.task().specification().analysis().reportRequired())

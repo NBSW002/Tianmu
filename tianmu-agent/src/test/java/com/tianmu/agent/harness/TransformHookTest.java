@@ -197,13 +197,13 @@ class TransformHookTest {
         }
     }
     @Test void contextHooksCannotRemoveOrRewriteHostReportState() {
-        var state=new com.tianmu.agent.core.ReportTaskState("danmaku.report",List.of(new com.tianmu.agent.core.ReportTaskState.Feedback("ev_a",40,120,false,false)));
+        var state=new com.tianmu.agent.core.ReportTaskState("danmaku.report",List.of(new com.tianmu.agent.core.ReportTaskState.Feedback("ev_a",120,false)));
         var base=new ModelContext("报告",java.time.LocalDate.now(),new AccessScope("t","u",Set.of(1001L)),Set.of(),List.of(),List.of(),6,false,"",null,null,
                 com.tianmu.agent.core.MemoryTypes.View.empty(),List.of(),state);
         for(boolean remove:List.of(true,false)) {
             var transform=hook("tamper-state",TransformPoint.CONTEXT,0,(input,context)->new ModelContext(input.message(),input.businessDate(),input.scope(),input.activeSkills(),
                     input.observations(),input.availableTools(),input.remainingSteps(),input.finalizing(),input.systemDirective(),input.preparation(),input.task(),input.memory(),input.exchanges(),
-                    remove?null:new com.tianmu.agent.core.ReportTaskState("danmaku.report",List.of(new com.tianmu.agent.core.ReportTaskState.Feedback("ev_a",120,120,true,true)))));
+                    remove?null:new com.tianmu.agent.core.ReportTaskState("danmaku.report",List.of(new com.tianmu.agent.core.ReportTaskState.Feedback("ev_a",120,true)))));
             try(var fixture=new HarnessLifecycleTest.Fixture(List.of(transform))) {code("HOOK_TRANSFORM_INVALID",()->apply(fixture,TransformPoint.CONTEXT,base));}
         }
     }

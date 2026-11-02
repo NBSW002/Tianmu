@@ -34,21 +34,7 @@ class VideoRoomAnalysisTest {
         assertEquals(LocalDateTime.of(2026,10,20,10,0),explicit.start());
         assertThrows(IllegalArgumentException.class,()->DanmakuReportTask.parse("分析视频1001从2026-10-20 10:00弹幕报告",date));
     }
-    @Test void topicCountsComeFromDisjointRealGroupsAndHtmlEscapesUntrustedText(){
-        String source="[{\"title\":\"<script>bad</script>\",\"observation\":\"询问尺寸\",\"recommendation\":\"补充说明\",\"sample_ids\":[\"1\"]}]";
-        var topics=AudienceTopics.parse(json,source,audience(),null);
-        assertEquals(3,topics.get(0).messages());
-        LocalDateTime end=LocalDateTime.now(DanmakuTypes.ZONE).minusSeconds(1).withNano(0);
-        var dataset=data(new Query(1001,end.minusDays(7),end));
-        assertThrows(AgentException.class,()->CreatorAudienceReport.render(dataset,topics,null));
-        var full=new ArrayList<>(topics);full.add(new Topic("tail","颜色问题","询问颜色","补充说明",List.of("2"),1,"",List.of()));
-        String html=CreatorAudienceReport.render(dataset,full,null);
-        assertTrue(html.contains("&lt;script&gt;"));assertFalse(html.contains("<script>bad"));assertTrue(html.contains("尺寸？"));
-        assertTrue(html.contains("3 条相关弹幕"));assertTrue(html.contains("另有 1 条缺少有效播放位置"));
-        assertThrows(AgentException.class,()->AudienceTopics.parse(json,source.replace("\"1\"","\"999\""),audience(),null));
-        assertThrows(AgentException.class,()->AudienceTopics.parse(json,"["+source.substring(1,source.length()-1)+","+source.substring(1,source.length()-1)+"]",audience(),null));
-        assertThrows(AgentException.class,()->AudienceTopics.parse(json,source.replace("\"sample_ids\"","\"messages\":99,\"sample_ids\""),audience(),null));
-    }
+
     @Test void videoContextRequiresActualSampledTimestamp(){
         var video=new VideoContent.Facts("video-content-v1",1001,"v",2000,6000,"静态山水",List.of(new VideoContent.Moment(2500,"山水")),"","SAMPLED_FRAMES",List.of(2500L),"vision",Instant.now());
         String source="[{\"title\":\"尺寸\",\"observation\":\"提问\",\"recommendation\":\"\",\"sample_ids\":[\"1\"],\"video_context\":\"采样画面有山水\",\"video_at_ms\":[2500]}]";
@@ -86,24 +72,5 @@ class VideoRoomAnalysisTest {
         var next=new Topic("new","规格提问","","",List.of("1","2"),4,"",List.of());
         assertEquals("old",RoomSummaryService.stableIds(List.of(old),List.of(next)).get(0).id());
     }
-    @Test void reportUsesPrivateFullEvidenceWhileToolModelViewOmitsInteractionIdentities(){
-        Query q=new Query(1001,LocalDateTime.now(DanmakuTypes.ZONE).minusDays(7).withNano(0),LocalDateTime.now(DanmakuTypes.ZONE).minusSeconds(1).withNano(0));
-        var dataset=data(q);var context=mock(com.tianmu.agent.tool.ToolContext.class);
-        java.util.UUID id=java.util.UUID.randomUUID();
-        when(context.evidence("ev_room")).thenReturn(new com.tianmu.agent.core.AgentTypes.Evidence("ev_room",id,owner,null,dataset));
-        when(context.saveReport(eq("ev_room"),any())).thenReturn(new ReportRef("report","/report"));
-        when(context.reportClassification("ev_room")).thenReturn(new DanmakuClassification(2,List.of(new Topic("T1","尺寸问题","观众咨询尺寸和颜色","补充信息",List.of("1","2"),4,"",List.of()))));
-        var tool=new com.tianmu.agent.tool.builtin.CreateDanmakuReportTool(json);
-        tool.execute(new com.tianmu.agent.core.AgentTypes.ToolCall("create_danmaku_report",Map.of("evidence_id","ev_room","sections_json","[{\"title\":\"尺寸问题\",\"observation\":\"尺寸询问\",\"recommendation\":\"补充信息\",\"sample_ids\":[\"1\"]}]")),context);
-        var html=org.mockito.ArgumentCaptor.forClass(byte[].class);verify(context).saveReport(eq("ev_room"),html.capture());
-        String page=new String(html.getValue(),java.nio.charset.StandardCharsets.UTF_8);
-        assertTrue(page.contains("尺寸问题"));assertTrue(page.contains("4 条相关弹幕"));assertTrue(page.contains("尺寸？"));assertTrue(page.contains("另有 1 条缺少有效播放位置"));
-        when(context.scope()).thenReturn(owner);
-        when(context.query(any())).thenAnswer(i->((java.util.function.Function<com.tianmu.agent.runtime.control.CallControl,Object>)i.getArgument(0)).apply(new com.tianmu.agent.runtime.control.CallControl(Instant.now().plusSeconds(10),new com.tianmu.agent.runtime.control.CancellationToken())));
-        when(context.registerDanmakuEvidence(any())).thenAnswer(i->new com.tianmu.agent.core.AgentTypes.Evidence("ev_room",id,owner,null,i.getArgument(0)));
-        var queryTool=new com.tianmu.agent.tool.builtin.QueryDanmakuTool((query,scope,control)->dataset);
-        var result=queryTool.execute(new com.tianmu.agent.core.AgentTypes.ToolCall("query_danmaku",Map.of("video_id",1001L,"start",q.start().toString(),"end",q.end().toString())),context);
-        assertTrue(((Dataset)result.data().get("analysis")).audience().interactions().isEmpty());
-        var saved=org.mockito.ArgumentCaptor.forClass(Dataset.class);verify(context).registerDanmakuEvidence(saved.capture());assertEquals(1,saved.getValue().audience().interactions().size());
-    }
+
 }

@@ -63,9 +63,6 @@ public class DeliveryService {
             // Notes are derived from validated, owned evidence rather than model-generated metadata.
             List<Evidence> evidence = answer.evidenceIds().stream().distinct().map(id -> run.execution().evidence().get(id)).toList();
             if (run.task() != null) AnalysisExecutionPolicy.requireComplete(run.task().specification(), evidence);
-            for (Evidence value : evidence) if (value.comments() != null
-                    && run.execution().commentOffset(value.id()) != value.comments().totalComments())
-                throw new AgentException("FULL_ANALYSIS_INCOMPLETE", "尚未阅读全部评论，不能交付完整评论分析。");
             List<AnswerNote> notes = EvidencePresentation.notes(evidence);
             answer = new Answer(answer.text(), answer.evidenceIds(), notes);
             run.checkpoint();

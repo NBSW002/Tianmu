@@ -22,7 +22,6 @@ public final class FeedbackAnalysisService {
         return submit(run,owner,request,video,Instant.now().plus(policy.timeout()));
     }
     public FeedbackJobStore.Job submit(UUID run,AccessScope owner,Request request,VideoContent.Facts video,Instant executionDeadline) {
-        if(!policy.enabled())throw new AgentException("FEEDBACK_ANALYSIS_DISABLED","Background feedback analysis is not enabled");
         if(!owner.videoIds().contains(request.query().videoId()))throw new AgentException("FORBIDDEN","Video outside current authorization");
         request.query().checkTime(Instant.now());source.authorize(owner,request.query().videoId());
         if(request.grounding()==Grounding.VIDEO_GROUNDED && (video==null || video.videoId()!=request.query().videoId()
@@ -49,7 +48,7 @@ public final class FeedbackAnalysisService {
         var token=new CancellationToken();if(running.putIfAbsent(id,token)!=null)return;
         // The callback only propagates the fast signal; durable cancellation stays on this worker.
         var registration=parent==null?null:parent.onCancel(()->token.cancel(parent.reason()));
-        FeedbackJobStore.Work work=null;
+        FeedbackJobStore.Work work=null;Input input=null;
         try {
             token.checkpoint();
             var j=store.get(id);if(j==null || !MemoryFeedbackJobStore.active(j.phase()))return;
@@ -64,17 +63,22 @@ public final class FeedbackAnalysisService {
             work=store.claim(id,Instant.now(),Duration.ofSeconds(policy.modelTimeout().toSeconds()+30));
             if(work!=null) {
                 Input stored=objects.get(work.input(),Input.class);
-                Input input=new Input(stored.kind(),stored.groups(),stored.children(),stored.kind()==WorkKind.CLASSIFY?j.video():null);
+                input=new Input(stored.kind(),stored.groups(),stored.children(),stored.kind()==WorkKind.CLASSIFY?j.video():null,stored.correction());
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),()->{});
                 List<Proposal> proposals;
                 if(input.kind()==WorkKind.MERGE && input.children().size()==1){var t=input.children().get(0);proposals=List.of(new Proposal("T1",t.title(),t.observation(),t.recommendation(),List.of(t.id())));}
                 else proposals=models.analyze(input,control);
                 token.checkpoint();var result=planner.validate(work.id().toString(),input,proposals);
                 if(input.kind()==WorkKind.MERGE && input.children().size()>1 && result.topics().size()>Math.max(1,(input.children().size()+3)/4))
-                    throw new AgentException("INVALID_ANALYSIS","Reducer must build a bounded broader hierarchy; detailed children remain in evidence");
+                    throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"TOPIC_LIMIT_EXCEEDED"));
                 store.complete(work,objects.put(id,result));return;
             }
             finishLevel(store.get(id));
+        } catch(FeedbackCorrectionException e) {
+            if(token.cancelled())store.cancel(id);
+            else if(work!=null && input!=null)store.retry(work,e.code(),Instant.now().plusSeconds(Math.min(30,work.attempts()*2L)),3,
+                    objects.put(id,new Input(input.kind(),input.groups(),input.children(),null,e.correction())));
+            else store.fail(id,e.code());
         } catch(AgentException e) {
             var j=store.get(id);
             if(token.cancelled())store.cancel(id);

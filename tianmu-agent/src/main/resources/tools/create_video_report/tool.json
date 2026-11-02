@@ -1,0 +1,10 @@
+{
+  "name": "create_video_report",
+  "description": "Save and deliver a private video-only HTML report from this run's analyze_video_content evidence_id. Only available when reportRequired=true and the frozen sources are exactly VIDEO. Feedback reports must use analyze_feedback then create_feedback_report. No additional model calls.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {"evidence_id": {"type": "string", "maxLength": 80, "description": "Same-run video evidence_id returned by analyze_video_content."}},
+    "required": ["evidence_id"],
+    "additionalProperties": false
+  }
+}

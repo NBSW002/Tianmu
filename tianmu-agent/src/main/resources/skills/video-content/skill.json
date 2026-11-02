@@ -1,9 +1,9 @@
 {
   "name": "video-content",
-  "version": "1.4.1",
-  "description": "理解授权视频的画面或指定片段，回答内容与关键时间点；不需要弹幕日期。纯视频报告仅在明确要求时生成，混合反馈报告须另完成反馈分类。",
+  "version": "2.0.0",
+  "description": "理解授权视频的画面或指定片段，回答内容与关键时间点；不需要弹幕日期。纯视频报告仅在明确要求时生成，混合反馈报告须完成后台反馈分析。",
   "tools": [
     "analyze_video_content",
-    "create_danmaku_report"
+    "create_video_report"
   ]
 }

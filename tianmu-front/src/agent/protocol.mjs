@@ -153,9 +153,8 @@ export function sseDecoder(consume) {
 
 export function progressLabel(data = {}) {
   const tools = {
-    query_danmaku: '查询并抽取弹幕',
-    create_danmaku_report: '归纳话题并生成报告',
-    query_audience: '读取完整弹幕与评论',
+    query_danmaku: '查询弹幕统计',
+    create_video_report: '生成视频内容报告',
     analyze_feedback: '后台分析观众反馈',
     create_feedback_report: '生成反馈报告',
     prepare_comment_draft: '生成评论草稿',

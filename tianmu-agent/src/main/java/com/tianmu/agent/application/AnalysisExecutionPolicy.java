@@ -18,11 +18,9 @@ public final class AnalysisExecutionPolicy {
             case "prepare_comment_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("COMMENT");
             case "prepare_danmaku_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("DANMAKU");
             case "analyze_video_content" -> contract.includes(VIDEO);
-            case "query_video_comments" -> contract.includes(COMMENT) && "comments.analysis".equals(spec.type());
-            case "query_danmaku" -> contract.includes(DANMAKU) && Set.of("danmaku.report", "danmaku.overview").contains(spec.type());
+            case "query_danmaku" -> contract.includes(DANMAKU) && "danmaku.overview".equals(spec.type());
             case "query_video_metrics" -> contract.includes(DANMAKU) && "video.metric".equals(spec.type());
-            case "query_audience" -> !contract.textSources().isEmpty() && "audience.report".equals(spec.type());
-            case "create_danmaku_report" -> contract.reportRequired();
+            case "create_video_report" -> contract.reportRequired() && contract.sources().equals(Set.of(VIDEO));
             default -> true;
         };
     }
@@ -53,6 +51,8 @@ public final class AnalysisExecutionPolicy {
             }
         }
         if (!required.sources().containsAll(covered)) throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Answer cites an unselected source");
+        if(permits("analyze_feedback",spec) && spec.analysis()!=null && evidence.stream().noneMatch(e->e.feedback()!=null))
+            throw new AgentException("INVALID_EVIDENCE","Feedback analysis requires a completed background analysis asset");
         if (!covered.containsAll(required.sources())) throw new AgentException("INVALID_EVIDENCE", "Answer lacks a selected analysis source");
     }
 }

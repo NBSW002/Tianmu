@@ -31,9 +31,8 @@ public class ToolDispatcher {
     private final com.tianmu.agent.application.ReportArtifacts artifacts;
     private final com.tianmu.agent.runtime.store.ConversationStore conversations;
     private com.tianmu.agent.feedback.FeedbackAnalysisService feedback;
-    private boolean feedbackEnabled;
     @org.springframework.beans.factory.annotation.Autowired
-    void feedbackService(com.tianmu.agent.feedback.FeedbackAnalysisService feedback,com.tianmu.agent.feedback.FeedbackPolicy policy){this.feedback=feedback;feedbackEnabled=policy.enabled();}
+    void feedbackService(com.tianmu.agent.feedback.FeedbackAnalysisService feedback){this.feedback=feedback;}
     @org.springframework.beans.factory.annotation.Autowired
     public ToolDispatcher(SkillCatalog skills,RuntimeHarness harness,ToolRegistry registry,com.tianmu.agent.runtime.store.ReportStore reports,
                           com.tianmu.agent.runtime.store.ConversationStore conversations) {
@@ -51,9 +50,6 @@ public class ToolDispatcher {
                 .filter(t -> permitted(t.name(), run)).toList();
     }
     private boolean permitted(String name, RunState run) {
-        if(Set.of("analyze_feedback","create_feedback_report").contains(name) && !feedbackEnabled)return false;
-        if(feedbackEnabled && run.task()!=null && com.tianmu.agent.application.AnalysisExecutionPolicy.permits("analyze_feedback",run.task().specification())
-                && Set.of("query_audience","query_video_comments","query_danmaku","create_danmaku_report").contains(name))return false;
         return com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification());
     }
     private static Evidence bindFeedback(RunState run,com.tianmu.agent.core.FeedbackAnalysis.Asset asset){return com.tianmu.agent.application.FeedbackEvidenceBinding.bind(run,asset);}
@@ -101,25 +97,20 @@ public class ToolDispatcher {
     }
     private final class HostContext implements ToolContext {
         private final RunState run; private final AgentTool tool;
-        private final com.tianmu.agent.application.ReportProgressService reportProgress;
         private final com.tianmu.agent.application.HistoryQueryService history;
         HostContext(RunState run, AgentTool tool) {
             this.run = run; this.tool = tool;
-            this.reportProgress = new com.tianmu.agent.application.ReportProgressService(run, run.execution());
             this.history = new com.tianmu.agent.application.HistoryQueryService(conversations, run.sessionId, run.owner, run.turnSeq);
         }
         public UUID runId() { return run.id; }
         public AccessScope scope() { return run.owner; }
         public LocalDate businessDate() { return run.businessDate; }
-        public String reportCacheVariant(){return run.task()==null?run.query():run.task().query();}
-        public Integer remainingModelCalls(){return Math.max(0,run.modelCallLimit()-run.snapshot().totalModelCalls());}
         public void checkpoint() { run.checkpoint(); }
         public Map<String,Object> history(long before,int limit,String query) {
             run.checkpoint();
             return history.read(before,limit,query);
         }
         public com.tianmu.agent.core.AnalysisContract analysisContract(){return run.task()==null?null:run.task().specification().analysis();}
-        public boolean reportRequiresVideo(){return run.task()!=null && run.task().specification().reading()!=null && run.task().specification().reading().includes(com.tianmu.agent.core.AnalysisContract.Source.VIDEO);}
         public List<Map<String, String>> listSkills() { return skills.list(); }
         public Skill activateSkill(String name) {
             if (!tool.canActivateSkills()) throw new AgentException("TOOL_CAPABILITY_DENIED", "Tool cannot activate skills");
@@ -165,7 +156,7 @@ public class ToolDispatcher {
             if(!run.owner.videoIds().contains(request.query().videoId()))throw new AgentException("FORBIDDEN","Feedback video outside scope");
         }
         public ToolResult analyzeFeedback(String videoEvidenceId,String analysisId){
-            if(feedback==null || !feedbackEnabled || !tool.name().equals("analyze_feedback"))throw new AgentException("FEEDBACK_ANALYSIS_DISABLED","Background analysis unavailable");
+            if(feedback==null || !tool.name().equals("analyze_feedback"))throw new AgentException("FEEDBACK_SERVICE_UNAVAILABLE","Background analysis unavailable");
             var request=com.tianmu.agent.application.FeedbackTaskPolicy.request(run.task()==null?null:run.task().specification());checkFeedback(request);
             VideoContent.Facts video=null;
             if(videoEvidenceId!=null){var ev=evidence(videoEvidenceId);video=ev.videoContent();if(video==null)throw new AgentException("INVALID_EVIDENCE","Expected current video evidence");business.checkVideoQuery(run,video.videoId(),video.startMs(),video.endMs());}
@@ -195,27 +186,6 @@ public class ToolDispatcher {
             checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());return feedback.originalText(asset,topic,original,offset,limit);
         }
         public void checkQuery(MetricQuery query) { business.checkQuery(run, query); }
-        public void checkCommentQuery(com.tianmu.agent.core.DanmakuTypes.Query query) { business.checkCommentQuery(run, query); }
-        public Evidence registerCommentEvidence(com.tianmu.agent.core.VideoComments.Dataset data) {
-            if (!tool.name().equals("query_video_comments")) throw new AgentException("TOOL_CAPABILITY_DENIED", "Only the comment query may register comment evidence");
-            business.checkCommentQuery(run, data.query());
-            Evidence evidence = new Evidence("ev_" + UUID.randomUUID(), run.id, run.owner, null, null, null, data);
-            run.execution().evidence().put(evidence); return evidence;
-        }
-        public int commentOffset(String id) { evidence(id); return run.execution().commentOffset(id); }
-        public void advanceComments(String id, int expected, int next) {
-            if (!tool.name().equals("query_video_comments")) throw new AgentException("TOOL_CAPABILITY_DENIED", "Only the comment query may advance its pages");
-            Evidence value = evidence(id);
-            if (value.comments() == null || next > value.comments().totalComments()) throw new AgentException("INVALID_COMMENT_OFFSET", "Invalid comment page");
-            run.execution().advanceComments(id, expected, next);
-        }
-        public com.tianmu.agent.core.DanmakuClassification reportClassification(String id){
-            return reportProgress.load(id);
-        }
-        public void saveReportClassification(String id,com.tianmu.agent.core.DanmakuClassification progress){
-            if(!tool.name().equals("create_danmaku_report"))throw new AgentException("TOOL_CAPABILITY_DENIED","Only report tool may update its draft");
-            reportProgress.save(id,progress);
-        }
         public Evidence registerEvidence(MetricData data) { return business.registerEvidence(run, data); }
         public <T> T query(Function<CallControl, T> operation) { return harness.toolCall(run, operation); }
         public <T> T videoQuery(Function<CallControl, T> operation) { return harness.videoToolCall(run, operation); }

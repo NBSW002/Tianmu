@@ -44,7 +44,7 @@ public class TaskAssembler {
             specification.provenance().keySet().forEach(key -> provenance.put(key, "server_validated_input"));
             specification = new Specification(specification.type(), specification.conditions(), provenance, specification.analysis());
         }
-        if(feedbackPolicy.enabled()){
+        {
             try{FeedbackTaskPolicy.request(specification);run.executionWindow(feedbackPolicy.timeout());}
             catch(com.tianmu.agent.core.AgentException notAnalysis){if(!"TASK_CONSTRAINT_VIOLATION".equals(notAnalysis.code()))throw notAnalysis;}
         }

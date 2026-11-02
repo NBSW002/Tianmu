@@ -36,16 +36,13 @@ public final class HarnessContextBuilder {
         ObjectNode working=json.createObjectNode();working.set("tools",json.valueToTree(context.availableTools()));
         working.set("results",json.valueToTree(context.observations()));
         int schemas=bounds.deduplicateSchemas(working);
-        var projection=new com.tianmu.agent.application.ReportContextProjection(json).apply(calls,(ArrayNode)working.get("results"));
-        calls=projection.calls();
         List<Map<String,Object>> messages=assemble(instruction,context,history,working,calls);
         while(bytes(messages)>policy.maxInputBytes() && !history.isEmpty()) {
             removeOldestTurn(history);messages=assemble(instruction,context,history,working,calls);
         }
         bounds.check(messages);
         TraceAttributes.apply(Span.current(),Map.of("context.format","native_roles_v1","context.output_bytes",bytes(messages),
-                "context.history_messages",history.size(),"context.schemas_removed",schemas,"context.classified_batches_released",projection.batchesReleased(),
-                "context.report_inputs_released",projection.inputFieldsReleased(),"context.projection_bytes_saved",projection.bytesSaved(),
+                "context.history_messages",history.size(),"context.schemas_removed",schemas,
                 "context.byte_limit",policy.maxInputBytes()));
         return List.copyOf(messages);
     }

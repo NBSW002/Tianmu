@@ -5,7 +5,7 @@ import com.tianmu.agent.runtime.EvidenceContext;
 import com.tianmu.agent.runtime.ExecutionState;
 import java.util.*;
 
-/** Reads existing admitted checkpoints and artifact receipts; does not infer progress from model text. */
+/** Reads completed background assets and report receipts; job progress has a separate durable authority. */
 public final class ReportTaskStateView {
     private final EvidenceContext context;
     private final ExecutionState execution;
@@ -16,23 +16,13 @@ public final class ReportTaskStateView {
         var task = context.task();
         if (task == null || !Set.of("danmaku.report", "audience.report").contains(task.specification().type())) return null;
         var spec = task.specification();
-        var query = ((TaskConditions.Report)spec.typed()).query();
-        var progress = new ReportProgressService(context, execution);
-        var completed=context.evidenceStore().snapshot().values().stream().filter(e->e.runId().equals(context.runId()) && e.owner().equals(context.scope()) && e.feedback()!=null && e.feedback().request().query().equals(query))
-                .map(e->new ReportTaskState.Feedback(e.id(),Math.toIntExact(e.feedback().counts().total()),Math.toIntExact(e.feedback().counts().total()),true,execution.hasReport(e.id()))).toList();
-        if(!completed.isEmpty())return new ReportTaskState(spec.type(),completed);
-        var feedback = context.evidenceStore().snapshot().values().stream()
-                .filter(e -> e.runId().equals(context.runId()) && e.owner().equals(context.scope())
-                        && e.analysis() != null && e.analysis().audience() != null && e.analysis().query().equals(query))
-                .filter(e -> "audience.report".equals(spec.type()) == (e.analysis().sources() != null))
-                .filter(e -> spec.analysis() == null || spec.analysis().textSources().equals(e.analysis().sources() == null
-                        ? Set.of(AnalysisContract.Source.DANMAKU) : e.analysis().sources().selectedSources()))
-                .sorted(Comparator.comparing(e -> e.id()))
-                .map(e -> {
-                    var accepted = progress.load(e.id());
-                    return new ReportTaskState.Feedback(e.id(), accepted.offset(), e.analysis().audience().corpus().size(),
-                            accepted.merged(), execution.hasReport(e.id()));
-                }).toList();
-        return new ReportTaskState(spec.type(), feedback);
+        if(spec.reading().textSources().isEmpty())return new ReportTaskState(spec.type(),List.of());
+        var expected=FeedbackTaskPolicy.request(spec);
+        var feedback=context.evidenceStore().snapshot().values().stream()
+                .filter(e->e.runId().equals(context.runId()) && e.owner().equals(context.scope()) && e.feedback()!=null && e.feedback().request().equals(expected))
+                .sorted(Comparator.comparing(e->e.id()))
+                .map(e->new ReportTaskState.Feedback(e.id(),Math.toIntExact(e.feedback().counts().total()),execution.hasReport(e.id())))
+                .toList();
+        return new ReportTaskState(spec.type(),feedback);
     }
 }

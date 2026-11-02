@@ -18,6 +18,6 @@ public final class CreateFeedbackReportTool implements AgentTool {
         context.checkFeedback(evidence.feedback().request());var asset=service.asset(evidence.feedback().jobId(),context.scope(),evidence.feedback().request());
         var report=context.saveReport(evidence.id(),service.report(asset));
         return new ToolResult(name(),Map.of("artifact_id",report.artifactId(),"url",report.url(),"status","READY"),evidence.id(),
-                new Answer("视频"+asset.request().query().videoId()+"的反馈报告已生成。已完整处理所选来源 "+asset.snapshot().counts().total()+" 条记录，作者发言单独标记。\n[查看 HTML 报告]("+report.url()+")（需登录鉴权）",List.of(evidence.id())));
+                new Answer((asset.model().equals("demo-scripted-feedback")?"【模拟数据】":"")+"视频"+asset.request().query().videoId()+"的反馈报告已生成。已完整处理所选来源 "+asset.snapshot().counts().total()+" 条记录，作者发言单独标记。\n[查看 HTML 报告]("+report.url()+")（需登录鉴权）",List.of(evidence.id())));
     }
 }

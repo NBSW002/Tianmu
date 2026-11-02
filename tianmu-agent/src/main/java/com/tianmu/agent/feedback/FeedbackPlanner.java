@@ -58,6 +58,18 @@ public final class FeedbackPlanner {
         if(input.kind()==WorkKind.CLASSIFY)for(Group g:input.groups()){
             if(g.messages()!=g.originalIds().size() || g.messages()<1 || members.put(g.id(),new long[]{g.messages(),g.author()?g.messages():0})!=null)throw new AgentException("STORAGE_CORRUPT","Invalid classification input");
         } else for(Topic t:input.children())if(members.put(t.id(),new long[]{t.messages(),t.authorMessages()})!=null)throw new AgentException("STORAGE_CORRUPT","Repeated child topic");
+        var supplied=new HashSet<String>();var duplicates=new LinkedHashSet<String>();var unknown=new LinkedHashSet<String>();
+        for(Proposal p:proposals)for(String id:p.members()) {
+            if(!supplied.add(id))duplicates.add(id);
+            if(!members.containsKey(id))unknown.add(id);
+        }
+        var missing=members.keySet().stream().filter(id->!supplied.contains(id)).toList();
+        if(!missing.isEmpty() || !duplicates.isEmpty() || !unknown.isEmpty())
+            throw new FeedbackCorrectionException(new Correction(proposals,missing,List.copyOf(duplicates),List.copyOf(unknown)));
+        for(Proposal p:proposals) {
+            if(p.title()!=null && p.title().length()>100 || p.observation()!=null && p.observation().length()>2400 || p.recommendation()!=null && p.recommendation().length()>1200)
+                throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"TEXT_LIMIT_EXCEEDED"));
+        }
         Set<String> covered=new HashSet<>(),keys=new HashSet<>();var topics=new ArrayList<Topic>();int n=0;
         try {
             for(Proposal p:proposals){

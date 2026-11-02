@@ -40,28 +40,28 @@ class NativeToolHistoryTest {
         assertEquals(4,json.readTree(calls(messages).get(1).path("function").path("arguments").asText()).path("limit").asInt());
     }
     @Test void equalResultsDoNotMergeSeparateNativeReadGroups() {
-        var result=new ToolResult("query_audience",Map.of("count",0),null);
+        var result=new ToolResult("analyze_feedback",Map.of("count",0),null);
         var observations=new ArrayList<ToolResult>();var exchanges=new ArrayList<ToolExchange>();
         for(int i=1;i<=4;i++) {
-            var call=new ToolCall("query_audience",Map.of("video_id",i),"p"+i,i<=2?"g1":"g2");
+            var call=new ToolCall("analyze_feedback",Map.of("video_id",i),"p"+i,i<=2?"g1":"g2");
             observations.add(result);exchanges.add(new ToolExchange(call,result));
         }
         var messages=build(observations,exchanges);
         assertEquals(List.of("p1","p2","p3","p4"),replyIds(messages));paired(messages);
         assertEquals(List.of(2,2),messages.stream().filter(m->m.containsKey("tool_calls")).map(m->((List<?>)m.get("tool_calls")).size()).toList());
     }
-    @Test void historyTrimmingAndClassifiedBodyReleaseKeepCallsGroupsAndUnreadDataWithoutMutatingRecords() throws Exception {
-        var first=new ToolResult("query_audience",Map.of("evidence_id","ev_a","classification",Map.of("offset",0,"groups",List.of(Map.of("text","旧原文".repeat(5000))))),"ev_a");
+    @Test void historyTrimmingKeepsCompactBackgroundReceiptsAndTopicReadsWithoutMutatingRecords() throws Exception {
+        var first=new ToolResult("analyze_feedback",Map.of("evidence_id","ev_a","status","READY","total_messages",20000),"ev_a");
         var video=new ToolResult("analyze_video_content",Map.of("summary","画面"),"ev_v");
-        var last=new ToolResult("create_danmaku_report",Map.of("evidence_id","ev_a","classification",Map.of("offset",40,"total_groups",80,"groups",List.of(Map.of("text","未读原文")))),"ev_a");
+        var last=new ToolResult("read_result",Map.of("evidence_id","ev_a","topics",List.of(Map.of("observation","已读主题"))),"ev_a");
         var exchanges=List.of(new ToolExchange(new ToolCall(first.tool(),Map.of(),"q1","batch"),first),
                 new ToolExchange(new ToolCall(video.tool(),Map.of("video_id",1001),"v1","batch"),video),
-                new ToolExchange(new ToolCall(last.tool(),Map.of("offset",0,"evidence_id","ev_a","topics_json","[]"),"r1"),last));
+                new ToolExchange(new ToolCall(last.tool(),Map.of("offset",0,"evidence_id","ev_a","section","topics"),"r1"),last));
         var turn=UUID.randomUUID();var memory=new MemoryTypes.View(1,"",List.of(new MemoryTypes.Message(UUID.randomUUID(),turn,1,"user","old question",Instant.now())),false,"");
         var context=context(List.of(first,video,last),exchanges,memory);String original=json.writeValueAsString(context);
         var messages=new HarnessContextBuilder(json,new ContextPolicy(4096,0)).build("rules",context);
         assertEquals(List.of("q1","v1","r1"),replyIds(messages));paired(messages);
-        String output=json.writeValueAsString(messages);assertFalse(output.contains("旧原文"));assertFalse(output.contains("old question"));assertTrue(output.contains("未读原文"));
+        String output=json.writeValueAsString(messages);assertFalse(output.contains("旧原文"));assertFalse(output.contains("old question"));assertTrue(output.contains("已读主题"));
         assertEquals(original,json.writeValueAsString(context));
     }
     @Test void legacyMissingIdsRemainStableAndNeverCollideWithRealProviderIds() {

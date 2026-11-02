@@ -38,19 +38,12 @@ class ArchitectureBoundaryTest {
         org.junit.jupiter.api.Assertions.assertFalse(com.tianmu.agent.runtime.store.ConversationStore.class.isAssignableFrom(com.tianmu.agent.runtime.store.RunRepository.class));
         org.junit.jupiter.api.Assertions.assertFalse(com.tianmu.agent.runtime.store.ReportStore.class.isAssignableFrom(com.tianmu.agent.runtime.store.RunRepository.class));
     }
-    @Test void reportProgressCannotReachRunLifecycleModelsOrToolImplementations() {
-        var classes = new ClassFileImporter().importClasses(com.tianmu.agent.application.ReportProgressService.class);
-        noClasses().should().dependOnClassesThat().haveFullyQualifiedName("com.tianmu.agent.runtime.RunState").check(classes);
-        noClasses().should().dependOnClassesThat().resideInAnyPackage("..model..", "..harness..", "..tool..", "..adapters..").check(classes);
-    }
+
     @Test void historyQueryCannotMutateActiveRunStateOrCallModelsAndToolImplementations() {
         var classes = new ClassFileImporter().importClasses(com.tianmu.agent.application.HistoryQueryService.class);
         noClasses().should().dependOnClassesThat().haveFullyQualifiedName("com.tianmu.agent.runtime.RunState").check(classes);
         noClasses().should().dependOnClassesThat().haveFullyQualifiedName("com.tianmu.agent.runtime.ExecutionState").check(classes);
         noClasses().should().dependOnClassesThat().resideInAnyPackage("..model..", "..harness..", "..tool..", "..adapters..").check(classes);
     }
-    @Test void reportContextProjectionCannotReachExecutionOrStorageAndOnlyBuildsAView() {
-        var classes = new ClassFileImporter().importClasses(com.tianmu.agent.application.ReportContextProjection.class);
-        noClasses().should().dependOnClassesThat().resideInAnyPackage("..runtime..","..adapters..","..tool..","..model..","..harness..").check(classes);
-    }
+
 }

@@ -42,10 +42,10 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
         work.put(w.id(),new Work(w.id(),w.jobId(),w.kind(),w.level(),w.ordinal(),w.input(),result,"COMPLETE",w.fence(),w.attempts(),w.leaseUntil()));
         jobs.put(j.id(),changed(j,j.phase(),null,j.snapshot(),j.video(),j.asset(),j.completedWork()+1,j.chargedTokens(),j.modelCalls()));return true;
     }
-    public synchronized boolean retry(Work claim,String error,Instant at,int max) {
+    public synchronized boolean retry(Work claim,String error,Instant at,int max,Blob correctedInput) {
         var w=work.get(claim.id());var j=get(claim.jobId());if(w==null || !active(j.phase()) || !w.state().equals("RUNNING") || w.fence()!=claim.fence())return false;
         if(w.attempts()>=max){fail(j.id(),error);return false;}
-        work.put(w.id(),new Work(w.id(),w.jobId(),w.kind(),w.level(),w.ordinal(),w.input(),null,"PENDING",w.fence(),w.attempts(),Instant.MIN));available.put(w.id(),at);return true;
+        work.put(w.id(),new Work(w.id(),w.jobId(),w.kind(),w.level(),w.ordinal(),correctedInput==null?w.input():correctedInput,null,"PENDING",w.fence(),w.attempts(),Instant.MIN));available.put(w.id(),at);return true;
     }
     public synchronized List<Work> completedLevel(UUID id,int level) {
         var rows=work.values().stream().filter(w->w.jobId().equals(id) && w.level()==level).sorted(Comparator.comparingInt(Work::ordinal)).toList();

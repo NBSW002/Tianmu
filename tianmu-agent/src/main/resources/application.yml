@@ -29,7 +29,6 @@ management:
           include: readinessState,agentStorage
 agent:
   feedback:
-    enabled: ${AGENT_FEEDBACK_ENABLED:false}
     max-records: 20000
     max-snapshot-bytes: 67108864
     batch-bytes: 24000

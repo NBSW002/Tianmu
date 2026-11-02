@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import java.time.Duration;
 
 @ConfigurationProperties("agent.feedback")
-public record FeedbackPolicy(@DefaultValue("false") boolean enabled, @DefaultValue("20000") int maxRecords,
+public record FeedbackPolicy(@DefaultValue("20000") int maxRecords,
         @DefaultValue("67108864") long maxSnapshotBytes, @DefaultValue("24000") int batchBytes,
         @DefaultValue("40") int batchGroups, @DefaultValue("8") int mergeFanIn,
         @DefaultValue("2000") int maxModelCalls, @DefaultValue("16000000") long maxTokens,
@@ -17,5 +17,5 @@ public record FeedbackPolicy(@DefaultValue("false") boolean enabled, @DefaultVal
                 || timeout==null || timeout.compareTo(Duration.ofMinutes(1))<0 || timeout.compareTo(Duration.ofHours(6))>0
                 || modelTimeout==null || modelTimeout.toSeconds()<1 || modelTimeout.toSeconds()>60)throw new IllegalArgumentException("Invalid feedback execution policy");
     }
-    public static FeedbackPolicy defaults(){return new FeedbackPolicy(false,20000,67108864,24000,40,8,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
+    public static FeedbackPolicy defaults(){return new FeedbackPolicy(20000,67108864,24000,40,8,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
 }

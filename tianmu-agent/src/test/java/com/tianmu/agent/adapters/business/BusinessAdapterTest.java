@@ -88,56 +88,14 @@ class BusinessAdapterTest {
         feedbackStatus=422;feedbackBody="{\"code\":\"FULL_ANALYSIS_TOO_LARGE\"}";
         assertEquals("FULL_ANALYSIS_TOO_LARGE",assertThrows(AgentException.class,()->adapter.export(request,scope,control,rows->{})).code());
     }
-    @Test void selectiveAudienceRequestsOnlyChosenBridgeAndMarksUnqueriedSources() {
-        var end=LocalDateTime.now(com.tianmu.agent.core.DanmakuTypes.ZONE).minusHours(1).withNano(0);
-        var q=new com.tianmu.agent.core.DanmakuTypes.Query(1001,end.minusDays(7),end);
-        var row=new com.tianmu.agent.core.VideoComments.Comment("123",null,"882","观众","原文",q.start().plusHours(1).atZone(com.tianmu.agent.core.DanmakuTypes.ZONE).toInstant(),true,false,false);
-        commentPayload=new com.tianmu.agent.core.VideoComments.Dataset("video-comments-v1",q,1,1,1,List.of(row),Instant.now(),"fixture");
-        var scope=adapter.forCreate("token","分析视频1001的评论报告",null);
-        paths.clear();
-        var comments=adapter.audience(q,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken()),Set.of(com.tianmu.agent.core.AnalysisContract.Source.COMMENT));
-        assertEquals(List.of("/internal/agent/comments-analysis"),paths);
-        assertEquals(Set.of(com.tianmu.agent.core.AnalysisContract.Source.COMMENT),comments.sources().selectedSources());
-        assertEquals(1,comments.sources().comments());assertEquals(0,comments.sources().danmaku());
-        paths.clear();completeAudience=true;
-        var danmaku=adapter.audience(q,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken()),Set.of(com.tianmu.agent.core.AnalysisContract.Source.DANMAKU));
-        assertEquals(List.of("/internal/agent/danmaku-analysis"),paths);
-        assertEquals(Set.of(com.tianmu.agent.core.AnalysisContract.Source.DANMAKU),danmaku.sources().selectedSources());
-        paths.clear();
-        assertThrows(AgentException.class,()->adapter.audience(q,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken()),Set.of(com.tianmu.agent.core.AnalysisContract.Source.VIDEO)));
-        assertTrue(paths.isEmpty());
-    }
+
     @Test void sourceFollowupReauthorizesSessionResourcesBeforeGrantingThem() {
         UUID session=UUID.randomUUID();when(repository.resourcesForSession(eq(session),any(),eq(Long.MAX_VALUE))).thenReturn(Set.of(1001L,1002L));
         // Use the public overload with context/session rather than trusting historical permission.
         assertEquals(Set.of(1001L),adapter.forCreate("token","这次只看评论",null,null,session).videoIds());
     }
-    @Test void completeCommentWireDataPreservesLongIdsAndIncompleteDataIsRejected() {
-        var end = LocalDateTime.now(com.tianmu.agent.core.DanmakuTypes.ZONE).minusHours(1).withNano(0);
-        var q = new com.tianmu.agent.core.DanmakuTypes.Query(1001,end.minusDays(7),end);
-        var c = new com.tianmu.agent.core.VideoComments.Comment("2114367144786530304",null,"882","观众","原文",
-                q.start().plusHours(1).atZone(com.tianmu.agent.core.DanmakuTypes.ZONE).toInstant(),true,false,false);
-        var data = new com.tianmu.agent.core.VideoComments.Dataset("video-comments-v1",q,1,1,1,List.of(c),Instant.now(),"fixture");
-        var wire = mapper.valueToTree(data);
-        ((com.fasterxml.jackson.databind.node.ObjectNode)wire).put("totalComments","1");
-        ((com.fasterxml.jackson.databind.node.ObjectNode)wire.path("query")).put("videoId","1001");
-        commentPayload = wire;
-        var scope = adapter.forCreate("token","分析视频1001的评论",null);
-        assertEquals(c,adapter.comments(q,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken())).comments().get(0));
-        ((com.fasterxml.jackson.databind.node.ObjectNode)wire).put("totalComments","2");
-        assertEquals("INVALID_EVIDENCE",assertThrows(AgentException.class,()->adapter.comments(q,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken()))).code());
-    }
-    @Test void commentCapacityFailureIsExplicitAndUnauthorizedVideoNeverCallsBridge() {
-        var end = LocalDateTime.now(com.tianmu.agent.core.DanmakuTypes.ZONE).minusHours(1).withNano(0);
-        var q = new com.tianmu.agent.core.DanmakuTypes.Query(1001,end.minusDays(7),end);
-        var scope = adapter.forCreate("token","分析视频1001的评论",null);
-        metricStatus = 422;
-        assertEquals("FULL_ANALYSIS_TOO_LARGE",assertThrows(AgentException.class,()->adapter.comments(q,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken()))).code());
-        int before = headers.size();
-        var other = new com.tianmu.agent.core.DanmakuTypes.Query(1002,q.start(),q.end());
-        assertEquals("FORBIDDEN",assertThrows(AgentException.class,()->adapter.comments(other,scope,new CallControl(Instant.now().plusSeconds(5),new CancellationToken()))).code());
-        assertEquals(before,headers.size());
-    }
+
+
     @Test void onlyRequestedVideoIsGrantedAndRawCredentialIsNeverSerialized() throws Exception {
         var scope=adapter.forCreate("private-test-token","查询视频1001昨天的弹幕数",null);
         assertEquals(Set.of(1001L),scope.videoIds()); assertFalse(scope.authorizationRef().isBlank());

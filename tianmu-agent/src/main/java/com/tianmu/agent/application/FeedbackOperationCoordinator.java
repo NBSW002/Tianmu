@@ -14,13 +14,13 @@ import java.util.concurrent.*;
 /** Scheduler never blocks on a model. A job is dispatched only after its run's wait is durably visible. */
 @Component
 public final class FeedbackOperationCoordinator {
-    private final FeedbackAnalysisService service;private final RunService runs;private final FeedbackPolicy policy;
+    private final FeedbackAnalysisService service;private final RunService runs;
     private final com.tianmu.agent.harness.RuntimeHarness harness;
     private final TaskAssembler assembler;
     private final ThreadPoolExecutor workers;
     private final Set<UUID> submitted=ConcurrentHashMap.newKeySet();private final Map<UUID,Long> progress=new ConcurrentHashMap<>();
-    public FeedbackOperationCoordinator(FeedbackAnalysisService service,RunService runs,FeedbackPolicy policy,com.tianmu.agent.harness.RuntimeHarness harness,TaskAssembler assembler){
-        this.service=service;this.runs=runs;this.policy=policy;this.harness=harness;this.assembler=assembler;
+    public FeedbackOperationCoordinator(FeedbackAnalysisService service,RunService runs,com.tianmu.agent.harness.RuntimeHarness harness,TaskAssembler assembler){
+        this.service=service;this.runs=runs;this.harness=harness;this.assembler=assembler;
         workers=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(2),r->{var t=new Thread(r,"feedback-worker");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
     }
     @Scheduled(scheduler="maintenanceScheduler", fixedDelay=500)
@@ -30,7 +30,6 @@ public final class FeedbackOperationCoordinator {
                 var op=run.snapshot().operation();if(op==null || !op.kind().equals("feedback-analysis"))continue;
                 try{
                     assembler.verify(run.task());
-                    if(!policy.enabled()){service.cancel(op.id());run.fail("FEEDBACK_ANALYSIS_DISABLED");continue;}
                     var job=service.forRun(run.id);if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
                     if(job.phase()==Phase.READY){
                         run.emit("PROGRESS",Map.of("stage","feedback_analysis","phase","READY","completed_work",job.completedWork(),"model_calls",job.modelCalls(),"charged_tokens",job.chargedTokens()));

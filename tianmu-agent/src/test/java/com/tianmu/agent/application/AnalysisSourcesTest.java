@@ -31,7 +31,7 @@ class AnalysisSourcesTest {
         assertTrue(TaskMeaning.defaults().resolve("视频1001的评论报告", day, at).reading().reportRequired());
         for(String query:List.of("分析视频1001的评论，不需要报告","分析视频1001的弹幕，不用生成报告","分析视频1001的评论和弹幕，不需要报告")) {
             var plain=TaskMeaning.defaults().resolve(query,day,at);
-            assertFalse(plain.reading().reportRequired(),query);assertFalse(AnalysisExecutionPolicy.permits("create_danmaku_report",plain));
+            assertFalse(plain.reading().reportRequired(),query);assertFalse(AnalysisExecutionPolicy.permits("create_feedback_report",plain));
         }
     }
     @Test void mixedReportFreezesPlaybackBoundsSeparatelyFromCollectionDates() {
@@ -72,7 +72,7 @@ class AnalysisSourcesTest {
         assertEquals("AMBIGUOUS_ANALYSIS_SOURCES",assertThrows(AgentException.class,()->TaskMeaning.defaults().resolve("只读取视频1001",day,at)).code());
         var spec=TaskMeaning.defaults().resolve("视频1001的评论报告，只分析评论",day,at);
         assertFalse(AnalysisExecutionPolicy.permits("analyze_video_content",spec));assertFalse(AnalysisExecutionPolicy.permits("query_danmaku",spec));
-        assertTrue(AnalysisExecutionPolicy.permits("query_audience",spec));
+        assertTrue(AnalysisExecutionPolicy.permits("analyze_feedback",spec));
         assertEquals("TASK_CONSTRAINT_VIOLATION",assertThrows(AgentException.class,()->AnalysisExecutionPolicy.requireSource(spec,VIDEO)).code());
     }
 }

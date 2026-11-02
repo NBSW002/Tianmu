@@ -9,14 +9,6 @@ import java.util.*;
 
 /** Business admission and evidence rules, independent of tool discovery and dispatch. */
 public final class BusinessEvidencePolicy {
-        public void checkCommentQuery(EvidenceContext run, com.tianmu.agent.core.DanmakuTypes.Query query) {
-            AnalysisExecutionPolicy.requireSource(run.task() == null ? null : run.task().specification(), com.tianmu.agent.core.AnalysisContract.Source.COMMENT);
-            run.checkpoint(); query.checkTime(Instant.now());
-            if (!run.scope().videoIds().contains(query.videoId())) throw new AgentException("FORBIDDEN", "Video outside scope");
-            if (run.task() == null || !"comments.analysis".equals(run.task().specification().type())
-                    || !((TaskConditions.Report) run.task().specification().typed()).query().equals(query))
-                throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Comments differ from prepared task");
-        }
         public void checkQuery(EvidenceContext run, MetricQuery query) {
             AnalysisExecutionPolicy.requireSource(run.task() == null ? null : run.task().specification(), com.tianmu.agent.core.AnalysisContract.Source.DANMAKU);
             run.checkpoint();

@@ -1,11 +1,9 @@
 {
   "name": "audience-report",
-  "version": "2.0.0",
-  "description": "按冻结来源完整分析所选评论、弹幕及回复，逐批归类；选中 VIDEO 时才结合画面。代码累计主题、核对覆盖并保存私有 HTML。",
+  "version": "3.0.0",
+  "description": "按冻结来源完整分析所选评论、弹幕及回复，后台完整分析；选中 VIDEO 时才结合画面。代码累计主题、核对覆盖并保存私有 HTML。",
   "tools": [
-    "query_audience",
     "analyze_video_content",
-    "create_danmaku_report",
     "analyze_feedback",
     "create_feedback_report"
   ],

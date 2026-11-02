@@ -93,10 +93,10 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
             if(changed==1)db.update("UPDATE agent_feedback_job SET completed_work=completed_work+1,version=version+1 WHERE job_id=?",w.jobId().toString());return changed==1;
         });
     }
-    public boolean retry(Work w,String error,Instant at,int max) {
+    public boolean retry(Work w,String error,Instant at,int max,Blob correctedInput) {
         return write(()->{
             Job j=locked(w.jobId());if(!running(j))return false;
-            int changed=db.update("UPDATE agent_feedback_work SET state=?,available_at=?,error_code=?,lease_until=NULL WHERE work_id=? AND state='RUNNING' AND fence=?",w.attempts()>=max?"FAILED":"PENDING",stamp(at),error,w.id().toString(),w.fence());
+            int changed=db.update("UPDATE agent_feedback_work SET state=?,available_at=?,error_code=?,lease_until=NULL,input_json=COALESCE(CAST(? AS JSON),input_json) WHERE work_id=? AND state='RUNNING' AND fence=?",w.attempts()>=max?"FAILED":"PENDING",stamp(at),error,correctedInput==null?null:encode(correctedInput),w.id().toString(),w.fence());
             if(changed==1 && w.attempts()>=max)fail(j.id(),error);return changed==1 && w.attempts()<max;
         });
     }
