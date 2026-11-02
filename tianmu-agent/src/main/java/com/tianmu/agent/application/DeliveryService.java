@@ -62,7 +62,10 @@ public class DeliveryService {
             validateAnswer(answer, run);
             // Notes are derived from validated, owned evidence rather than model-generated metadata.
             List<Evidence> evidence = answer.evidenceIds().stream().distinct().map(id -> run.execution().evidence().get(id)).toList();
-            if (run.task() != null) AnalysisExecutionPolicy.requireComplete(run.task().specification(), evidence);
+            if (run.task() != null) {
+                AnalysisExecutionPolicy.requireComplete(run.task().specification(), evidence);
+                AnalysisExecutionPolicy.requireTopicsRead(run.task().specification(), evidence, run.execution().exchanges());
+            }
             List<AnswerNote> notes = EvidencePresentation.notes(evidence);
             answer = new Answer(answer.text(), answer.evidenceIds(), notes);
             run.checkpoint();

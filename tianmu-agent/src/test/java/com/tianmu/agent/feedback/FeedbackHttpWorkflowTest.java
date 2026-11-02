@@ -77,6 +77,22 @@ class FeedbackHttpWorkflowTest {
         assertEquals(Set.of(Source.COMMENT),evidence.feedback().request().sources());assertFalse(run.execution().hasReport(evidence.id()));
         assertTrue(run.execution().observations().stream().anyMatch(r->r.tool().equals("read_result")));
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"NONE","summary","topics"})
+    void readyMetadataOrAnEmptyLastPageCannotSubstituteForReadingTopics(String section)throws Exception {
+        doAnswer(inv->{
+            ModelContext c=inv.getArgument(0);
+            if(!c.activeSkills().contains("audience-report"))return Decision.tool("read_skill",Map.of("name","audience-report"));
+            var ready=c.observations().stream().filter(r->r.tool().equals("analyze_feedback")).findFirst();
+            if(ready.isEmpty())return Decision.tool("analyze_feedback",Map.of());
+            if(!section.equals("NONE") && c.observations().stream().noneMatch(r->r.tool().equals("read_result")))
+                return Decision.tool("read_result",Map.of("result_id",ready.get().evidenceId(),"section",section,"offset",section.equals("topics")?999:0));
+            return Decision.answer("直接给出尚未读取的反馈结论。",List.of(ready.get().evidenceId()));
+        }).when(model).decide(any(),any());
+        var run=runs.create("分析视频1001的评论，不需要报告，也不读取视频内容",owner);await(run);
+        assertEquals(Status.FAILED,run.snapshot().status());assertEquals("INVALID_EVIDENCE",run.snapshot().errorCode());
+        assertNull(run.snapshot().answer());
+    }
     void await(RunState run)throws InterruptedException {
         long until=System.nanoTime()+20_000_000_000L;
         while(!AgentTypes.terminal(run.snapshot().status()) && System.nanoTime()<until)Thread.sleep(20);

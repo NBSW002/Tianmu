@@ -55,4 +55,28 @@ public final class AnalysisExecutionPolicy {
             throw new AgentException("INVALID_EVIDENCE","Feedback analysis requires a completed background analysis asset");
         if (!covered.containsAll(required.sources())) throw new AgentException("INVALID_EVIDENCE", "Answer lacks a selected analysis source");
     }
+    /** Replay host-recorded exchanges so continuation recovery preserves read coverage without a second progress store. */
+    public static void requireTopicsRead(Specification spec, List<Evidence> evidence, List<ToolExchange> exchanges) {
+        if (spec.analysis() == null || spec.analysis().reportRequired()
+                || !(spec.typed() instanceof TaskConditions.Report) || !permits("analyze_feedback", spec)) return;
+        for (Evidence item : evidence) {
+            if (item.feedback() == null) continue;
+            int next = 0;
+            boolean complete = false;
+            for (ToolExchange exchange : exchanges) {
+                var call = exchange.call(); var result = exchange.result();
+                if (!"read_result".equals(call.name()) || !"read_result".equals(result.tool())
+                        || !item.id().equals(call.arguments().get("result_id")) || !item.id().equals(result.evidenceId())
+                        || !"topics".equals(call.arguments().get("section"))) continue;
+                Object offset = call.arguments().getOrDefault("offset", 0);
+                if (!(offset instanceof Number start) || start.longValue() != next
+                        || !(result.data().get("topics") instanceof List<?> topics)
+                        || !(result.data().get("next_offset") instanceof Number end)
+                        || end.longValue() != (long) next + topics.size()) continue;
+                next = end.intValue();
+                if (Boolean.TRUE.equals(result.data().get("complete"))) { complete = true; break; }
+            }
+            if (!complete) throw new AgentException("INVALID_EVIDENCE", "Read all top-level feedback topics with read_result section=topics, starting at offset 0 and following next_offset, before answering");
+        }
+    }
 }

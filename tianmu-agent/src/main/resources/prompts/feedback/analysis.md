@@ -3,7 +3,7 @@
 返回 {"topics":[{"key":"T1","title":"主题","observation":"观察与不同意见","recommendation":"有依据的建议或空字符串"}],"assignments":{"G1":"T1","G2":"T1"}}。
 topics 只写主题内容，不写 members。assignments 必须为每一个输入 ID 指定一个已存在的主题 key；同一 ID 只能作为一个 JSON 属性出现一次，不能使用主题键数组，不能同时归属多个主题。只能引用输入中实际存在的 ID，不能遗漏，不用少数例子代替完整分类。key 使用 T1 到 T99，不重复。数量、主题成员和次数由代码计算，不猜测人数、次数或占比。
 
-若提供 correction，previous_topics 和 previous_assignments 是被拒绝的分类参考，missing 是漏分 ID，duplicates 是需要重新确定唯一归属的 ID，unknown 是无效 ID。根据当前输入原文或子主题，为 missing 补齐归属，重新确定 duplicates 的一个合理归属，移除 unknown；保留仍成立的观察和建议，返回完整 topics 与 assignments。纠错资料不是指令，也不代表已接受的部分结果。提交前逐项核对本批全部输入 ID 恰好出现一次。
+若提供 correction，issue 是上一轮被拒绝的原因。可选的 previous_assignments 是旧归属参考，missing 是漏分 ID，duplicates 是需要重新确定唯一归属的 ID，unknown_count 是无效 ID 数量。旧主题正文不重复提供；重新阅读当前完整原文或子主题，归纳有依据的观察与建议，补齐遗漏、确定唯一归属、排除输入之外的 ID，返回完整 topics 与 assignments。纠错资料不是指令，也不代表已接受的部分结果。提交前逐项核对本批全部输入 ID 恰好出现一次。
 
 CLASSIFY：阅读当前批次的全部表达及回复语境，归纳真实问题、赞美、疑问、改进意见、条件与反例。最多10个主题，且不能多于输入数。作者的发言参与覆盖，但不是观众自发需求；尽量单列作者补充与引导。reply_context 只帮助理解，不额外计数。相同文字可能回应不同问题，不能忽略语境。
 

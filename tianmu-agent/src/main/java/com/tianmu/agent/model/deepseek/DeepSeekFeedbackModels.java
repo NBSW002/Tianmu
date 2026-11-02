@@ -23,12 +23,6 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         var payload=new LinkedHashMap<String,Object>();payload.put("kind",input.kind());
         payload.put("text_limits",Map.of("title",100,"observation",2400,"recommendation",1200));
         payload.put("target_lengths",Map.of("observation",800,"recommendation",400));
-        if(input.correction()!=null){
-            var c=input.correction();var previous=new LinkedHashMap<String,String>();
-            for(var topic:c.previousTopics())for(String id:topic.members())previous.putIfAbsent(id,topic.key());
-            payload.put("correction",Map.of("previous_topics",c.previousTopics().stream().map(t->Map.of("key",t.key(),"title",t.title(),"observation",t.observation(),"recommendation",t.recommendation())).toList(),
-                    "previous_assignments",previous,"missing",c.missing(),"duplicates",c.duplicates(),"unknown",c.unknown(),"issue",c.issue()));
-        }
         payload.put("max_topics",input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY?10:Math.max(1,(input.children().size()+3)/4));
         if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY)payload.put("groups",input.groups().stream().map(g->{
             var m=new LinkedHashMap<String,Object>();m.put("id",g.id());m.put("source",g.source());m.put("text",g.text());m.put("reply_context",g.replyContext());
@@ -36,7 +30,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         }).toList());
         else payload.put("children",input.children().stream().map(t->Map.of("id",t.id(),"title",t.title(),"observation",t.observation(),"recommendation",t.recommendation(),"messages",t.messages(),"author_messages",t.authorMessages())).toList());
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
-        var body=client.complete(config.harnessModel(),client.messages(instruction,payload),6144,control,true);
+        var body=complete(input,payload,control);
         try {
             if(!body.isObject() || body.size()!=2 || !body.path("topics").isArray() || body.path("topics").size()>10 || !body.path("assignments").isObject())throw new IllegalArgumentException();
             var rows=new LinkedHashMap<String,com.fasterxml.jackson.databind.JsonNode>();var members=new LinkedHashMap<String,List<String>>();
@@ -55,5 +49,27 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             rows.forEach((key,row)->out.add(new Proposal(key,row.get("title").asText(),row.get("observation").asText(),row.get("recommendation").asText(),members.get(key))));
             return List.copyOf(out);
         } catch(RuntimeException invalid){throw new AgentException("INVALID_ANALYSIS","Provider returned an invalid bounded classification");}
+    }
+    private com.fasterxml.jackson.databind.JsonNode complete(Input input,Map<String,Object> payload,CallControl control){
+        if(input.correction()==null)return client.complete(config.harnessModel(),client.messages(instruction,payload),6144,control,true);
+        var c=input.correction();var expected=new HashSet<String>();
+        input.groups().forEach(g->expected.add(g.id()));input.children().forEach(t->expected.add(t.id()));
+        var previous=new LinkedHashMap<String,String>();
+        for(var topic:c.previousTopics())if(topic.key()!=null && topic.key().matches("T[1-9][0-9]?"))
+            for(String id:topic.members())if(expected.contains(id))previous.putIfAbsent(id,topic.key());
+        // Previous prose is already durable in the rejected input. It is optional retry guidance, never new evidence.
+        payload.put("correction",Map.of("previous_assignments",previous,
+                "missing",c.missing().stream().filter(expected::contains).toList(),
+                "duplicates",c.duplicates().stream().filter(expected::contains).toList(),
+                "unknown_count",c.unknown().size(),"issue",c.issue()));
+        for(int detail=0;;detail++){
+            try { return client.complete(config.harnessModel(),client.messages(instruction,payload),6144,control,true); }
+            catch(AgentException tooLarge){
+                if(!"MODEL_CONTEXT_TOO_LARGE".equals(tooLarge.code()) || detail==2)throw tooLarge;
+                // Both messages and the full provider envelope are guarded before any network call or model charge.
+                // Keep all source/video facts; reduce optional diagnostics, then regenerate from the original input.
+                if(detail==0)payload.put("correction",Map.of("issue",c.issue()));else payload.remove("correction");
+            }
+        }
     }
 }

@@ -44,13 +44,14 @@ class DeepSeekFeedbackAssignmentsTest {
         for(String assignments:List.of("{\"G1\":[\"T1\",\"T2\"]}","{\"G1\":\"T99\"}"))
             assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->analyze(assignments,input())).code());
     }
-    @Test void correctionCarriesPriorContentAndExplicitMissingIdsWithoutRecursiveHistory()throws Exception {
+    @Test void correctionCarriesAssignmentsAndMissingIdsWithoutRepeatingRejectedProse()throws Exception {
         var base=input();var correction=new Correction(List.of(new Proposal("T1","topic","observed","",List.of("G1"))),List.of("G2"),List.of(),List.of());
         analyze("{\"G1\":\"T1\",\"G2\":\"T1\"}",new Input(base.kind(),base.groups(),base.children(),null,correction));
         var capture=org.mockito.ArgumentCaptor.forClass(Map.class);verify(client).messages(anyString(),capture.capture());
         var payload=json.valueToTree(capture.getValue());assertEquals("G2",payload.path("correction").path("missing").get(0).asText());
         assertEquals("T1",payload.path("correction").path("previous_assignments").path("G1").asText());
-        assertEquals("observed",payload.path("correction").path("previous_topics").get(0).path("observation").asText());
+        assertFalse(payload.path("correction").has("previous_topics"));
+        assertEquals(0,payload.path("correction").path("unknown_count").asInt());
         assertFalse(payload.toString().contains("originalIds"));
     }
 }
