@@ -27,9 +27,17 @@ class FeedbackReadCoverageTest {
         rejected(List.of(page(evidence.id(),"summary",0,2,true)));rejected(List.of(page(evidence.id(),"children",0,2,true)));
         accepted(List.of(first,last));accepted(List.of(first,first,last));
     }
-    @Test void emptyResultMustStillBeReadFromTheBeginning(){
+    @Test void emptyPageCannotBypassTheReadingRulesForANonemptySnapshot(){
         accepted(List.of(page(evidence.id(),"topics",0,0,true)));
         rejected(List.of(page(evidence.id(),"topics",100,0,true)));
+    }
+    @Test void verifiedZeroRecordSnapshotNeedsNoEmptyTopicRoundTripButNonEmptyStillDoes(){
+        var b=evidence.feedback();
+        var empty=new Evidence("ev_empty",evidence.runId(),evidence.owner(),null,null,null,null,null,
+                new FeedbackAnalysis.Binding(b.jobId(),b.request(),new FeedbackAnalysis.Counts(0,0,0,0,0),b.dataAsOf(),b.snapshotHash(),b.model(),b.policyHash()));
+        assertDoesNotThrow(()->AnalysisExecutionPolicy.requireComplete(spec,List.of(empty)));
+        assertDoesNotThrow(()->AnalysisExecutionPolicy.requireTopicsRead(spec,List.of(empty),List.of()));
+        rejected(List.of());
     }
     @Test void restoredContinuationUsesTheSameReadCoverage(){
         var state=new ExecutionState();var pages=List.of(page(evidence.id(),"topics",0,1,false),page(evidence.id(),"topics",1,1,true));

@@ -62,6 +62,9 @@ public final class AnalysisExecutionPolicy {
                 || !(spec.typed() instanceof TaskConditions.Report) || !permits("analyze_feedback", spec)) return;
         for (Evidence item : evidence) {
             if (item.feedback() == null) continue;
+            // A completed, verified empty snapshot has no semantic topics to read. Non-empty
+            // snapshots still require the same contiguous, host-recorded reading coverage.
+            if (item.feedback().counts().total() == 0) continue;
             int next = 0;
             boolean complete = false;
             for (ToolExchange exchange : exchanges) {
