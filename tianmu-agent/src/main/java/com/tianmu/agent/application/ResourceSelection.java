@@ -1,6 +1,7 @@
 package com.tianmu.agent.application;
 
 import com.tianmu.agent.core.AgentTypes.ToolResult;
+import com.tianmu.agent.core.AgentTypes.ModelContext;
 import com.tianmu.agent.core.TaskTypes.Specification;
 import java.util.*;
 
@@ -11,6 +12,18 @@ public final class ResourceSelection {
         if(task==null || !"resource.lookup".equals(task.type()))return false;
         boolean report=Boolean.TRUE.equals(task.conditions().get("report_reference_required"));
         return observations.stream().noneMatch(r->r.evidenceId()!=null && (!report || "read_report".equals(r.tool())));
+    }
+    public static String requiredTool(ModelContext context){
+        var task=context.task()==null?null:context.task().specification();
+        if(!requiresEvidence(task,context.observations()))return null;
+        if(!Boolean.TRUE.equals(task.conditions().get("report_reference_required")))return "required";
+        var names=context.availableTools().stream().map(t->t.name()).collect(java.util.stream.Collectors.toSet());
+        if(!names.contains("read_report"))return names.contains("read_skill")?"read_skill":"required";
+        String references=context.task().originalQuery()+"\n"+context.memory().recent().stream().map(m->m.text()).collect(java.util.stream.Collectors.joining("\n"))
+                +"\n"+context.observations().stream().map(r->r.data().toString()).collect(java.util.stream.Collectors.joining("\n"));
+        if(java.util.regex.Pattern.compile("/api/agent/runs/[0-9a-f-]{36}/reports/rp_[0-9a-f-]{36}").matcher(references).find())return "read_report";
+        boolean exhausted=context.observations().stream().anyMatch(r->"read_history".equals(r.tool()) && Boolean.FALSE.equals(r.data().get("more_available")));
+        return exhausted && names.contains("ask_clarification")?"ask_clarification":"read_history";
     }
     public static Optional<String> question(Specification task,List<ToolResult> observations){
         if(task==null || !"resource.lookup".equals(task.type()) || !Boolean.TRUE.equals(task.conditions().get("selection_required")))return Optional.empty();

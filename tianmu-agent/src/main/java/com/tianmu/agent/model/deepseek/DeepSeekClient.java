@@ -46,8 +46,11 @@ public final class DeepSeekClient {
         return completeHarness(model,messages,tools,maxTokens,control,false);
     }
     public JsonNode completeHarness(String model,List<? extends Map<String,?>> messages,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> tools,int maxTokens,CallControl control,boolean requireTool) {
-        if(requireTool && tools.isEmpty())throw new AgentException("INVALID_DECISION","A required resource read has no exposed tools");
-        return complete(model,messages,maxTokens,control,false,List.copyOf(tools),requireTool);
+        return completeHarness(model,messages,tools,maxTokens,control,requireTool?"required":null);
+    }
+    public JsonNode completeHarness(String model,List<? extends Map<String,?>> messages,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> tools,int maxTokens,CallControl control,String requiredTool) {
+        if(requiredTool!=null && (tools.isEmpty() || !"required".equals(requiredTool) && tools.stream().noneMatch(t->t.name().equals(requiredTool))))throw new AgentException("INVALID_DECISION","Required resource tool is not exposed");
+        return complete(model,messages,maxTokens,control,false,List.copyOf(tools),requiredTool);
     }
     public JsonNode toolArguments(String text) {
         try {
@@ -57,9 +60,9 @@ public final class DeepSeekClient {
         } catch(Exception e) { throw new AgentException("INVALID_DECISION","Invalid native tool arguments"); }
     }
     private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools) {
-        return complete(model,messages,maxTokens,control,external,nativeTools,false);
+        return complete(model,messages,maxTokens,control,external,nativeTools,null);
     }
-    private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,boolean requireTool) {
+    private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool) {
         control.checkpoint();
         if(quotaBlockedUntil!=0 && System.nanoTime()-quotaBlockedUntil<0)
             throw new AgentException("MODEL_QUOTA_EXHAUSTED","Model provider quota is unavailable; calls paused for five minutes");
@@ -76,8 +79,9 @@ public final class DeepSeekClient {
             if(nativeTools==null)requestBody.put("response_format",Map.of("type","json_object"));
             if(nativeTools!=null && !nativeTools.isEmpty()) {
                 requestBody.put("tools",nativeTools.stream().map(t->Map.of("type","function","function",Map.of("name",t.name(),"description",t.description(),"parameters",t.inputSchema()))).toList());
-                requestBody.put("tool_choice",requireTool?"required":"auto");requestBody.put("parallel_tool_calls",false);
-                TraceAttributes.apply(Span.current(),Map.of("model.tool_choice",requireTool?"required":"auto"));
+                Object choice=requiredTool==null?"auto":"required".equals(requiredTool)?"required":Map.of("type","function","function",Map.of("name",requiredTool));
+                requestBody.put("tool_choice",choice);requestBody.put("parallel_tool_calls",false);
+                TraceAttributes.apply(Span.current(),Map.of("model.tool_choice",requiredTool==null?"auto":requiredTool));
             }
             contexts.check(List.of(Map.of("request",requestBody)));
             TraceDetails.capture("input", requestBody, "MODEL_REQUEST");
@@ -93,9 +97,11 @@ public final class DeepSeekClient {
             if (choice.path("finish_reason").isTextual()) TraceAttributes.apply(Span.current(), Map.of("model.finish_reason", choice.path("finish_reason").asText()));
             if(nativeTools!=null && choice.path("message").path("tool_calls").isArray() && !choice.path("message").path("tool_calls").isEmpty()) {
                 if(nativeTools.isEmpty() || !"tool_calls".equals(choice.path("finish_reason").asText()))throw new AgentException("INVALID_DECISION","Unexpected native tool call");
+                if(requiredTool!=null && !"required".equals(requiredTool))for(var call:choice.path("message").path("tool_calls"))
+                    if(!requiredTool.equals(call.path("function").path("name").asText()))throw new AgentException("INVALID_DECISION","Provider selected a tool outside the required resource step");
                 return choice.path("message");
             }
-            if(requireTool)throw new AgentException("INVALID_DECISION","Provider omitted the required resource tool call");
+            if(requiredTool!=null)throw new AgentException("INVALID_DECISION","Provider omitted the required resource tool call");
             if (!"stop".equals(choice.path("finish_reason").asText())) throw unavailable();
             JsonNode content = choice.path("message").path("content");
             if (!content.isTextual() || content.textValue().isBlank()) throw unavailable();

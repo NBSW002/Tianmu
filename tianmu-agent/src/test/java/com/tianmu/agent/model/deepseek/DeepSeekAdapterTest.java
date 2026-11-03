@@ -96,6 +96,14 @@ class DeepSeekAdapterTest {
         assertEquals("auto",requests.get(1).path("tool_choice").asText());
         assertEquals("INVALID_DECISION",assertThrows(AgentException.class,()->client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),true)).code());
     }
+    @Test void namedResourceStepsAreForcedAndCannotSelectUnavailableOrDifferentTools(){
+        var tools=nativeContext(List.of(),List.of()).availableTools();
+        nativeAnswer=request->Map.of("tool_calls",List.of(Map.of("id","named-step","type","function","function",Map.of("name","analyze_video_content","arguments","{\"video_id\":1001}"))));
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),"analyze_video_content");
+        assertEquals("analyze_video_content",requests.get(0).path("tool_choice").path("function").path("name").asText());
+        assertEquals("INVALID_DECISION",assertThrows(AgentException.class,()->client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),"unknown_tool")).code());
+        assertEquals("INVALID_DECISION",assertThrows(AgentException.class,()->client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),"query_audience")).code());
+    }
     @Test void parameterDescriptionsStillCountTowardTheWholeRequestLimitBeforeHttpAndReservation() throws Exception {
         var definition=new com.tianmu.agent.tool.ToolCatalog().all().get("query_video_metrics");
         var body=(com.fasterxml.jackson.databind.node.ObjectNode)mapper.valueToTree(definition);

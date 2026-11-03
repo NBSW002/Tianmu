@@ -25,9 +25,11 @@ final class DeepSeekHarnessModel implements ModelPort {
     }
     public Decision decide(ModelContext context, CallControl control) {
         String prompt = systemPrompt + "\n\n" + focusPrompt;
-        boolean requireTool=!context.finalizing() && !context.availableTools().isEmpty()
-                && com.tianmu.agent.application.ResourceSelection.requiresEvidence(context.task()==null?null:context.task().specification(),context.observations());
-        JsonNode result = client.completeHarness(config.harnessModel(), client.harnessMessages(prompt,context),context.availableTools(), config.harnessMaxTokens(), control,requireTool);
+        String requiredTool=context.finalizing() || context.availableTools().isEmpty()?null:com.tianmu.agent.application.ResourceSelection.requiredTool(context);
+        if("read_skill".equals(requiredTool))prompt+="\n本轮先读取 resource-discovery Skill，以开放已有报告读取工具。";
+        if("read_report".equals(requiredTool))prompt+="\n已有报告链接已在当前问题或历史工具结果中给出，不要再搜索历史。提取该链接的 run_id 与 artifact_id，读取报告；回答选题与结论时读取 topics。";
+        if("ask_clarification".equals(requiredTool))prompt+="\n当前可读历史已检索结束，没有找到可验证的报告引用。请用户提供报告链接，不猜测报告编号。";
+        JsonNode result = client.completeHarness(config.harnessModel(), client.harnessMessages(prompt,context),context.availableTools(), config.harnessMaxTokens(), control,requiredTool);
         try {
             if(result.path("tool_calls").isArray()) {
                 var calls=result.path("tool_calls");
