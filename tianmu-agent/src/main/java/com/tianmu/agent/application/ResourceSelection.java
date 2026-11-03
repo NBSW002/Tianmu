@@ -7,6 +7,11 @@ import java.util.*;
 /** A discovery turn cannot complete an analysis while its target is still unresolved. */
 public final class ResourceSelection {
     private ResourceSelection(){}
+    public static boolean requiresEvidence(Specification task,List<ToolResult> observations){
+        if(task==null || !"resource.lookup".equals(task.type()))return false;
+        boolean report=Boolean.TRUE.equals(task.conditions().get("report_reference_required"));
+        return observations.stream().noneMatch(r->r.evidenceId()!=null && (!report || "read_report".equals(r.tool())));
+    }
     public static Optional<String> question(Specification task,List<ToolResult> observations){
         if(task==null || !"resource.lookup".equals(task.type()) || !Boolean.TRUE.equals(task.conditions().get("selection_required")))return Optional.empty();
         List<?> candidates=List.of();

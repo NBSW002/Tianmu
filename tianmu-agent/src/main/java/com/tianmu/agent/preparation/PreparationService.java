@@ -107,7 +107,7 @@ public class PreparationService implements AutoCloseable {
         if(discovery.isPresent() && page==null || VideoDiscovery.historicalReport(query) && !com.tianmu.agent.core.DanmakuTarget.matcher(query).find()){
             skipped.addAll(Set.of("intent","understanding","emotion","rewrite"));
             return new Result(Route.HARNESS,new PreparedRequest(run.message,query,Emotion.UNKNOWN,degraded,skipped,Intent.OTHER,
-                    new com.tianmu.agent.core.TaskTypes.Specification("resource.lookup",Map.of("selection_required",discovery.isPresent() && page==null && VideoDiscovery.requiresSelection(query)),Map.of())),null,null);
+                    new com.tianmu.agent.core.TaskTypes.Specification("resource.lookup",Map.of("selection_required",discovery.isPresent() && page==null && VideoDiscovery.requiresSelection(query),"report_reference_required",VideoDiscovery.historicalReport(query)),Map.of())),null,null);
         }
         com.tianmu.agent.core.TaskTypes.Specification specification;
         try { specification = meaning.resolve(run.query(), run.businessDate, run.createdAt,run.memory()); }

@@ -86,6 +86,16 @@ class DeepSeekAdapterTest {
         assertFalse(name.path("description").asText().isBlank());assertEquals(mapper.valueToTree(skills.names().stream().sorted().toList()),name.path("enum"));
         assertFalse(functions.get("prepare_creator_interactions").path("parameters").path("properties").path("items").path("items").path("properties").path("playback_ms").path("description").asText().isBlank());
     }
+    @Test void requiredResourceReadsReachTheProviderAsRequiredAndReleaseAfterTheRead(){
+        var tools=nativeContext(List.of(),List.of()).availableTools();
+        nativeAnswer=request->Map.of("tool_calls",List.of(Map.of("id","required-read","type","function","function",Map.of("name","analyze_video_content","arguments","{\"video_id\":1001}"))));
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),true);
+        assertEquals("required",requests.get(0).path("tool_choice").asText());assertEquals("disabled",requests.get(0).path("thinking").path("type").asText());
+        nativeAnswer=null;answer=request->"已读取。";
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","answer")),tools,128,control(),false);
+        assertEquals("auto",requests.get(1).path("tool_choice").asText());
+        assertEquals("INVALID_DECISION",assertThrows(AgentException.class,()->client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),true)).code());
+    }
     @Test void parameterDescriptionsStillCountTowardTheWholeRequestLimitBeforeHttpAndReservation() throws Exception {
         var definition=new com.tianmu.agent.tool.ToolCatalog().all().get("query_video_metrics");
         var body=(com.fasterxml.jackson.databind.node.ObjectNode)mapper.valueToTree(definition);

@@ -25,7 +25,9 @@ final class DeepSeekHarnessModel implements ModelPort {
     }
     public Decision decide(ModelContext context, CallControl control) {
         String prompt = systemPrompt + "\n\n" + focusPrompt;
-        JsonNode result = client.completeHarness(config.harnessModel(), client.harnessMessages(prompt,context),context.availableTools(), config.harnessMaxTokens(), control);
+        boolean requireTool=!context.finalizing() && !context.availableTools().isEmpty()
+                && com.tianmu.agent.application.ResourceSelection.requiresEvidence(context.task()==null?null:context.task().specification(),context.observations());
+        JsonNode result = client.completeHarness(config.harnessModel(), client.harnessMessages(prompt,context),context.availableTools(), config.harnessMaxTokens(), control,requireTool);
         try {
             if(result.path("tool_calls").isArray()) {
                 var calls=result.path("tool_calls");

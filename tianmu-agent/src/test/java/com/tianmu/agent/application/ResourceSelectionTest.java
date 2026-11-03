@@ -14,4 +14,12 @@ class ResourceSelectionTest {
         var question=ResourceSelection.question(required,List.of(first,last)).orElseThrow();
         assertTrue(question.contains("新搜索"));assertTrue(question.contains("视频1001"));assertFalse(question.contains("旧搜索"));
     }
+    @Test void reportLookupCannotTreatOldMessagesOrVideoCandidatesAsItsCurrentReportEvidence(){
+        var task=new TaskTypes.Specification("resource.lookup",Map.of("report_reference_required",true),Map.of());
+        assertTrue(ResourceSelection.requiresEvidence(task,List.of()));
+        assertTrue(ResourceSelection.requiresEvidence(task,List.of(new ToolResult("read_history",Map.of(),null))));
+        assertTrue(ResourceSelection.requiresEvidence(task,List.of(new ToolResult("search_my_videos",Map.of(),"ev_candidates"))));
+        assertFalse(ResourceSelection.requiresEvidence(task,List.of(new ToolResult("read_report",Map.of(),"ev_report"))));
+        assertFalse(ResourceSelection.requiresEvidence(new TaskTypes.Specification("conversation",Map.of(),Map.of()),List.of()));
+    }
 }
