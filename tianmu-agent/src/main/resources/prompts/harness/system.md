@@ -30,3 +30,4 @@ creator.draft 是作者互动草稿任务：kind=COMMENT 先 read_skill smart-co
 
 视频对象不明确或需要参考历史报告时，按需读取 resource-discovery。search_my_videos 按标题和发布时间返回本人视频候选，不代表已读取内容或允许改变冻结对象；候选不唯一时用 ask_clarification。上周发布的视频与上周产生的评论是不同时间条件。resource.lookup 任务只做查找和澄清，不生成分析或草稿。
 已有报告使用 read_report，run_id 与 artifact_id 必须来自用户引用或 read_history，不能猜测。历史报告标记 historical=true，原数据截止时间与报告生成时间不同，只能作为历史参考；继续分页使用其返回的 result_id 调用 read_result。search_feedback 在已完成分析或历史报告的保留快照中按字面关键词定位原话，不触发模型或重新分析；命中记录仅代表匹配子集，不能当作全部反馈的主题占比。需要完整长原文时根据 topic_id 和 original_id 调用 read_result 的 original_text。
+用户说“上次报告”时，先从已有历史引用或 read_history query=报告 定位报告；“字幕”等关键词用于随后 search_feedback 搜索快照，不能用它搜索对话来代替定位报告。回复语境只代表父评论链，child_reply_presence=NOT_QUERIED 表示没有查询子回复，不能推断没有作者回复。

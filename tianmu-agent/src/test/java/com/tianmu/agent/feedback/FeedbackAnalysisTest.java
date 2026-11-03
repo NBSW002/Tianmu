@@ -51,7 +51,9 @@ class FeedbackAnalysisTest {
                 return List.of(new Proposal("T1","问题与反馈","保留输入的讨论依据及不同意见。","",ids));
             }
         };
-        final FeedbackAnalysisService service=new FeedbackAnalysisService(store,objects,source,models,policy());
+        final FeedbackAnalysisService service;
+        Fixture(){this(policy());}
+        Fixture(FeedbackPolicy execution){service=new FeedbackAnalysisService(store,objects,source,models,execution);}
         FeedbackJobStore.Job start(int count){total=count;return service.submit(UUID.randomUUID(),owner,request,null);}
         FeedbackJobStore.Job finish(UUID id){for(int i=0;i<2500;i++){var j=store.get(id);if(!MemoryFeedbackJobStore.active(j.phase()))return j;service.advance(id);}return fail("Job did not converge");}
     }
@@ -232,6 +234,7 @@ class FeedbackAnalysisTest {
         var f=new Fixture();var job=f.start(100);assertEquals(Phase.READY,f.finish(job.id()).phase());int calls=f.calls.get();
         var asset=f.service.asset(job.id(),owner,request);var first=f.service.search(asset,"反馈1",0,3);
         assertEquals("MATCHED_RECORDS_ONLY",first.get("coverage"));assertEquals(12,((Number)first.get("matched_records")).intValue());
+        assertEquals("PARENT_CHAIN_ONLY",first.get("reply_context_scope"));assertEquals("NOT_QUERIED",first.get("child_reply_presence"));
         assertEquals(3,((List<?>)first.get("matches")).size());assertEquals(false,first.get("complete"));
         var hit=(Map<?,?>)((List<?>)first.get("matches")).get(0);assertNotNull(hit.get("topic_id"));
         assertTrue(hit.get("match_excerpt").toString().contains("反馈1"));
@@ -245,5 +248,12 @@ class FeedbackAnalysisTest {
         for(var p:List.of(new Proposal("T1","x".repeat(101),"观察","",List.of("G1")),
                 new Proposal("T1","主题","x".repeat(2401),"",List.of("G1")),new Proposal("T1","主题","观察","x".repeat(1363),List.of("G1"))))
             assertEquals("TEXT_LIMIT_EXCEEDED",assertThrows(FeedbackCorrectionException.class,()->planner.validate("work",input,List.of(p))).correction().issue());
+    }
+    @Test void largerBoundedBatchesPreserveEveryOriginalAndAuthorCount(){
+        var f=new Fixture(new FeedbackPolicy(5000,67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30)));
+        var job=f.start(243);assertEquals(Phase.READY,f.finish(job.id()).phase());assertEquals(4,f.calls.get());
+        var asset=f.service.asset(job.id(),owner,request);assertEquals(243,asset.snapshot().counts().total());
+        assertEquals(243,f.service.topics(asset).stream().mapToLong(Topic::messages).sum());
+        assertEquals(243,((Number)f.service.search(asset,"观众反馈",0,10).get("matched_records")).intValue());
     }
 }

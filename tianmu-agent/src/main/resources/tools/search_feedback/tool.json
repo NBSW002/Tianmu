@@ -1,6 +1,6 @@
 {
   "name": "search_feedback",
-  "description": "Literal keyword search in a completed current feedback result or the snapshot of an authorized historical feedback report. Returns matching original previews and reply context; matched_records is NOT a full-topic count. No LLM analysis or publication.",
+  "description": "Literal keyword search in completed feedback or an authorized historical report snapshot. Returns original previews and parent reply context; an empty parent context does not establish absence of child or author replies. matched_records is a matching subset, not a full-topic count. No LLM analysis or publication.",
   "inputSchema": {
     "type": "object",
     "properties": {

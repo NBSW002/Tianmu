@@ -10,6 +10,9 @@ import java.util.regex.Pattern;
 /** Conservative parser for metadata discovery, not permission or an executable analysis target. */
 public final class VideoDiscovery {
     private VideoDiscovery(){}
+    public static boolean requiresSelection(String text){
+        return Pattern.compile("分析|统计|复盘|报告|智能评论|智能弹幕|(?:生成|写).{0,20}(?:评论|弹幕)").matcher(text).find();
+    }
     /** Remove only publication qualifiers attached to a discovered object; retain feedback dates. */
     public static String analysisText(String text){
         return text.replaceAll("上周(?=(?:(?!评论|弹幕|反馈)[^，。！？])*?(?:视频|作品|投稿))", "")

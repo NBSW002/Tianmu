@@ -45,6 +45,8 @@ public class DeliveryService {
         });
     }
     public void answer(RunState run, Answer raw, TurnControl.Reservation reservation, StopReason reason) {
+        var selection=ResourceSelection.question(run.task()==null?null:run.task().specification(),run.execution().observations());
+        if(selection.isPresent()){clarification(run,selection.get(),reservation);return;}
         if (run.task() != null && run.task().specification().reading() != null && run.task().specification().reading().reportRequired() && reason != StopReason.TOOL_DELIVERY)
             throw new AgentException("REPORT_REQUIRED", "Generate the requested report artifact before delivery");
         if (run.task() != null && "creator.draft".equals(run.task().specification().type()) && reason != StopReason.TOOL_DELIVERY)

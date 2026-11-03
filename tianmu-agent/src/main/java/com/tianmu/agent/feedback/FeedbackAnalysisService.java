@@ -183,8 +183,10 @@ public final class FeedbackAnalysisService {
             if(from>0 && Character.isLowSurrogate(text.charAt(from)))from--;if(to<text.length() && Character.isLowSurrogate(text.charAt(to)))to++;
             row.put("match_excerpt",text.substring(from,to));return row;}).toList();
         int next=Math.min(matches,offset+records.size());
-        return com.tianmu.agent.core.LookupFacts.normalize(Map.of("query",query,"matches",records,"matched_records",matches,"snapshot_counts",asset.snapshot().counts(),"request",asset.request(),"data_as_of",asset.snapshot().dataAsOf(),
+        var result=new LinkedHashMap<String,Object>(Map.of("query",query,"matches",records,"matched_records",matches,"snapshot_counts",asset.snapshot().counts(),"request",asset.request(),"data_as_of",asset.snapshot().dataAsOf(),
                 "coverage","MATCHED_RECORDS_ONLY","match_method","LITERAL_TEXT_OR_REPLY_CONTEXT","next_offset",next,"complete",next==matches));
+        result.put("reply_context_scope","PARENT_CHAIN_ONLY");result.put("child_reply_presence","NOT_QUERIED");
+        return com.tianmu.agent.core.LookupFacts.normalize(result);
     }
     public Map<String,Object> notes(Asset asset,int offset,int limit){
         if(offset<0 || limit<1 || limit>10)throw new AgentException("INVALID_ARGUMENTS","Invalid observation page");

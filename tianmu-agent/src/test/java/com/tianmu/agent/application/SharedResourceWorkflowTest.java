@@ -69,4 +69,36 @@ class SharedResourceWorkflowTest {
         assertEquals(1,run.execution().evidence().snapshot().values().stream().filter(e->e.lookup()!=null).count());
         assertTrue(run.snapshot().answer().dataNotes().stream().anyMatch(n->n.label().equals("历史报告参考")));
     }
+    @Test void plainAnswerCannotFinishUnresolvedAnalysisAndExplicitSelectionResumesTheOriginalTask()throws Exception {
+        when(search.search(any(),any(),any())).thenReturn(new VideoSearchPort.Page(List.of(candidate("1001"),candidate("1003")),2,false));
+        when(model.decide(any(),any())).thenAnswer(inv->{ModelContext c=inv.getArgument(0);
+            if(c.task().specification().type().equals("resource.lookup")){
+                if(!c.activeSkills().contains("resource-discovery"))return Decision.tool("read_skill",Map.of("name","resource-discovery"));
+                var found=c.observations().stream().filter(r->r.tool().equals("search_my_videos")).findFirst();
+                if(found.isEmpty())return Decision.tool("search_my_videos",Map.of("query","小鸭"));
+                return Decision.answer("已完成分析，选择第一个即可。",List.of(found.get().evidenceId()));
+            }
+            assertEquals("comments.analysis",c.task().specification().type());
+            assertEquals(1001L,((Number)c.task().specification().conditions().get("video_id")).longValue());
+            if(!c.activeSkills().contains("comment-analysis"))return Decision.tool("read_skill",Map.of("name","comment-analysis"));
+            var a=c.observations().stream().filter(r->r.tool().equals("analyze_feedback")).findFirst();
+            if(a.isEmpty())return Decision.tool("analyze_feedback",Map.of());
+            if(c.observations().stream().noneMatch(r->r.tool().equals("read_result")))return Decision.tool("read_result",Map.of("result_id",a.get().evidenceId(),"section","topics"));
+            return Decision.answer("已分析选定视频的评论。",List.of(a.get().evidenceId()));
+        });
+        var first=runs.create("分析我上周那个小鸭视频的评论",owner);await(first);
+        assertEquals(Status.NEEDS_INPUT,first.snapshot().status());assertNull(first.snapshot().answer());
+        assertTrue(first.snapshot().clarification().contains("视频1001"));assertTrue(first.snapshot().clarification().contains("视频1003"));
+        var selected=runs.create(ClarificationInputs.combine(first.message,"视频1001",first.businessDate),owner);await(selected);
+        assertEquals(Status.SUCCEEDED,selected.snapshot().status(),selected.snapshot().errorCode());
+    }
+    @Test void metadataListingMaySucceedWithoutForcingSelection()throws Exception {
+        when(search.search(any(),any(),any())).thenReturn(new VideoSearchPort.Page(List.of(candidate("1001"),candidate("1003")),2,false));
+        when(model.decide(any(),any())).thenAnswer(inv->{ModelContext c=inv.getArgument(0);
+            if(!c.activeSkills().contains("resource-discovery"))return Decision.tool("read_skill",Map.of("name","resource-discovery"));
+            var found=c.observations().stream().filter(r->r.tool().equals("search_my_videos")).findFirst();
+            return found.isEmpty()?Decision.tool("search_my_videos",Map.of("query","小鸭")):Decision.answer("找到两个候选视频。",List.of(found.get().evidenceId()));
+        });
+        var run=runs.create("列出我的《小鸭》视频",owner);await(run);assertEquals(Status.SUCCEEDED,run.snapshot().status(),run.snapshot().errorCode());
+    }
 }

@@ -11,6 +11,9 @@ public final class ClarificationInputs {
         return combine(original, reply, null);
     }
     public static String combine(String original, String reply, java.time.LocalDate originBusinessDate) {
+        if(originBusinessDate!=null && com.tianmu.agent.preparation.VideoDiscovery.request(original,originBusinessDate).isPresent()
+                && com.tianmu.agent.preparation.VideoDiscovery.requiresSelection(original))
+            return com.tianmu.agent.preparation.VideoDiscovery.analysisText(original)+"\n用户补充："+reply;
         if (com.tianmu.agent.core.ConversationTopics.general(original)) return original + "\n用户补充：" + reply;
         if (com.tianmu.agent.preparation.DanmakuReportTask.requested(original)) return combineReport(original, reply, originBusinessDate);
         if (!original.contains("弹幕")) return original + "\n用户补充：" + reply;

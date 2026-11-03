@@ -32,7 +32,7 @@ agent:
     max-records: 5000
     max-snapshot-bytes: 67108864
     batch-bytes: 24000
-    batch-groups: 40
+    batch-groups: 80
     max-model-calls: 2000
     max-tokens: 16000000
     timeout: 1h
