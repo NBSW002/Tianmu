@@ -1,6 +1,6 @@
 {
   "name": "search_my_videos",
-  "description": "Search only the authenticated author's non-deleted video metadata by literal title and optional publication dates. Results are candidates, not permission to analyze. Multiple matches require ask_clarification. Never claim video contents were watched.",
+  "description": "Search the authenticated author's non-deleted video metadata by literal title and publication dates. Results are candidates, not authorization to analyze. When selection_required=true, ask_clarification must select the target. For metadata listing alone, return candidates without forcing selection. Never claim contents were watched.",
   "inputSchema": {
     "type": "object",
     "properties": {
