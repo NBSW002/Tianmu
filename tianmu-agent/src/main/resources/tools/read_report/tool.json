@@ -1,0 +1,47 @@
+{
+  "name": "read_report",
+  "description": "Read an existing private report as historical structured data, without rerunning models. Obtain its run/artifact IDs from user references or authorized read_history. Generated time and source data_as_of are distinct; history never proves current facts. Reuse returned evidence_id with read_result to page.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "description": "UUID of the historical run from a user reference or read_history.",
+        "type": "string",
+        "minLength": 36,
+        "maxLength": 36
+      },
+      "artifact_id": {
+        "description": "Existing rp_ report artifact ID belonging to that historical run; never guess it.",
+        "type": "string",
+        "minLength": 39,
+        "maxLength": 39
+      },
+      "section": {
+        "description": "summary for provenance and overview, topics for top-level findings, observations for retained batch viewpoints; default summary.",
+        "type": "string",
+        "enum": [
+          "summary",
+          "topics",
+          "observations"
+        ]
+      },
+      "offset": {
+        "description": "Zero-based section offset; continue using the returned next_offset.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5000
+      },
+      "limit": {
+        "description": "Maximum section records per page, from 1 to 10; default 10.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      }
+    },
+    "required": [
+      "run_id",
+      "artifact_id"
+    ],
+    "additionalProperties": false
+  }
+}

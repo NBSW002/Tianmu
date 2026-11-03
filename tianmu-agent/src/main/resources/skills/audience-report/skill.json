@@ -5,7 +5,10 @@
   "tools": [
     "analyze_video_content",
     "analyze_feedback",
-    "create_feedback_report"
+    "create_feedback_report",
+    "search_my_videos",
+    "read_report",
+    "search_feedback"
   ],
   "resources": {}
 }

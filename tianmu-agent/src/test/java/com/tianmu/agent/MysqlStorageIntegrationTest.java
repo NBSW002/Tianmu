@@ -25,6 +25,36 @@ import static org.mockito.Mockito.*;
 /** Opt-in real MySQL/Redis integration. Refuses URLs outside a database ending in _it. */
 @EnabledIfEnvironmentVariable(named="AGENT_STORAGE_IT", matches="true")
 class MysqlStorageIntegrationTest {
+    @Test void lookupAndSavedReportProvenanceSurviveReload(){
+        var run=create("historical video report");run.start();
+        String id="ev_"+UUID.randomUUID();
+        var video=new VideoContent.Facts("video-content-v1",1001,"fixture",0,10000,"历史摘要",List.of(),"","SAMPLED_FRAMES",List.of(1000L),"fixture",Instant.parse("2026-10-01T00:00:00Z"));
+        run.execution().evidence().put(new Evidence(id,run.id,owner,null,null,video));
+        var artifact=repository.saveReport(run.id,owner,id,"<html>fixture</html>".getBytes());
+        run.succeed(new Answer("已保存",List.of(id)));
+        assertEquals(id,repository.describeReport(run.id,owner,artifact.artifactId()).evidenceId());
+        var reader=new com.tianmu.agent.application.HistoricalReportReader(repository,repository,null);
+        assertEquals("历史摘要",((Map<?,?>)reader.read(reader.source(run.id,artifact.artifactId(),owner,null),artifact.artifactId(),"summary",0,10).get("content")).get("summary"));
+        db.update("UPDATE agent_artifact SET source_evidence_id=NULL WHERE artifact_id=?",artifact.artifactId());
+        assertEquals("LEGACY_SINGLE_FINAL_EVIDENCE",repository.describeReport(run.id,owner,artifact.artifactId()).provenance());
+        assertThrows(AgentException.class,()->reader.source(run.id,artifact.artifactId(),new AccessScope(owner.tenantId(),owner.userId(),Set.of(1002L)),null));
+        var current=create("lookup roundtrip");current.start();String lookupId="ev_"+UUID.randomUUID();
+        var facts=new LookupFacts("resource-lookup-v1","read_report",Map.of("source_run_id",run.id.toString(),"artifact_id",artifact.artifactId()),Set.of(1001L),Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        current.execution().evidence().put(new Evidence(lookupId,current.id,owner,null,null,null,null,null,null,facts));
+        assertEquals(facts,repository.load(current.id,owner).execution().evidence().get(lookupId).lookup());current.cancel();
+    }
+    @Test void feedbackEvidenceRoundTripsInMysqlAndAllowsTheWaitingRunToResume(){
+        var run=create("反馈报告");run.start();run.configureBudget(LoopPolicy.defaults());
+        var request=new FeedbackAnalysis.Request(new DanmakuTypes.Query(1001,LocalDate.now().minusDays(1).atStartOfDay(),LocalDate.now().atStartOfDay()),Set.of(FeedbackAnalysis.Source.COMMENT),FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,"feedback-analysis-v1");
+        var op=new PendingOperation(UUID.randomUUID(),"feedback-analysis",run.deadline());
+        run.execution().observe(new ToolCall("analyze_feedback",Map.of()),new ToolResult("analyze_feedback",Map.of("status","PENDING"),null,null,op));run.waitFor(op);
+        var binding=new FeedbackAnalysis.Binding(op.id(),request,new FeedbackAnalysis.Counts(2,0,0,0,2),Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS),"0".repeat(64),"fixture","fixture");
+        String id="ev_"+UUID.randomUUID();run.execution().evidence().put(new Evidence(id,run.id,owner,null,null,null,null,null,binding));
+        var loaded=repository.load(run.id,owner);assertEquals(binding,loaded.execution().evidence().get(id).feedback());
+        assertEquals(binding,loaded.execution().evidence().snapshot().get(id).feedback());
+        assertTrue(run.completeOperation(op,new ToolResult("analyze_feedback",Map.of("status","READY"),id)));
+        assertEquals(Status.RUNNING,repository.load(run.id,owner).snapshot().status());run.cancel();
+    }
     @Test void pendingOperationSurvivesWriterRestartWithPairedCallAndBudget() {
         var run=create("后台反馈分析");run.start();
         run.configureBudget(LoopPolicy.defaults());

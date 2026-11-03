@@ -1,6 +1,6 @@
 {
   "name": "read_result",
-  "description": "Read evidence owned by the current run. Large evidence automatically returns its first JSON text page. Optional offset/limit page any evidence with next_offset and has_more; offsets count Unicode characters.",
+  "description": "Read current-run evidence, including a historical reference returned by read_report. Structured sections use record pagination; original_text and generic JSON pages use Unicode code-point pagination. Historical references remain historical and are reauthorized on each read.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -13,13 +13,13 @@
         "type": "integer",
         "minimum": 0,
         "maximum": 2147483647,
-        "description": "Text-page position in Unicode code points, not UTF-8 bytes or record count. Omit or use 0 initially; copy page.next_offset when paging."
+        "description": "Zero-based record offset for structured sections. For original_text or generic JSON text pages, Unicode code-point offset. Start at 0 and copy the returned next_offset."
       },
       "limit": {
         "type": "integer",
         "minimum": 1,
         "maximum": 4096,
-        "description": "Text-page size in Unicode code points, 1-4096 (default 2048 when paging). Supplying offset or limit requests a page even for a small result."
+        "description": "Structured sections: record count, capped at 10 (default 10). original_text and generic text: Unicode code-point count, 1-4096 (default 2048)."
       },
       "section": {
         "type": "string",
@@ -28,9 +28,10 @@
           "topics",
           "children",
           "originals",
-          "original_text"
+          "original_text",
+          "observations"
         ],
-        "description": "Feedback: summary, topics, children or originals (record offset; limit up to 10). Lists may return fewer records to bound bytes: copy next_offset. Original lists contain previews. original_text requires topic_id and original_id and uses Unicode offset/limit for complete private JSON."
+        "description": "Feedback: summary, topics, children, originals. Historical report: summary, topics, observations. For either retained feedback reference, original_text requires topic_id and original_id. Structured lists use record offsets and may return fewer rows to bound bytes; copy next_offset. Original lists contain previews."
       },
       "topic_id": {
         "type": "string",

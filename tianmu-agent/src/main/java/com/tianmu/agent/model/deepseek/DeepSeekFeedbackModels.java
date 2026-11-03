@@ -20,15 +20,17 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     public String modelName(){return config.harnessModel();}
     public String policyHash(){return hash;}
     public List<Proposal> analyze(Input input,CallControl control){
+        if(input.kind()!=FeedbackAnalysis.WorkKind.CLASSIFY)throw new IllegalArgumentException("Topic aggregation is code-only");
         var payload=new LinkedHashMap<String,Object>();payload.put("kind",input.kind());
         payload.put("text_limits",Map.of("title",100,"observation",2400,"recommendation",1200));
         payload.put("target_lengths",Map.of("observation",800,"recommendation",400));
-        payload.put("max_topics",input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY?10:Math.max(1,(input.children().size()+3)/4));
-        if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY)payload.put("groups",input.groups().stream().map(g->{
+        payload.put("max_topics",10);
+        if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY && !input.children().isEmpty())payload.put("known_topics",input.children().stream().map(t->Map.of(
+                "key",t.id(),"title",t.title(),"messages",t.messages())).toList());
+        payload.put("groups",input.groups().stream().map(g->{
             var m=new LinkedHashMap<String,Object>();m.put("id",g.id());m.put("source",g.source());m.put("text",g.text());m.put("reply_context",g.replyContext());
             m.put("author",g.author());m.put("playback_ms",g.playbackMs());m.put("count",g.messages());return m;
         }).toList());
-        else payload.put("children",input.children().stream().map(t->Map.of("id",t.id(),"title",t.title(),"observation",t.observation(),"recommendation",t.recommendation(),"messages",t.messages(),"author_messages",t.authorMessages())).toList());
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
         var body=complete(input,payload,control);
         try {
@@ -55,7 +57,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         var c=input.correction();var expected=new HashSet<String>();
         input.groups().forEach(g->expected.add(g.id()));input.children().forEach(t->expected.add(t.id()));
         var previous=new LinkedHashMap<String,String>();
-        for(var topic:c.previousTopics())if(topic.key()!=null && topic.key().matches("T[1-9][0-9]?"))
+        for(var topic:c.previousTopics())if(topic.key()!=null && topic.key().matches("T(?:[1-9]|[1-9][0-9]|100)"))
             for(String id:topic.members())if(expected.contains(id))previous.putIfAbsent(id,topic.key());
         // Previous prose is already durable in the rejected input. It is optional retry guidance, never new evidence.
         payload.put("correction",Map.of("previous_assignments",previous,

@@ -20,7 +20,7 @@ class FeedbackAnalysisTest {
     final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
     final AccessScope owner=new AccessScope("tenant","881",Set.of(1001L),"opaque-ref");
     final Request request=new Request(new DanmakuTypes.Query(1001,LocalDateTime.of(2026,10,20,0,0),LocalDateTime.of(2026,10,21,0,0)),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.FEEDBACK_ONLY,null,null,"feedback-v1");
-    FeedbackPolicy policy(){return new FeedbackPolicy(20000,67108864,24000,40,8,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
+    FeedbackPolicy policy(){return new FeedbackPolicy(5000,67108864,24000,40,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
     final class Fixture {
         final MemoryFeedbackJobStore store=new MemoryFeedbackJobStore();
         final FeedbackObjects objects=new FeedbackObjects(new FileObjectStore(directory),json);
@@ -55,14 +55,14 @@ class FeedbackAnalysisTest {
         FeedbackJobStore.Job start(int count){total=count;return service.submit(UUID.randomUUID(),owner,request,null);}
         FeedbackJobStore.Job finish(UUID id){for(int i=0;i<2500;i++){var j=store.get(id);if(!MemoryFeedbackJobStore.active(j.phase()))return j;service.advance(id);}return fail("Job did not converge");}
     }
-    @Test void twentyThousandOriginalsAreFullyCoveredWithoutAnEverGrowingModelContext(){
+    @Test void fiveThousandOriginalsUseOnlyClassificationCallsAndBoundedPriorTopics(){
         var f=new Fixture();var maxGroups=new AtomicInteger();var modelBytes=new AtomicInteger();
         f.inspect=input->{maxGroups.accumulateAndGet(input.groups().size(),Math::max);modelBytes.accumulateAndGet(f.objects.bytes(input),Math::max);};
-        var job=f.start(20000);var finished=f.finish(job.id());assertEquals(Phase.READY,finished.phase(),finished.errorCode());
-        var asset=f.service.asset(job.id(),owner,request);assertEquals(20000,asset.snapshot().counts().total());assertEquals(10000,asset.snapshot().counts().comments());
-        assertEquals(10000,asset.snapshot().counts().danmaku());assertTrue(asset.snapshot().chunks().size()>1);
-        assertEquals(20000,f.service.topics(asset).stream().mapToLong(Topic::messages).sum());assertEquals(40,maxGroups.get());
-        assertTrue(modelBytes.get()<30000,"Each model receives a bounded batch, not the original transcript");assertTrue(f.calls.get()>500);
+        var job=f.start(5000);var finished=f.finish(job.id());assertEquals(Phase.READY,finished.phase(),finished.errorCode());
+        var asset=f.service.asset(job.id(),owner,request);assertEquals(5000,asset.snapshot().counts().total());assertEquals(2500,asset.snapshot().counts().comments());
+        assertEquals(2500,asset.snapshot().counts().danmaku());assertTrue(asset.snapshot().chunks().size()>1);
+        assertEquals(5000,f.service.topics(asset).stream().mapToLong(Topic::messages).sum());assertEquals(40,maxGroups.get());
+        assertTrue(modelBytes.get()<30000,"Each model receives a bounded batch, not the original transcript");assertEquals(125,f.calls.get());
         assertEquals(f.calls.get()*2L,finished.chargedTokens());assertEquals(f.calls.get(),finished.modelCalls());assertEquals(1,f.exports.get());
         assertThrows(AgentException.class,()->f.service.asset(job.id(),new AccessScope("tenant","other",Set.of(1001L)),request));
         var otherRange=new Request(new DanmakuTypes.Query(1001,request.query().start().minusDays(1),request.query().end()),request.sources(),request.grounding(),null,null,"feedback-v1");
@@ -148,25 +148,96 @@ class FeedbackAnalysisTest {
         assertTrue(f.store.retry(second,"INVALID_ANALYSIS",Instant.now(),3,replacement));
         assertEquals(replacement,f.store.claim(job.id(),Instant.now(),Duration.ofSeconds(60)).input());
     }
-    @Test void nonReducingMergeReceivesPersistedTopicLimitCorrectionWithoutDroppingChildren()throws Exception {
-        var f=new Fixture();var corrected=new AtomicBoolean();
+    @Test void twoHundredFortyThreeRecordsNeedSevenCallsAndNoModelMerge(){
+        var f=new Fixture();var batches=new AtomicInteger();
+        f.inspect=input->{
+            assertEquals(WorkKind.CLASSIFY,input.kind());
+            int before=batches.getAndIncrement()*40;
+            assertEquals(before==0?0:before,input.children().stream().mapToLong(Topic::messages).sum());
+            if(before>0)assertEquals("T1",input.children().get(0).id());
+        };
+        var job=f.start(243);assertEquals(Phase.READY,f.finish(job.id()).phase());
+        assertEquals(7,f.calls.get());var asset=f.service.asset(job.id(),owner,request);
+        assertEquals(243,f.service.topics(asset).stream().mapToLong(Topic::messages).sum());
+        assertEquals(7,((List<?>)f.service.read(asset,"children",f.service.topics(asset).get(0).id(),0,10).get("topics")).size());
+    }
+    @Test void retryBackoffCannotLetLaterBatchesSkipTheAcceptedPrefix(){
+        var f=new Fixture();var job=f.start(80);f.service.advance(job.id());
+        var first=f.store.claim(job.id(),Instant.now(),Duration.ofSeconds(60));
+        assertTrue(f.store.retry(first,"INVALID_ANALYSIS",Instant.now().plusSeconds(30),3));
+        assertNull(f.store.claim(job.id(),Instant.now(),Duration.ofSeconds(60)));
+        assertEquals(0,f.store.completedBefore(job.id(),1).size());
+    }
+    @Test void identicalAuthorizedSnapshotsReuseCompletedClassificationsWithNewRunLocalEvidence(){
+        var f=new Fixture();var first=f.start(81);assertEquals(Phase.READY,f.finish(first.id()).phase());assertEquals(3,f.calls.get());
+        var second=f.start(81);assertEquals(Phase.READY,f.finish(second.id()).phase());
+        assertEquals(3,f.calls.get());assertEquals(0,f.store.get(second.id()).modelCalls());assertEquals(2,f.exports.get());
+        var asset=f.service.asset(second.id(),owner,request);assertEquals(second.id(),asset.jobId());
+        var topic=f.service.topics(asset).get(0);assertEquals(81,topic.messages());
+        var leaves=(List<?>)f.service.read(asset,"children",topic.id(),0,10).get("topics");
+        assertEquals(3,leaves.size());String leaf=(String)((Map<?,?>)leaves.get(0)).get("id");
+        assertTrue(f.service.read(asset,"originals",leaf,0,1).containsKey("originals"));
+        f.authorized.set(false);assertThrows(AgentException.class,()->f.start(81));
+    }
+    @Test void stableKeysIncludingT100SurviveCodeOnlyAggregationBeyondTenTotalTopics(){
+        var f=new Fixture();var batch=new AtomicInteger();
         f.proposals=input->{
-            var out=new ArrayList<Proposal>();
-            if(input.kind()==WorkKind.CLASSIFY){
-                for(int i=0;i<4;i++)out.add(new Proposal("T"+(i+1),"具体子题"+i,"保留具体意见","",input.groups().subList(i*10,(i+1)*10).stream().map(Group::id).toList()));
-            } else if(input.correction()==null){
-                for(int i=0;i<input.children().size();i++)out.add(new Proposal("T"+(i+1),"未提升层级","仍保留子题","",List.of(input.children().get(i).id())));
-            } else {
-                assertEquals("TOPIC_LIMIT_EXCEEDED",input.correction().issue());assertEquals(8,input.correction().previousTopics().size());corrected.set(true);
-                out.add(new Proposal("T1","上层类别","下层具体意见仍然保留","",input.children().stream().map(Topic::id).toList()));
-            }
+            int base=batch.getAndIncrement()==0?90:0;var out=new ArrayList<Proposal>();
+            for(int i=0;i<10;i++)out.add(new Proposal("T"+(base+i+1),"主题"+(base+i+1),"保留意见","",
+                    input.groups().subList(i*4,i*4+4).stream().map(Group::id).toList()));
             return out;
         };
-        var job=f.start(80);for(int i=0;i<5;i++)f.service.advance(job.id());
-        assertEquals(2,f.store.get(job.id()).completedWork());assertNull(f.store.get(job.id()).asset());
-        Thread.sleep(2100);assertEquals(Phase.READY,f.finish(job.id()).phase());assertTrue(corrected.get());
-        var asset=f.service.asset(job.id(),owner,request);assertEquals(80,asset.snapshot().counts().total());assertEquals(4,f.store.get(job.id()).modelCalls());
-        assertEquals(8,((List<?>)f.service.read(asset,"children",f.service.topics(asset).get(0).id(),0,10).get("topics")).size());
+        var job=f.start(80);assertEquals(Phase.READY,f.finish(job.id()).phase());assertEquals(2,f.calls.get());
+        var asset=f.service.asset(job.id(),owner,request);assertEquals(20,f.service.topics(asset).size());
+        assertTrue(f.service.topics(asset).stream().anyMatch(t->t.id().endsWith(":T100")));
+        var first=f.service.read(asset,"topics",0,10);assertEquals(false,first.get("complete"));
+        assertEquals(true,f.service.read(asset,"topics",10,10).get("complete"));
+    }
+    @Test void earlyMinorityAtTheEndOfALongObservationSurvivesLaterBatchesAndWorkerRestart(){
+        var f=new Fixture();var batch=new AtomicInteger();
+        String early="前批观察。".repeat(170)+"少数观众认为字幕大小刚好，不希望统一放大。";
+        String advice="先在手机端验证显示效果。".repeat(38)+"保留字幕大小选项，不直接覆盖现有设置。";
+        f.proposals=input->{int index=batch.getAndIncrement();
+            return List.of(new Proposal("T1",index==0?"字幕可读性":"字幕太小",index==0?early:"当前批次希望放大字幕。",
+                    index==0?advice:"可测试较大字幕。",input.groups().stream().map(Group::id).toList()));};
+        var job=f.start(81);f.service.advance(job.id());f.service.advance(job.id());
+        var recovered=new FeedbackAnalysisService(f.store,f.objects,f.source,f.models,policy());
+        for(int i=0;i<20 && MemoryFeedbackJobStore.active(f.store.get(job.id()).phase());i++)recovered.advance(job.id());
+        assertEquals(Phase.READY,f.store.get(job.id()).phase());assertEquals(3,f.calls.get());
+        var asset=recovered.asset(job.id(),owner,request);var top=recovered.topics(asset).get(0);
+        assertEquals("字幕可读性",top.title());assertTrue(top.observation().contains(early));
+        assertTrue(top.observation().contains("当前批次希望放大字幕"));assertTrue(top.recommendation().contains("保留字幕大小选项"));
+        String html=new String(recovered.report(asset),java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(html.contains("少数观众认为字幕大小刚好"));assertTrue(html.contains("保留字幕大小选项"));
+        var leaves=(List<?>)recovered.read(asset,"children",top.id(),0,10).get("topics");
+        assertEquals(early,((Map<?,?>)leaves.get(0)).get("observation"));
+    }
+    @Test void overflowNeverCutsAnOpinionAndTheReportRetainsMoreThanSixtyBatchNotes(){
+        var f=new Fixture();var batch=new AtomicInteger();
+        f.proposals=input->{int index=batch.incrementAndGet();return List.of(new Proposal("T1","字幕反馈",
+                "第"+index+"批观点："+"需要保留语境。".repeat(120)+"这批的少数意见标记"+index,"",
+                input.groups().stream().map(Group::id).toList()));};
+        var job=f.start(2440);assertEquals(Phase.READY,f.finish(job.id()).phase());assertEquals(61,f.calls.get());
+        var asset=f.service.asset(job.id(),owner,request);var top=f.service.topics(asset).get(0);
+        assertTrue(top.observation().contains("超过摘要展示长度"));assertFalse(top.observation().contains("第61批观点"));
+        String html=new String(f.service.report(asset),java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(61,html.split("<details>",-1).length-1);
+        for(int i=1;i<=61;i++)assertTrue(html.contains("这批的少数意见标记"+i));
+        int next=0,total=0;boolean complete=false;
+        while(!complete){var page=f.service.read(asset,"children",top.id(),next,10);total+=((List<?>)page.get("topics")).size();
+            next=((Number)page.get("next_offset")).intValue();complete=Boolean.TRUE.equals(page.get("complete"));}
+        assertEquals(61,total);
+    }
+    @Test void literalSearchReturnsOnlyHitsAndOriginalReferencesWithoutCallingModelsAgain(){
+        var f=new Fixture();var job=f.start(100);assertEquals(Phase.READY,f.finish(job.id()).phase());int calls=f.calls.get();
+        var asset=f.service.asset(job.id(),owner,request);var first=f.service.search(asset,"反馈1",0,3);
+        assertEquals("MATCHED_RECORDS_ONLY",first.get("coverage"));assertEquals(12,((Number)first.get("matched_records")).intValue());
+        assertEquals(3,((List<?>)first.get("matches")).size());assertEquals(false,first.get("complete"));
+        var hit=(Map<?,?>)((List<?>)first.get("matches")).get(0);assertNotNull(hit.get("topic_id"));
+        assertTrue(hit.get("match_excerpt").toString().contains("反馈1"));
+        assertTrue(f.service.originalText(asset,hit.get("topic_id").toString(),hit.get("id").toString(),0,2048).containsKey("page"));
+        assertEquals(0,((Number)f.service.search(asset,"不存在的关键字",0,10).get("matched_records")).intValue());
+        assertEquals(calls,f.calls.get());
     }
     @Test void oversizedSummaryTextProducesActionableCorrectionInsteadOfAnIdenticalBlindRetry() {
         var f=new Fixture();var planner=new FeedbackPlanner(f.objects,policy());

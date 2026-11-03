@@ -10,6 +10,7 @@ import static com.tianmu.agent.core.AnalysisContract.Source.*;
 public final class AnalysisExecutionPolicy {
     private AnalysisExecutionPolicy() {}
     public static boolean permits(String tool, Specification spec) {
+        if(spec!=null && spec.type().equals("resource.lookup"))return Set.of("list_skills","read_skill","read_history","read_result","ask_clarification","search_my_videos","read_report","search_feedback").contains(tool);
         if (spec == null || spec.analysis() == null) return true;
         var contract = spec.analysis();
         return switch (tool) {

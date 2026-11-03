@@ -146,7 +146,7 @@ public class AgentRuntime {
                 for(var call:batch) { run.checkpoint();if(executeTool(run,context,call,progress,false)){done=true;break;} }
                 yield done;
             }
-            case CLARIFY -> { delivery.clarification(run, decision.clarification(), delivery.reserve(run)); yield true; }
+            case CLARIFY -> executeTool(run,context,new ToolCall("ask_clarification",Map.of("question",decision.clarification())),progress,true);
             case ANSWER -> { delivery.answer(run, decision.answer(), delivery.reserve(run), StopReason.ANSWER); yield true; }
         };
     }
@@ -204,6 +204,7 @@ public class AgentRuntime {
             return false;
         }
         run.emit("PROGRESS", Map.of("stage", "tool_completed", "tool", name));
+        if(result.terminalClarification()!=null){delivery.clarification(run,result.terminalClarification(),delivery.reserve(run));return true;}
         if(result.pending()!=null){run.waitFor(result.pending());return true;}
         if (result.terminalAnswer() != null) {
             delivery.answer(run, result.terminalAnswer(), delivery.reserve(run), StopReason.TOOL_DELIVERY);

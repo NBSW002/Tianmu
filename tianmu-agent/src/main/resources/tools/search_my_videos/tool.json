@@ -1,0 +1,39 @@
+{
+  "name": "search_my_videos",
+  "description": "Search only the authenticated author's non-deleted video metadata by literal title and optional publication dates. Results are candidates, not permission to analyze. Multiple matches require ask_clarification. Never claim video contents were watched.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120,
+        "description": "Literal title text; omit to list videos by date. Do not include action words such as analyze."
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Inclusive publication date in Asia/Shanghai. Supply with end_date."
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Exclusive publication date in Asia/Shanghai. Supply with start_date."
+      },
+      "offset": {
+        "description": "Zero-based candidate offset; continue using next_offset.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      },
+      "limit": {
+        "description": "Maximum candidates per page, from 1 to 20; default 10.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  }
+}

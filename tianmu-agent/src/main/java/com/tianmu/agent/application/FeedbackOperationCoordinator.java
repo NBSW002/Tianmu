@@ -47,6 +47,9 @@ public final class FeedbackOperationCoordinator {
                 }catch(AgentException e){
                     if(Set.of("AUTH_CONTEXT_EXPIRED","UNAUTHORIZED").contains(e.code()))run.emit("PROGRESS",Map.of("stage","analysis_waiting_auth"));
                     else if(!Set.of("STORAGE_UNAVAILABLE","OBJECT_STORE_UNAVAILABLE").contains(e.code()))run.fail(e.code());
+                }catch(RuntimeException bug){
+                    org.slf4j.LoggerFactory.getLogger(getClass()).error("feedback_resume_failed run={} type={}",run.id,bug.getClass().getSimpleName());
+                    run.fail("ANALYSIS_RESUME_FAILED");
                 }
             }
             // A crash or cancellation between job creation and run suspension must not leave paid work orphaned.

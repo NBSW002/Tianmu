@@ -34,7 +34,7 @@ public class BusinessAdapters {
     }
 }
 
-final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, com.tianmu.agent.query.DanmakuQueryPort, com.tianmu.agent.video.VideoContentPort, com.tianmu.agent.interaction.CreatorPublicationPort, com.tianmu.agent.query.VideoPagePort, com.tianmu.agent.feedback.FeedbackSnapshotPort {
+final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, com.tianmu.agent.query.DanmakuQueryPort, com.tianmu.agent.video.VideoContentPort, com.tianmu.agent.interaction.CreatorPublicationPort, com.tianmu.agent.query.VideoPagePort, com.tianmu.agent.feedback.FeedbackSnapshotPort,com.tianmu.agent.query.VideoSearchPort {
     private record RawSample(String id, int bucket, String text, boolean truncated, Long playbackMs) {}
     private record AnalysisResponse(DanmakuTypes.Query query, long totalMessages, long uniqueSenders,
             List<DanmakuTypes.Bucket> buckets, List<RawSample> samples, Instant dataAsOf, String source, boolean demo, com.tianmu.agent.core.AudienceData.Overview audience,com.tianmu.agent.core.AudienceReportData.Sources sources) {}
@@ -191,8 +191,10 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
         AccessScope current = forCreate(credential,message,reply);
         Set<Long> required = new HashSet<>(current.videoIds());
         if (page!=null) required.add(Long.parseLong(page.videoId()));
-        if(page==null && required.isEmpty() && session!=null && com.tianmu.agent.application.ConversationFocus.continuation(message)
-                && com.tianmu.agent.preparation.AnalysisSourceSelection.mentions(message))
+        if(!DanmakuTarget.matcher(message).find())com.tianmu.agent.preparation.VideoDiscovery.request(message,LocalDate.now(ZoneId.of("Asia/Shanghai")))
+                .ifPresent(q->{var matches=search(q,current,null);if(!matches.hasMore() && matches.items().size()==1)required.add(Long.parseLong(matches.items().get(0).videoId()));});
+        if(page==null && required.isEmpty() && session!=null && (com.tianmu.agent.application.ConversationFocus.continuation(message)
+                && com.tianmu.agent.preparation.AnalysisSourceSelection.mentions(message) || com.tianmu.agent.preparation.VideoDiscovery.historicalReport(message)))
             required.addAll(allowed(current,repositories.getObject().resourcesForSession(session,current,Long.MAX_VALUE),false));
         Set<Long> granted = new HashSet<>(allowed(current,required,true));
         return new AccessScope(current.tenantId(),current.userId(),granted,current.authorizationRef());
@@ -206,6 +208,16 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
     @Override public AccessScope forRun(String credential, UUID id) {
         AccessScope principal = authenticate(credential);
         return grant(principal, repositories.getObject().resourcesForRun(id, principal), true);
+    }
+    @Override public AccessScope forHistoricalRun(AccessScope caller,UUID id){return grant(caller,repositories.getObject().resourcesForRun(id,caller),true);}
+    @Override public com.tianmu.agent.query.VideoSearchPort.Page search(com.tianmu.agent.query.VideoSearchPort.Search q,AccessScope scope,CallControl control){
+        String path="/internal/agent/my-videos?query="+java.net.URLEncoder.encode(q.query(),java.nio.charset.StandardCharsets.UTF_8)+"&offset="+q.offset()+"&limit="+q.limit();
+        if(q.startDate()!=null)path+="&startDate="+q.startDate()+"&endDate="+q.endDate();
+        var data=request("GET",path,credentials.token(scope.authorizationRef()),null,control);
+        try{var result=json.treeToValue(data,com.tianmu.agent.query.VideoSearchPort.Page.class);
+            if(result.items().size()>q.limit() || result.nextOffset()!=q.offset()+result.items().size() || result.items().stream().map(v->v.videoId()).distinct().count()!=result.items().size())throw new IllegalArgumentException();
+            return result;
+        }catch(Exception invalid){throw new AgentException("INVALID_EVIDENCE","Invalid owned-video search result");}
     }
     @Override public void renew(AccessScope saved,AccessScope authenticated){
         IdentityPort.super.renew(saved,authenticated);allowed(authenticated,saved.videoIds(),true);credentials.renew(saved.authorizationRef(),authenticated.authorizationRef());

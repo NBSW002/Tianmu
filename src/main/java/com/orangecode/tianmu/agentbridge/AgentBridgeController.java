@@ -25,6 +25,12 @@ public final class AgentBridgeController {
     public BusinessMetrics.Page page(@RequestHeader(value="Authorization",required=false) String auth,@RequestParam long videoId) {
         return metrics.page(authentication.authenticate(auth),videoId);
     }
+    @GetMapping("/my-videos")
+    public BusinessMetrics.VideoMatches searchVideos(@RequestHeader(value="Authorization",required=false) String auth,
+            @RequestParam(defaultValue="") String query,@RequestParam(required=false) LocalDate startDate,@RequestParam(required=false) LocalDate endDate,
+            @RequestParam(defaultValue="0") int offset,@RequestParam(defaultValue="10") int limit){
+        return metrics.search(authentication.authenticate(auth),query,startDate,endDate,offset,limit);
+    }
     @PostMapping("/authorize")
     public Resources authorize(@RequestHeader(value="Authorization", required=false) String auth, @RequestBody Resources input) {
         var principal = authentication.authenticate(auth);

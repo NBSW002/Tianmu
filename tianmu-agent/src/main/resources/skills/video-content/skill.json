@@ -4,6 +4,8 @@
   "description": "理解授权视频的画面或指定片段，回答内容与关键时间点；不需要弹幕日期。纯视频报告仅在明确要求时生成，混合反馈报告须完成后台反馈分析。",
   "tools": [
     "analyze_video_content",
-    "create_video_report"
+    "create_video_report",
+    "search_my_videos",
+    "read_report"
   ]
 }

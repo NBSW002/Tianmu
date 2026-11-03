@@ -19,7 +19,7 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
     private final Map<UUID, RequestContext> contexts = new HashMap<>();
     private record FocusAt(long turn, MemoryTypes.Focus value) {}
     private final Map<UUID,FocusAt> focuses = new HashMap<>();
-    private record Report(UUID runId, byte[] html) {}
+    private record Report(UUID runId, byte[] html,String evidenceId,Instant createdAt) {}
     private final Map<String, Report> reports = new HashMap<>();
     public synchronized Created create(String message, AccessScope owner, UUID session, String key, UUID reply, RequestContext context) {
         String query = com.tianmu.agent.application.RequestMessages.execution(message, context);
@@ -103,12 +103,17 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
             throw new AgentException("INVALID_EVIDENCE", "Invalid report");
         if (AgentTypes.terminal(run.snapshot().status())) throw new AgentException("RUN_TERMINATED", "Task is terminal");
         if (reports.values().stream().filter(r -> r.runId().equals(runId)).count() >= 2) throw new AgentException("CAPACITY_EXCEEDED", "Report limit reached");
-        String id = "rp_" + UUID.randomUUID(); reports.put(id, new Report(runId, html.clone()));
+        String id = "rp_" + UUID.randomUUID(); reports.put(id, new Report(runId, html.clone(),evidenceId,Instant.now()));
         return new com.tianmu.agent.core.DanmakuTypes.ReportRef(id, "/api/agent/runs/" + runId + "/reports/" + id);
     }
     @Override public synchronized byte[] report(UUID runId, AccessScope caller, String artifactId) {
         load(runId, caller); Report report = reports.get(artifactId);
         if (report == null || !report.runId().equals(runId)) throw new AgentException("RESULT_NOT_FOUND", "Report not found");
         return report.html().clone();
+    }
+    @Override public synchronized com.tianmu.agent.runtime.store.ReportStore.Description describeReport(UUID runId,AccessScope caller,String artifact){
+        load(runId,caller);var value=reports.get(artifact);
+        if(value==null || !value.runId().equals(runId))throw new AgentException("RESULT_NOT_FOUND","Report not found");
+        return new com.tianmu.agent.runtime.store.ReportStore.Description(value.evidenceId(),value.createdAt(),"STORED_REPORT_SOURCE");
     }
 }

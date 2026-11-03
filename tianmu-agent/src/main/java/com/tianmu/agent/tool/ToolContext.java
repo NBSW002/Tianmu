@@ -24,6 +24,10 @@ public interface ToolContext {
     }
     List<ToolDefinition> definitionsForSkill(String name);
     Evidence evidence(String id);
+    default Evidence registerLookup(com.tianmu.agent.core.LookupFacts facts){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Resource discovery unavailable");}
+    default Map<String,Object> searchFeedback(Evidence evidence,String query,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback search unavailable");}
+    default ToolResult readReport(UUID sourceRun,String artifact,String section,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Historical reports unavailable");}
+    default Map<String,Object> readReportOriginal(Evidence evidence,String topic,String original,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Historical originals unavailable");}
     default ToolResult analyzeFeedback(String videoEvidenceId,String analysisId){throw new com.tianmu.agent.core.AgentException("FEEDBACK_SERVICE_UNAVAILABLE","Background analysis is unavailable");}
     default Map<String,Object> readFeedback(Evidence evidence,String section,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback result unavailable");}
     default Map<String,Object> readFeedback(Evidence evidence,String section,String topic,int offset,int limit){return readFeedback(evidence,section,offset,limit);}

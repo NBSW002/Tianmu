@@ -54,4 +54,12 @@ class DeepSeekFeedbackAssignmentsTest {
         assertEquals(0,payload.path("correction").path("unknown_count").asInt());
         assertFalse(payload.toString().contains("originalIds"));
     }
+    @Test void knownTopicsAreIdentityCatalogsRatherThanCuttableHistoricalProse()throws Exception {
+        var base=input();var previous=new Topic("T1","字幕可读性","早期观察。".repeat(170)+"末尾的反对意见。","先保持原设置。",List.of("prior:T1"),40,0);
+        analyze("{\"G1\":\"T1\",\"G2\":\"T1\"}",new Input(base.kind(),base.groups(),List.of(previous),null));
+        var capture=org.mockito.ArgumentCaptor.forClass(Map.class);verify(client).messages(anyString(),capture.capture());
+        var known=json.valueToTree(capture.getValue()).path("known_topics").get(0);
+        assertEquals("T1",known.path("key").asText());assertEquals("字幕可读性",known.path("title").asText());
+        assertFalse(known.has("observation"));assertFalse(known.has("recommendation"));assertEquals(40,known.path("messages").asInt());
+    }
 }

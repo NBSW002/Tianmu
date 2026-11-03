@@ -110,11 +110,12 @@ class AgentRuntimeTest {
     }
     @Test void independentNativeBatchExecutesBothReadsBeforeAnotherModelCall() {
         var dispatcher=org.mockito.Mockito.mock(ToolDispatcher.class);var seen=new ArrayList<String>();
-        org.mockito.Mockito.when(dispatcher.definitions(org.mockito.ArgumentMatchers.any(RunState.class))).thenReturn(List.of(new ToolDefinition("read_a","",Map.of()),new ToolDefinition("read_b","",Map.of())));
-        org.mockito.Mockito.when(dispatcher.execute(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{ToolCall call=invocation.getArgument(0);seen.add(call.name());return new ToolResult(call.name(),Map.of(),null);});
+        org.mockito.Mockito.when(dispatcher.definitions(org.mockito.ArgumentMatchers.any(RunState.class))).thenReturn(List.of(new ToolDefinition("read_a","",Map.of()),new ToolDefinition("read_b","",Map.of()),new ToolDefinition("ask_clarification","",Map.of())));
+        org.mockito.Mockito.when(dispatcher.execute(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{ToolCall call=invocation.getArgument(0);if(call.name().equals("ask_clarification"))return new ToolResult(call.name(),Map.of(),null,null,null,call.arguments().get("question").toString());seen.add(call.name());return new ToolResult(call.name(),Map.of(),null);});
+        org.mockito.Mockito.when(dispatcher.dispatch(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->new ToolDispatcher.Completed(dispatcher.execute(invocation.getArgument(0),invocation.getArgument(1))));
         var a=new ToolCall("read_a",Map.of(),"p1","g");var b=new ToolCall("read_b",Map.of(),"p2","g");RunState run=run("x");
         new AgentRuntime(ctx->ctx.observations().isEmpty()?new Decision(Kind.TOOL,a,null,null,List.of(b)):Decision.clarify("已读取，请补充重点"),dispatcher,harness).execute(run);
-        assertEquals(List.of("read_a","read_b"),seen);assertEquals(2,run.execution().observations().size());assertEquals(2,run.snapshot().modelCalls());assertEquals(Status.NEEDS_INPUT,run.snapshot().status());
+        assertEquals(List.of("read_a","read_b"),seen);assertEquals(3,run.execution().observations().size());assertEquals(2,run.snapshot().modelCalls());assertEquals(Status.NEEDS_INPUT,run.snapshot().status());
     }
     @Test void unknownEvidenceIsRejected() {
         RunState run = run("x");

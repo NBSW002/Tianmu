@@ -32,9 +32,11 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
     }
     public synchronized Work claim(UUID id,Instant now,Duration lease) {
         var job=get(id);if(job==null || !active(job.phase()) || !now.isBefore(job.deadline()))return null;
-        var found=work.values().stream().filter(w->w.jobId().equals(id) && (w.state().equals("PENDING") && !now.isBefore(available.getOrDefault(w.id(),Instant.MIN)) || w.state().equals("RUNNING") && !now.isBefore(w.leaseUntil())))
+        var found=work.values().stream().filter(w->w.jobId().equals(id) && !w.state().equals("COMPLETE"))
                 .min(Comparator.comparingInt(Work::level).thenComparingInt(Work::ordinal));
-        if(found.isEmpty())return null;var w=found.get();var claimed=new Work(w.id(),id,w.kind(),w.level(),w.ordinal(),w.input(),w.result(),"RUNNING",w.fence()+1,w.attempts()+1,now.plus(lease));work.put(w.id(),claimed);return claimed;
+        if(found.isEmpty())return null;var w=found.get();
+        if(w.state().equals("PENDING") && now.isBefore(available.getOrDefault(w.id(),Instant.MIN)) || w.state().equals("RUNNING") && now.isBefore(w.leaseUntil()))return null;
+        var claimed=new Work(w.id(),id,w.kind(),w.level(),w.ordinal(),w.input(),w.result(),"RUNNING",w.fence()+1,w.attempts()+1,now.plus(lease));work.put(w.id(),claimed);return claimed;
     }
     public synchronized boolean complete(Work claim,Blob result) {
         var w=work.get(claim.id());var j=get(claim.jobId());
@@ -50,6 +52,9 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
     public synchronized List<Work> completedLevel(UUID id,int level) {
         var rows=work.values().stream().filter(w->w.jobId().equals(id) && w.level()==level).sorted(Comparator.comparingInt(Work::ordinal)).toList();
         return rows.stream().anyMatch(w->!w.state().equals("COMPLETE"))?List.of():rows;
+    }
+    public synchronized List<Work> completedBefore(UUID id,int ordinal){
+        return work.values().stream().filter(w->w.jobId().equals(id) && w.level()==0 && w.ordinal()<ordinal && w.state().equals("COMPLETE")).sorted(Comparator.comparingInt(Work::ordinal)).toList();
     }
     public synchronized boolean hasLevel(UUID id,int level){return work.values().stream().anyMatch(w->w.jobId().equals(id) && w.level()==level);}
     public synchronized boolean planLevel(UUID id,long version,int level,List<Blob> inputs) {

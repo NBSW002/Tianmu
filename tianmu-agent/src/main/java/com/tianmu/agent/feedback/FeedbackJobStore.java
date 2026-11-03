@@ -25,6 +25,7 @@ public interface FeedbackJobStore {
     default boolean retry(Work claim,String error,Instant availableAt,int maximumAttempts){return retry(claim,error,availableAt,maximumAttempts,null);}
     boolean retry(Work claim,String error,Instant availableAt,int maximumAttempts,Blob correctedInput);
     List<Work> completedLevel(UUID job, int level);
+    List<Work> completedBefore(UUID job, int ordinal);
     boolean hasLevel(UUID job, int level);
     boolean planLevel(UUID job, long version, int level, List<Blob> inputs);
     boolean ready(UUID job, long version, Blob asset);

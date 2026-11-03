@@ -22,6 +22,8 @@ public final class EvidencePresentation {
     public static List<AnswerNote> notes(List<Evidence> evidence) {
         List<AnswerNote> notes = new ArrayList<>();
         for (Evidence value : evidence) {
+            if(value.lookup()!=null)notes.add(new AnswerNote(value.lookup().operation().equals("read_report")?"历史报告参考":"作者视频候选",
+                    value.lookup().operation().equals("read_report")?"仅代表原报告的数据时点与范围，不代表当前状态；历史观点与建议仍需结合新情况判断。":"仅查询作者视频元数据，未读取视频内容，也不表示已选定分析对象。",value.lookup().readAt(),"Asia/Shanghai"));
             if(value.feedback()!=null)notes.add(new AnswerNote("视频"+value.feedback().request().query().videoId()+" · 反馈分析",
                     "基于固定快照完整处理所选来源；统计由代码核对，主题与建议由模型生成。作者发言单列，父评论语境不重复计数。视频采样不证明未覆盖的声音、动作或因果。",value.feedback().dataAsOf(),"Asia/Shanghai"));
             var comments = value.comments();

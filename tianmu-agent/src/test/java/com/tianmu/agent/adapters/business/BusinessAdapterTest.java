@@ -38,6 +38,7 @@ class BusinessAdapterTest {
                 exchange.sendResponseHeaders(feedbackStatus,bytes.length);exchange.getResponseBody().write(bytes);exchange.close();return;
             }
             if(path.endsWith("principal")) value=Map.of("tenantId","tianmu","userId","881");
+            else if(path.endsWith("my-videos"))value=Map.of("items",List.of(Map.of("videoId","1001","title","小鸭日常","durationMs",31000,"publishedAt","2026-10-28T00:00:00Z")),"nextOffset",1,"hasMore",false);
             else if(path.endsWith("authorize")) {
                 JsonNode body=mapper.readTree(exchange.getRequestBody()); Set<Long> result=new HashSet<>();
                 for(var id:body.path("videoIds")) if(allowed.contains(id.longValue())) result.add(id.longValue());
@@ -74,6 +75,13 @@ class BusinessAdapterTest {
         adapter=new RemoteBusinessAdapter(new BusinessProperties(URI.create("http://127.0.0.1:"+server.getAddress().getPort()),5000),mapper,provider);
     }
     @AfterEach void stop(){server.stop(0);}
+    @Test void uniqueOwnedTitleIsAuthorizedBeforeFreezingAndHistoricalReadRechecksOwnership(){
+        var current=adapter.forCreate("token","分析我上周那个小鸭视频的评论",null,null,null);
+        assertEquals(Set.of(1001L),current.videoIds());assertTrue(paths.contains("/internal/agent/my-videos"));
+        UUID old=UUID.randomUUID();when(repository.resourcesForRun(eq(old),any())).thenReturn(Set.of(1001L));
+        assertEquals(Set.of(1001L),adapter.forHistoricalRun(current,old).videoIds());
+        allowed=Set.of();assertEquals("FORBIDDEN",assertThrows(AgentException.class,()->adapter.forHistoricalRun(current,old)).code());
+    }
     @Test void feedbackStreamRequiresAReceiptAndPreservesQuotaErrorsWithoutReturningCredentials()throws Exception {
         var scope=adapter.forCreate("token","分析视频1001的评论报告",null);
         var end=LocalDateTime.now(com.tianmu.agent.core.DanmakuTypes.ZONE).minusHours(1).withNano(0);
@@ -93,6 +101,7 @@ class BusinessAdapterTest {
         UUID session=UUID.randomUUID();when(repository.resourcesForSession(eq(session),any(),eq(Long.MAX_VALUE))).thenReturn(Set.of(1001L,1002L));
         // Use the public overload with context/session rather than trusting historical permission.
         assertEquals(Set.of(1001L),adapter.forCreate("token","这次只看评论",null,null,session).videoIds());
+        assertEquals(Set.of(1001L),adapter.forCreate("token","根据上次报告给我几个选题",null,null,session).videoIds());
     }
 
 

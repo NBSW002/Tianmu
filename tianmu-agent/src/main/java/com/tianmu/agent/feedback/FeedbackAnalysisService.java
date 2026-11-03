@@ -15,6 +15,10 @@ public final class FeedbackAnalysisService {
     private final FeedbackJobStore store;private final FeedbackObjects objects;private final FeedbackSnapshotPort source;
     private final FeedbackModels models;private final FeedbackPolicy policy;private final FeedbackPlanner planner;
     private final Map<UUID,CancellationToken> running=new ConcurrentHashMap<>();
+    private record CacheKey(String tenant,String user,Request request,String snapshot,String model,String policy,VideoContent.Facts video){}
+    private final com.github.benmanes.caffeine.cache.Cache<CacheKey,List<ResultNode>> completed=com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
+            .maximumSize(16).expireAfterWrite(Duration.ofHours(1)).build();
+    private CacheKey cacheKey(FeedbackJobStore.Job j){return new CacheKey(j.owner().tenantId(),j.owner().userId(),j.request(),j.snapshot().contentHash(),j.model(),j.policyHash(),j.video());}
     public FeedbackAnalysisService(FeedbackJobStore store,FeedbackObjects objects,FeedbackSnapshotPort source,FeedbackModels models,FeedbackPolicy policy){
         this.store=store;this.objects=objects;this.source=source;this.models=models;this.policy=policy;planner=new FeedbackPlanner(objects,policy);
     }
@@ -58,19 +62,35 @@ public final class FeedbackAnalysisService {
             if(j.snapshot()==null) {
                 var collector=planner.collector(id,j.request());
                 var receipt=source.export(j.request(),j.owner(),new CallControl(min(j.deadline(),Instant.now().plusSeconds(90)),token),rows->{token.checkpoint();collector.accept(rows);});
-                var planned=collector.finish(receipt);token.checkpoint();store.initialize(id,j.version(),planned.snapshot(),j.video(),planned.inputs());return;
+                var planned=collector.finish(receipt);token.checkpoint();
+                if(store.initialize(id,j.version(),planned.snapshot(),j.video(),planned.inputs())){
+                    var cached=completed.getIfPresent(cacheKey(store.get(id)));
+                    if(cached!=null && cached.size()==planned.inputs().size())for(var result:cached){
+                        token.checkpoint();var claim=store.claim(id,Instant.now(),Duration.ofSeconds(60));if(claim==null)break;
+                        var batch=objects.get(claim.input(),Input.class);
+                        var proposals=result.topics().stream().map(t->new Proposal(topicKey(t),t.title(),t.observation(),t.recommendation(),t.members())).toList();
+                        var verified=planner.validate(claim.id().toString(),batch,proposals);if(!store.complete(claim,objects.put(id,verified)))break;
+                    }
+                }
+                return;
             }
             work=store.claim(id,Instant.now(),Duration.ofSeconds(policy.modelTimeout().toSeconds()+30));
             if(work!=null) {
                 Input stored=objects.get(work.input(),Input.class);
-                input=new Input(stored.kind(),stored.groups(),stored.children(),stored.kind()==WorkKind.CLASSIFY?j.video():null,stored.correction());
+                var prior=work.kind()==WorkKind.CLASSIFY?store.completedBefore(id,work.ordinal()):List.<FeedbackJobStore.Work>of();
+                if(work.kind()==WorkKind.CLASSIFY && prior.size()!=work.ordinal())throw new AgentException("STORAGE_CORRUPT","Classification prefix is incomplete");
+                input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?accumulate(prior):stored.children(),stored.kind()==WorkKind.CLASSIFY?j.video():null,stored.correction());
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),()->{});
                 List<Proposal> proposals;
-                if(input.kind()==WorkKind.MERGE && input.children().size()==1){var t=input.children().get(0);proposals=List.of(new Proposal("T1",t.title(),t.observation(),t.recommendation(),List.of(t.id())));}
+                if(input.kind()==WorkKind.MERGE){
+                    var leaves=new ArrayList<Topic>();
+                    for(var batch:store.completedLevel(id,0))leaves.addAll(objects.get(batch.result(),ResultNode.class).topics());
+                    if(!leaves.stream().map(Topic::id).toList().equals(input.children().stream().map(Topic::id).toList()))
+                        throw new AgentException("STORAGE_CORRUPT","Aggregation references differ from accepted batch notes");
+                    proposals=combine(leaves).stream().map(t->new Proposal(t.id(),t.title(),t.observation(),t.recommendation(),t.members())).toList();
+                }
                 else proposals=models.analyze(input,control);
                 token.checkpoint();var result=planner.validate(work.id().toString(),input,proposals);
-                if(input.kind()==WorkKind.MERGE && input.children().size()>1 && result.topics().size()>Math.max(1,(input.children().size()+3)/4))
-                    throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"TOPIC_LIMIT_EXCEEDED"));
                 store.complete(work,objects.put(id,result));return;
             }
             finishLevel(store.get(id));
@@ -92,34 +112,43 @@ public final class FeedbackAnalysisService {
     private void finishLevel(FeedbackJobStore.Job job) {
         if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;
         if(job.snapshot().counts().total()==0){saveAsset(job,List.of());return;}
-        List<FeedbackJobStore.Work> rows=List.of();int level=0;
-        for(;level<32;level++){
-            var next=store.completedLevel(job.id(),level);if(next.isEmpty())break;rows=next;
-        }
+        var rows=store.completedLevel(job.id(),0);
         if(rows.isEmpty())return;
-        if(store.hasLevel(job.id(),level))return;
-        // A later level may exist but is not complete. planLevel's unique level/version check is the final gate.
+        if(store.hasLevel(job.id(),1)){
+            rows=store.completedLevel(job.id(),1);if(rows.isEmpty())return;
+            if(rows.size()!=1)throw new AgentException("STORAGE_CORRUPT","Expected one code aggregation result");
+        }
         if(rows.size()==1){
             var root=objects.get(rows.get(0).result(),ResultNode.class);
             if(root.covered()!=job.snapshot().counts().total() || root.authorCovered()!=job.snapshot().counts().authorComments()+job.snapshot().counts().authorDanmaku())
                 throw new AgentException("INVALID_ANALYSIS","Root coverage differs from snapshot");
             saveAsset(job,List.of(rows.get(0).result()));return;
         }
-        if(level>=32)throw new AgentException("ANALYSIS_DEPTH_EXCEEDED","Analysis reduction depth exceeded");
-        var inputs=new ArrayList<Blob>();var children=new ArrayList<Topic>();int bytes=0;
-        for(var row:rows)for(Topic topic:objects.get(row.result(),ResultNode.class).topics()) {
-            int size=objects.bytes(topicView(topic));
-            if(!children.isEmpty() && (children.size()>=policy.mergeFanIn() || bytes+size>policy.batchBytes())){
-                inputs.add(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),children,null)));children=new ArrayList<>();bytes=0;
-            }
-            children.add(topic);bytes+=size;
-        }
-        if(!children.isEmpty())inputs.add(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),children,null)));
-        store.planLevel(job.id(),job.version(),level,inputs);
+        // One deterministic fold by stable topic key. Historical leaf detail stays in its own result object.
+        var children=new ArrayList<Topic>();
+        for(var row:rows)children.addAll(objects.get(row.result(),ResultNode.class).topics());
+        // Store references and weights, not another potentially huge copy of all accepted prose.
+        var compact=children.stream().map(t->new Topic(t.id(),t.title(),"","",t.members(),t.messages(),t.authorMessages())).toList();
+        store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),compact,null))));
+    }
+    private static String topicKey(Topic t){return t.id().substring(t.id().lastIndexOf(':')+1);}
+    private List<Topic> accumulate(List<FeedbackJobStore.Work> rows){
+        var topics=new ArrayList<Topic>();for(var row:rows)topics.addAll(objects.get(row.result(),ResultNode.class).topics());return combine(topics);
+    }
+    private static List<Topic> combine(List<Topic> topics){
+        var grouped=new LinkedHashMap<String,List<Topic>>();
+        for(var t:topics)grouped.computeIfAbsent(topicKey(t),ignored->new ArrayList<>()).add(t);
+        return grouped.entrySet().stream().map(entry->{var rows=entry.getValue();
+            return new Topic(entry.getKey(),rows.get(0).title(),
+                    FeedbackTopicNotes.present(rows.stream().map(Topic::observation).toList(),2400,"观察"),
+                    FeedbackTopicNotes.present(rows.stream().map(Topic::recommendation).toList(),1200,"建议"),
+                    rows.stream().map(Topic::id).toList(),rows.stream().mapToLong(Topic::messages).reduce(0,Math::addExact),
+                    rows.stream().mapToLong(Topic::authorMessages).reduce(0,Math::addExact));
+        }).toList();
     }
     private void saveAsset(FeedbackJobStore.Job j,List<Blob> roots) {
         var asset=new Asset(j.id(),j.runId(),j.owner().tenantId(),j.owner().userId(),j.request(),j.snapshot(),roots,j.model(),j.policyHash(),j.video());
-        store.ready(j.id(),j.version(),objects.put(j.id(),asset));
+        if(store.ready(j.id(),j.version(),objects.put(j.id(),asset)))completed.put(cacheKey(j),store.completedLevel(j.id(),0).stream().map(w->objects.get(w.result(),ResultNode.class)).toList());
     }
     public Asset asset(UUID id,AccessScope caller,Request expected) {
         var j=owned(id,caller);if(j.phase()!=Phase.READY || j.asset()==null)throw new AgentException("ANALYSIS_NOT_READY","Analysis is not complete");
@@ -128,14 +157,49 @@ public final class FeedbackAnalysisService {
         return asset;
     }
     public List<Topic> topics(Asset asset){return asset.roots().isEmpty()?List.of():objects.get(asset.roots().get(0),ResultNode.class).topics();}
+    public Asset historicalAsset(UUID id,AccessScope caller){
+        var job=owned(id,caller);if(job.phase()!=Phase.READY || job.asset()==null)throw new AgentException("RESULT_NOT_FOUND","Completed analysis not found");
+        var asset=objects.get(job.asset(),Asset.class);asset.requireCompatible(caller,asset.request());return asset;
+    }
+    public Map<String,Object> search(Asset asset,String query,int offset,int limit){
+        if(query==null || query.isBlank() || query.length()>120 || offset<0 || offset>5000 || limit<1 || limit>10)throw new AgentException("INVALID_ARGUMENTS","Invalid feedback search");
+        var literal=java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(query.strip()),java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.UNICODE_CASE);
+        int matches=0;var selected=new ArrayList<Unit>();
+        for(var chunk:asset.snapshot().chunks())for(var unit:objects.get(chunk,Unit[].class)){
+            if(literal.matcher(unit.text()).find() || literal.matcher(unit.replyContext()).find()){
+                if(matches>=offset && selected.size()<limit)selected.add(unit);matches++;
+            }
+        }
+        var wanted=selected.stream().map(Unit::id).collect(java.util.stream.Collectors.toSet());var leafByOriginal=new HashMap<String,String>();
+        for(var work:store.completedLevel(asset.jobId(),0)){
+            var input=objects.get(work.input(),Input.class);var result=objects.get(work.result(),ResultNode.class);
+            for(var topic:result.topics())for(var group:input.groups())if(topic.members().contains(group.id()))for(String original:group.originalIds())if(wanted.contains(original))leafByOriginal.put(original,topic.id());
+            if(leafByOriginal.size()==wanted.size())break;
+        }
+        if(leafByOriginal.size()!=wanted.size())throw new AgentException("STORAGE_CORRUPT","Search hit lacks accepted classification provenance");
+        var records=selected.stream().map(u->{var row=new LinkedHashMap<String,Object>(originalView(u));row.put("topic_id",leafByOriginal.get(u.id()));
+            String text=literal.matcher(u.text()).find()?u.text():u.replyContext();var hit=literal.matcher(text);hit.find();
+            int from=Math.max(0,hit.start()-60),to=Math.min(text.length(),hit.end()+60);
+            if(from>0 && Character.isLowSurrogate(text.charAt(from)))from--;if(to<text.length() && Character.isLowSurrogate(text.charAt(to)))to++;
+            row.put("match_excerpt",text.substring(from,to));return row;}).toList();
+        int next=Math.min(matches,offset+records.size());
+        return com.tianmu.agent.core.LookupFacts.normalize(Map.of("query",query,"matches",records,"matched_records",matches,"snapshot_counts",asset.snapshot().counts(),"request",asset.request(),"data_as_of",asset.snapshot().dataAsOf(),
+                "coverage","MATCHED_RECORDS_ONLY","match_method","LITERAL_TEXT_OR_REPLY_CONTEXT","next_offset",next,"complete",next==matches));
+    }
+    public Map<String,Object> notes(Asset asset,int offset,int limit){
+        if(offset<0 || limit<1 || limit>10)throw new AgentException("INVALID_ARGUMENTS","Invalid observation page");
+        var all=new ArrayList<Map<String,Object>>();for(var work:store.completedLevel(asset.jobId(),0))for(var topic:objects.get(work.result(),ResultNode.class).topics())all.add(topicView(topic));
+        return page("observations",all,offset,limit);
+    }
     public byte[] report(Asset asset){
-        var details=new ArrayList<FeedbackReportRenderer.Detail>();record At(Topic topic,int depth){}
-        var queue=new ArrayDeque<At>();for(var root:topics(asset))queue.add(new At(root,0));
-        while(!queue.isEmpty() && details.size()<60){
-            var next=queue.remove();var work=topicWork(asset,next.topic().id());var input=objects.get(work.input(),Input.class);
-            if(work.kind()==WorkKind.MERGE){for(String child:next.topic().members())queue.add(new At(topic(asset,child),next.depth()+1));}
-            else details.add(new FeedbackReportRenderer.Detail(next.topic(),next.depth(),input.groups().stream().filter(g->next.topic().members().contains(g.id())).limit(2).map(g->(g.author()?"作者：":"观众：")+preview(g.text(),400)+(g.text().codePointCount(0,g.text().length())>400?"（预览，完整原文可回查）":"")).toList()));
-            if(work.kind()==WorkKind.MERGE && next.depth()>0)details.add(new FeedbackReportRenderer.Detail(next.topic(),next.depth(),List.of()));
+        var details=new ArrayList<FeedbackReportRenderer.Detail>();
+        var batches=store.completedLevel(asset.jobId(),0);
+        if(asset.snapshot().counts().total()>0 && batches.isEmpty())throw new AgentException("STORAGE_CORRUPT","Accepted batch notes are missing");
+        // Read each immutable batch once, rather than loading a work/input/result repeatedly for every topic.
+        for(var work:batches){
+            var input=objects.get(work.input(),Input.class);var result=objects.get(work.result(),ResultNode.class);
+            for(var topic:result.topics())details.add(new FeedbackReportRenderer.Detail(topic,batches.size()==1?0:1,
+                    input.groups().stream().filter(g->topic.members().contains(g.id())).limit(2).map(g->(g.author()?"作者：":"观众：")+preview(g.text(),400)+(g.text().codePointCount(0,g.text().length())>400?"（预览，完整原文可回查）":"")).toList()));
         }
         var daily=new TreeMap<String,Long>();
         for(var chunk:asset.snapshot().chunks())for(Unit unit:objects.get(chunk,Unit[].class))if(unit.createdAt()!=null)daily.merge(unit.createdAt().atZone(DanmakuTypes.ZONE).toLocalDate().toString(),1L,Long::sum);

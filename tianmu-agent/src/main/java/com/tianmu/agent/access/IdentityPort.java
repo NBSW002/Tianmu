@@ -19,5 +19,6 @@ public interface IdentityPort {
         return scope;
     }
     default AccessScope forRun(String credential, java.util.UUID runId) { return authenticate(credential); }
+    default AccessScope forHistoricalRun(AccessScope caller,java.util.UUID runId){return caller;}
     default AccessScope forSession(String credential, java.util.UUID sessionId, long before) { return authenticate(credential); }
 }

@@ -33,8 +33,8 @@ final class MysqlReportStore implements ReportStore {
             var run = access.lockActive(runId, owner);
             Integer count = db.queryForObject("SELECT COUNT(*) FROM agent_artifact WHERE tenant_id=? AND run_id=? AND media_type='text/html'", Integer.class, owner.tenantId(), runId.toString());
             if (count != null && count >= 2) throw new AgentException("CAPACITY_EXCEEDED", "Report limit reached");
-            db.update("INSERT INTO agent_artifact(tenant_id,owner_user_id,session_id,run_id,artifact_id,object_key,media_type,expires_at) VALUES(?,?,?,?,?,?,'text/html',?)",
-                    owner.tenantId(), owner.userId(), run.session().toString(), runId.toString(), id, object, run.expires()); return null;
+            db.update("INSERT INTO agent_artifact(tenant_id,owner_user_id,session_id,run_id,artifact_id,object_key,media_type,expires_at,source_evidence_id) VALUES(?,?,?,?,?,?,'text/html',?,?)",
+                    owner.tenantId(), owner.userId(), run.session().toString(), runId.toString(), id, object, run.expires(),evidenceId); return null;
         });
         try {
             objects.put(object, html);
@@ -52,5 +52,18 @@ final class MysqlReportStore implements ReportStore {
                 owner.tenantId(), owner.userId(), id.toString(), artifactId));
         if (found == null || found != 1) throw new AgentException("RESULT_NOT_FOUND", "Report not found");
         return access.artifact(id, artifactId, owner);
+    }
+    @Override public Description describeReport(UUID id,AccessScope owner,String artifactId){
+        var run=access.load(id,owner);
+        var rows=access.read(()->db.queryForList("SELECT source_evidence_id,ready_at FROM agent_artifact WHERE tenant_id=? AND owner_user_id=? AND run_id=? AND artifact_id=? AND media_type='text/html' AND status='READY' AND expires_at>UTC_TIMESTAMP(6)",owner.tenantId(),owner.userId(),id.toString(),artifactId));
+        if(rows.size()!=1)throw new AgentException("RESULT_NOT_FOUND","Report not found");
+        String evidence=(String)rows.get(0).get("source_evidence_id");String provenance="STORED_REPORT_SOURCE";
+        if(evidence==null){
+            var answer=run.snapshot().answer();var refs=answer==null?java.util.List.<String>of():answer.evidenceIds().stream().distinct().toList();
+            if(refs.size()!=1)throw new AgentException("REPORT_SOURCE_UNAVAILABLE","Historical report has ambiguous provenance");
+            evidence=refs.get(0);provenance="LEGACY_SINGLE_FINAL_EVIDENCE";
+        }
+        Object at=rows.get(0).get("ready_at");java.time.Instant time=at instanceof java.sql.Timestamp stamp?stamp.toInstant():((java.time.LocalDateTime)at).toInstant(java.time.ZoneOffset.UTC);
+        return new Description(evidence,time,provenance);
     }
 }

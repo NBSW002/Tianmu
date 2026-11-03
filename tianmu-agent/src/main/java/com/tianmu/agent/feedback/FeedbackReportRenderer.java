@@ -31,7 +31,7 @@ public final class FeedbackReportRenderer {
             daily.forEach((date,count)->extra.append("<tr><td>").append(e(date)).append("</td><td>").append(count).append("</td></tr>"));extra.append("</table></section>");
         }
         if(!details.isEmpty()){
-            extra.append("<section><h2>局部话题与原话举例</h2><p>以下按层级展示最多60个局部话题，避免上层归纳掩盖具体意见。子层级的次数已包含在上层，不能相加。例子仅作说明，完整成员可从私有分析证据下钻核对。</p>");
+            extra.append("<section><h2>完整批次观点记录与原话举例</h2><p>以下保留全部已接受的批次观察与建议，展开可查看早期意见和不同观点。不同批次的描述可能重叠，不代表不同意见的独立人数；次数已包含在上层，不能相加。原话例子仅作说明，完整成员可从私有分析证据下钻核对。</p>");
             for(var detail:details){var t=detail.topic();extra.append("<details><summary>").append(e(t.title())).append(" · 层级 ").append(detail.depth()).append(" · ").append(t.messages()).append(" 条（作者 ").append(t.authorMessages()).append("）</summary><p>").append(e(t.observation())).append("</p><p>").append(e(t.recommendation())).append("</p>");
                 for(var quote:detail.examples())extra.append("<blockquote>").append(e(quote)).append("</blockquote>");
                 extra.append("<small>主题引用：").append(e(t.id())).append("</small></details>");}

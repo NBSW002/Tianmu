@@ -1,0 +1,38 @@
+{
+  "name": "search_feedback",
+  "description": "Literal keyword search in a completed current feedback result or the snapshot of an authorized historical feedback report. Returns matching original previews and reply context; matched_records is NOT a full-topic count. No LLM analysis or publication.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "result_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Current-run evidence_id from analyze_feedback or read_report, never an arbitrary analysis or artifact ID."
+      },
+      "query": {
+        "description": "Literal keyword matched case-insensitively in original text or reply context, not a semantic question.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "offset": {
+        "description": "Zero-based offset among keyword matches; continue using next_offset.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5000
+      },
+      "limit": {
+        "description": "Maximum matching records per page, from 1 to 10; default 10.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      }
+    },
+    "required": [
+      "result_id",
+      "query"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -29,11 +29,10 @@ management:
           include: readinessState,agentStorage
 agent:
   feedback:
-    max-records: 20000
+    max-records: 5000
     max-snapshot-bytes: 67108864
     batch-bytes: 24000
     batch-groups: 40
-    merge-fan-in: 8
     max-model-calls: 2000
     max-tokens: 16000000
     timeout: 1h

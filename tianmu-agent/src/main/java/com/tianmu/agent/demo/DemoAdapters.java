@@ -18,6 +18,15 @@ import com.tianmu.agent.runtime.control.CallControl;
 @Configuration
 @Profile("demo")
 public class DemoAdapters {
+    @Bean @Profile("!business") com.tianmu.agent.query.VideoSearchPort demoVideoSearch(){
+        return (q,owner,control)->{
+            if(control!=null)control.checkpoint();
+            var items=owner.videoIds().stream().sorted().map(id->new com.tianmu.agent.query.VideoSearchPort.Candidate(Long.toString(id),"小鸭日常 · 演示视频",31000,
+                    LocalDate.now(ZoneId.of("Asia/Shanghai")).minusWeeks(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant()))
+                    .filter(v->v.title().contains(q.query())).filter(v->q.startDate()==null || !v.publishedAt().isBefore(q.startDate().atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant()) && v.publishedAt().isBefore(q.endDate().atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant())).toList();
+            int from=Math.min(q.offset(),items.size()),to=Math.min(items.size(),from+q.limit());return new com.tianmu.agent.query.VideoSearchPort.Page(items.subList(from,to),to,to<items.size());
+        };
+    }
     /** Offline fixtures for three independent preparation branches. */
     @Bean @Profile("!deepseek") PreparationModelPort demoPreparationModel() {
         return new PreparationModelPort() {

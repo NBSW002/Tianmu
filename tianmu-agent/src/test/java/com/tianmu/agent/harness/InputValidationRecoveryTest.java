@@ -141,7 +141,7 @@ class InputValidationRecoveryTest {
         }
     }
     @Test void transformedArgumentsRatherThanOriginalArgumentsAreValidated() {
-        var rewrite=TransformHookTest.hook("bad-result-id",TransformPoint.TOOL_CALL,0,(input,context)->new ToolCall(input.name(),Map.of("result_id",42),input.providerCallId()));
+        var rewrite=TransformHookTest.hook("bad-result-id",TransformPoint.TOOL_CALL,0,(input,context)->input.name().equals("read_result")?new ToolCall(input.name(),Map.of("result_id",42),input.providerCallId()):input);
         try(var fixture=new HarnessLifecycleTest.Fixture(List.of(rewrite))) {
             var effects=new AtomicInteger();var tools=dispatcher(fixture,effects,this::empty);var count=new AtomicInteger();var run=fixture.run();
             new AgentRuntime(context->count.getAndIncrement()==0?Decision.tool("read_result",Map.of("result_id","ev_original")):Decision.clarify("Need a valid result"),tools,fixture.harness).execute(run);

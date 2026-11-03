@@ -3,7 +3,8 @@
   "version": "1.4.0",
   "description": "仅查询当前授权视频或直播间在指定日期收到的弹幕数量；自然简短回答，不读取视频、不自动生成报告。",
   "tools": [
-    "query_video_metrics"
+    "query_video_metrics",
+    "search_my_videos"
   ],
   "resources": {
     "metric-semantics": "references/metric-semantics.md"

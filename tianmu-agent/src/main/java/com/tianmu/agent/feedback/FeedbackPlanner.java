@@ -53,7 +53,7 @@ public final class FeedbackPlanner {
         }
     }
     public ResultNode validate(String workId,Input input,List<Proposal> proposals) {
-        if(proposals==null || proposals.size()>10)throw new AgentException("INVALID_ANALYSIS","Too many or missing topics");
+        if(proposals==null || proposals.size()>(input.kind()==WorkKind.CLASSIFY?10:100))throw new AgentException("INVALID_ANALYSIS","Too many or missing topics");
         Map<String,long[]> members=new LinkedHashMap<>();
         if(input.kind()==WorkKind.CLASSIFY)for(Group g:input.groups()){
             if(g.messages()!=g.originalIds().size() || g.messages()<1 || members.put(g.id(),new long[]{g.messages(),g.author()?g.messages():0})!=null)throw new AgentException("STORAGE_CORRUPT","Invalid classification input");
@@ -70,13 +70,13 @@ public final class FeedbackPlanner {
             if(p.title()!=null && p.title().length()>100 || p.observation()!=null && p.observation().length()>2400 || p.recommendation()!=null && p.recommendation().length()>1200)
                 throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"TEXT_LIMIT_EXCEEDED"));
         }
-        Set<String> covered=new HashSet<>(),keys=new HashSet<>();var topics=new ArrayList<Topic>();int n=0;
+        Set<String> covered=new HashSet<>(),keys=new HashSet<>();var topics=new ArrayList<Topic>();
         try {
             for(Proposal p:proposals){
-                if(p.key()==null || !p.key().matches("T[1-9][0-9]?") || !keys.add(p.key()) || p.members().isEmpty())throw new IllegalArgumentException();
+                if(p.key()==null || !p.key().matches("T(?:[1-9]|[1-9][0-9]|100)") || !keys.add(p.key()) || p.members().isEmpty())throw new IllegalArgumentException();
                 long count=0,authors=0;
                 for(String id:p.members()){var weight=members.get(id);if(weight==null || !covered.add(id))throw new IllegalArgumentException();count=Math.addExact(count,weight[0]);authors=Math.addExact(authors,weight[1]);}
-                topics.add(new Topic(workId+":T"+(++n),p.title(),p.observation(),p.recommendation(),p.members(),count,authors));
+                topics.add(new Topic(workId+":"+p.key(),p.title(),p.observation(),p.recommendation(),p.members(),count,authors));
             }
             if(!covered.equals(members.keySet()))throw new IllegalArgumentException();
             return new ResultNode(workId,input.kind(),topics,topics.stream().mapToLong(Topic::messages).sum(),topics.stream().mapToLong(Topic::authorMessages).sum());

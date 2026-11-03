@@ -80,8 +80,9 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
     public Work claim(UUID id,Instant now,Duration lease) {
         return write(()->{
             Job j=locked(id);if(!running(j) || db.queryForObject("SELECT deadline>UTC_TIMESTAMP(6) FROM agent_feedback_job WHERE job_id=?",Integer.class,id.toString())!=1)return null;
-            var rows=db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND ((state='PENDING' AND available_at<=UTC_TIMESTAMP(6)) OR (state='RUNNING' AND lease_until<=UTC_TIMESTAMP(6))) ORDER BY level_no,ordinal_no LIMIT 1 FOR UPDATE",id.toString());
+            var rows=db.queryForList("SELECT *,((state='PENDING' AND available_at<=UTC_TIMESTAMP(6)) OR (state='RUNNING' AND lease_until<=UTC_TIMESTAMP(6))) claimable FROM agent_feedback_work WHERE job_id=? AND state<>'COMPLETE' ORDER BY level_no,ordinal_no LIMIT 1 FOR UPDATE",id.toString());
             if(rows.isEmpty())return null;Work w=work(rows.get(0));
+            if(((Number)rows.get(0).get("claimable")).intValue()!=1)return null;
             db.update("UPDATE agent_feedback_work SET state='RUNNING',fence=fence+1,attempts=attempts+1,lease_until=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL ? MICROSECOND) WHERE work_id=?",Math.multiplyExact(lease.toMillis(),1000),w.id().toString());
             return work(db.queryForMap("SELECT * FROM agent_feedback_work WHERE work_id=?",w.id().toString()));
         });
@@ -105,6 +106,7 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
         return rows.stream().anyMatch(w->!w.state().equals("COMPLETE"))?List.of():rows;
     }
     public boolean hasLevel(UUID id,int level){return db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND level_no=?",Long.class,id.toString(),level)>0;}
+    public List<Work> completedBefore(UUID id,int ordinal){return db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND level_no=0 AND ordinal_no<? AND state='COMPLETE' ORDER BY ordinal_no",id.toString(),ordinal).stream().map(this::work).toList();}
     public boolean planLevel(UUID id,long version,int level,List<Blob> inputs) {
         return write(()->{
             Job j=locked(id);if(!running(j) || j.version()!=version || db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND level_no=?",Long.class,id.toString(),level)>0)return false;

@@ -88,7 +88,8 @@ public class TaskMeaning {
         return resolve(text,date,at,memory.environment());
     }
     public Specification resolve(String text,LocalDate date,java.time.Instant at,com.tianmu.agent.core.RequestContext page) {
-        var spec = resolve(com.tianmu.agent.application.RequestMessages.forParsing(text,page),date,at);
+        String parsing=page!=null && VideoDiscovery.request(text,date).isPresent()?VideoDiscovery.analysisText(text):text;
+        var spec = resolve(com.tianmu.agent.application.RequestMessages.forParsing(parsing,page),date,at);
         if (page == null || com.tianmu.agent.core.DanmakuTarget.matcher(text).find() || !spec.conditions().containsKey("video_id")) return spec;
         Map<String,String> provenance = new HashMap<>(spec.provenance());provenance.put("video_id","page_context");
         return new Specification(spec.type(),spec.conditions(),provenance,spec.analysis());

@@ -373,6 +373,9 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         }
     }
     private Evidence evidenceFacts(String id, Meta m, Object facts) {
+        if("resource-lookup-v1".equals(decode(facts,Map.class).get("kind")))return new Evidence(id,m.id(),m.owner(),null,null,null,null,null,null,decode(facts,com.tianmu.agent.core.LookupFacts.class));
+        if(decode(facts,Map.class).containsKey("jobId"))
+            return new Evidence(id,m.id(),m.owner(),null,null,null,null,null,decode(facts,com.tianmu.agent.core.FeedbackAnalysis.Binding.class));
         if("audience-report-checkpoint-v1".equals(decode(facts,Map.class).get("kind")))
             return new Evidence(id,m.id(),m.owner(),null,null,null,null,decode(facts,com.tianmu.agent.core.ReportCheckpoint.class));
         if ("video-comments-v1".equals(decode(facts, Map.class).get("kind")))
@@ -384,6 +387,8 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         return new Evidence(id, m.id(), m.owner(), decode(facts, MetricData.class));
     }
     private Object evidenceQuery(Evidence value) {
+        if(value.lookup()!=null)return value.lookup();
+        if(value.feedback()!=null)return Map.of("kind","feedback-analysis-v1","jobId",value.feedback().jobId(),"request",value.feedback().request(),"snapshotHash",value.feedback().snapshotHash());
         if(value.reportCheckpoint()!=null)return Map.of("kind",value.reportCheckpoint().kind(),"evidence",value.reportCheckpoint().evidenceId(),"offset",value.reportCheckpoint().classification().offset(),"merged",value.reportCheckpoint().classification().merged());
         if(value.comments()!=null)return value.comments().query();
         if(value.videoContent()!=null)return value.videoContent();
@@ -416,6 +421,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         return reports.saveReport(runId, owner, evidenceId, html);
     }
     @Override public byte[] report(UUID runId, AccessScope owner, String artifactId) { return reports.report(runId, owner, artifactId); }
+    @Override public com.tianmu.agent.runtime.store.ReportStore.Description describeReport(UUID runId,AccessScope owner,String artifact){return reports.describeReport(runId,owner,artifact);}
     public byte[] artifact(UUID runId, String id, AccessScope owner) {
         Map<String, Object> row = write(() -> {
             var source = row(runId, owner, false); session(UUID.fromString(source.get("session_id").toString()), owner, false);

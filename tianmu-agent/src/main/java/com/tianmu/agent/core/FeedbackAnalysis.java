@@ -65,7 +65,7 @@ public final class FeedbackAnalysis {
     public record ResultNode(String workId, WorkKind kind, List<Topic> topics, long covered, long authorCovered) {
         public ResultNode {
             topics = List.copyOf(topics);
-            if (workId == null || kind == null || topics.size() > 10 || covered < 0 || authorCovered < 0 || authorCovered > covered
+            if (workId == null || kind == null || topics.size() > (kind==WorkKind.CLASSIFY?10:100) || covered < 0 || authorCovered < 0 || authorCovered > covered
                     || topics.stream().map(Topic::id).distinct().count() != topics.size()
                     || topics.stream().mapToLong(Topic::messages).sum() != covered
                     || topics.stream().mapToLong(Topic::authorMessages).sum() != authorCovered) throw new IllegalArgumentException("Invalid result node");

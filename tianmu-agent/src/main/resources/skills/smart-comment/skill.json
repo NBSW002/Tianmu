@@ -6,6 +6,9 @@
     "analyze_video_content",
     "prepare_creator_interactions",
     "prepare_comment_draft",
-    "analyze_feedback"
+    "analyze_feedback",
+    "search_my_videos",
+    "read_report",
+    "search_feedback"
   ]
 }

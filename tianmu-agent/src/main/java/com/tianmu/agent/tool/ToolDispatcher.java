@@ -29,6 +29,9 @@ public class ToolDispatcher {
     private final RuntimeHarness harness;
     private final ToolRegistry registry;
     private final com.tianmu.agent.application.ReportArtifacts artifacts;
+    private final com.tianmu.agent.runtime.store.ReportStore reports;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.runtime.store.RunRepository repository;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.access.IdentityPort identity;
     private final com.tianmu.agent.runtime.store.ConversationStore conversations;
     private com.tianmu.agent.feedback.FeedbackAnalysisService feedback;
     @org.springframework.beans.factory.annotation.Autowired
@@ -37,7 +40,8 @@ public class ToolDispatcher {
     public ToolDispatcher(SkillCatalog skills,RuntimeHarness harness,ToolRegistry registry,com.tianmu.agent.runtime.store.ReportStore reports,
                           com.tianmu.agent.runtime.store.ConversationStore conversations) {
         this.skills = skills; this.harness = harness; this.registry = registry;
-        this.artifacts = new com.tianmu.agent.application.ReportArtifacts(reports);
+        this.artifacts = new com.tianmu.agent.application.ReportArtifacts(reports);this.reports=reports;
+        if(reports instanceof com.tianmu.agent.runtime.store.RunRepository value)this.repository=value;
         this.conversations = conversations;
     }
     public ToolDispatcher(SkillCatalog skills, RuntimeHarness harness, ToolRegistry registry, com.tianmu.agent.runtime.store.ReportStore reports) {
@@ -87,7 +91,8 @@ public class ToolDispatcher {
             com.tianmu.agent.harness.trace.TraceAttributes.apply(span,Map.of("tool.handler_executed",true));
             ToolResult result = tool.execute(call, context);
             run.checkpoint();
-            if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation"))
+            if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation")
+                    || result.terminalClarification()!=null && !"ask_clarification".equals(call.name()))
                 throw new AgentException("INVALID_TOOL_RESULT", "Tool result does not match the registered handler or uses host-reserved feedback");
             TraceDetails.capture("output", result, "TOOL_RESULT");
             return new Completed(result);
@@ -150,6 +155,40 @@ public class ToolDispatcher {
             if (value == null || !value.owner().equals(run.owner) || !value.runId().equals(run.id))
                 throw new AgentException("RESULT_NOT_FOUND", "Result is not accessible in this run");
             return value;
+        }
+        public Evidence registerLookup(com.tianmu.agent.core.LookupFacts facts){
+            if(!tool.name().equals(facts.operation()) && !(tool.name().equals("read_result") && facts.operation().equals("read_report")))throw new AgentException("TOOL_CAPABILITY_DENIED","Resource operation mismatch");
+            var old=run.execution().evidence().snapshot().values().stream().filter(e->facts.equals(e.lookup())).findFirst();if(old.isPresent())return old.get();
+            var value=new Evidence("ev_"+UUID.randomUUID(),run.id,run.owner,null,null,null,null,null,null,facts);run.execution().evidence().put(value);return value;
+        }
+        private com.tianmu.agent.application.HistoricalReportReader reader(){return new com.tianmu.agent.application.HistoricalReportReader(repository,reports,feedback);}
+        private com.tianmu.agent.application.HistoricalReportReader.Source reportSource(UUID id,String artifact){
+            var caller=identity==null?run.owner:identity.forHistoricalRun(run.owner,id);
+            return reader().source(id,artifact,caller,run.task()==null?null:run.task().specification());
+        }
+        public ToolResult readReport(UUID sourceRun,String artifact,String section,int offset,int limit){
+            if(!Set.of("summary","topics","observations").contains(section))throw new AgentException("INVALID_ARGUMENTS","Historical reports support summary, topics, observations, or original_text with original references");
+            run.checkpoint();var source=reportSource(sourceRun,artifact);var data=reader().read(source,artifact,section,offset,limit);
+            var existing=run.execution().evidence().snapshot().values().stream().filter(e->e.lookup()!=null && e.lookup().operation().equals("read_report")
+                    && sourceRun.toString().equals(e.lookup().data().get("source_run_id")) && artifact.equals(e.lookup().data().get("artifact_id"))).findFirst();
+            var value=existing.orElseGet(()->registerLookup(new com.tianmu.agent.core.LookupFacts("read_report",Map.of("source_run_id",sourceRun.toString(),"artifact_id",artifact,"historical",true,"generated_at",source.report().createdAt()),source.videoIds())));
+            return new ToolResult(tool.name(),com.tianmu.agent.core.LookupFacts.normalize(data),value.id());
+        }
+        public Map<String,Object> readReportOriginal(Evidence evidence,String topic,String original,int offset,int limit){
+            if(evidence.lookup()==null || !evidence.lookup().operation().equals("read_report"))throw new AgentException("INVALID_EVIDENCE","Historical report reference required");
+            var source=reportSource(UUID.fromString(evidence.lookup().data().get("source_run_id").toString()),evidence.lookup().data().get("artifact_id").toString());
+            if(source.evidence().feedback()==null)throw new AgentException("RESULT_NOT_FOUND","Report has no retained feedback snapshot");
+            return feedback.originalText(feedback.historicalAsset(source.evidence().feedback().jobId(),source.authorized()),topic,original,offset,limit);
+        }
+        public Map<String,Object> searchFeedback(Evidence evidence,String query,int offset,int limit){
+            run.checkpoint();com.tianmu.agent.core.FeedbackAnalysis.Asset asset;
+            if(evidence.feedback()!=null){checkFeedback(evidence.feedback().request());asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());}
+            else if(evidence.lookup()!=null && evidence.lookup().operation().equals("read_report")){
+                var source=reportSource(UUID.fromString(evidence.lookup().data().get("source_run_id").toString()),evidence.lookup().data().get("artifact_id").toString());
+                if(source.evidence().feedback()==null)throw new AgentException("INVALID_EVIDENCE","This historical report has no feedback snapshot");
+                asset=feedback.historicalAsset(source.evidence().feedback().jobId(),source.authorized());
+            }else throw new AgentException("INVALID_EVIDENCE","Search requires completed feedback or a historical feedback report");
+            return feedback.search(asset,query,offset,limit);
         }
         public void checkFeedback(com.tianmu.agent.core.FeedbackAnalysis.Request request){
             run.checkpoint();com.tianmu.agent.application.FeedbackTaskPolicy.require(run.task()==null?null:run.task().specification(),request);

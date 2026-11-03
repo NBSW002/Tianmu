@@ -9,6 +9,21 @@ import java.util.*;
 
 /** Fixed read-only metric. Permission and count share one SQL statement/snapshot. */
 public final class BusinessMetrics {
+    public record VideoCandidate(String videoId,String title,long durationMs,Instant publishedAt){}
+    public record VideoMatches(List<VideoCandidate> items,int nextOffset,boolean hasMore){}
+    public VideoMatches search(BusinessAuthentication.Principal principal,String query,LocalDate start,LocalDate end,int offset,int limit){
+        if(query==null || query.length()>120 || offset<0 || offset>1000 || limit<1 || limit>20 || (start==null)!=(end==null) || start!=null && !start.isBefore(end))throw new BridgeException("INVALID_REQUEST",400);
+        String type=db.queryForObject("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='video' AND COLUMN_NAME='create_time'",String.class);
+        if(!Set.of("timestamp","datetime").contains(type))throw new BridgeException("UNSUPPORTED_TIME_COLUMN",503);
+        ZoneId storage="timestamp".equals(type)?ZoneOffset.UTC:ZoneId.of(config.datetimeStorageZone());
+        var args=new ArrayList<Object>();args.add(Long.parseLong(principal.userId()));args.add(query.strip());
+        String dates="";
+        if(start!=null){dates=" AND create_time>=? AND create_time<?";args.add(BusinessDanmakuAnalysis.wall(start.atStartOfDay(),storage));args.add(BusinessDanmakuAnalysis.wall(end.atStartOfDay(),storage));}
+        args.add(limit+1);args.add(offset);
+        var found=db.query("SELECT video_id,title,duration,create_time FROM video WHERE user_id=? AND is_delete=0 AND LOCATE(?,COALESCE(title,''))>0"+dates+" ORDER BY create_time DESC,video_id DESC LIMIT ? OFFSET ?",
+                (rs,n)->new VideoCandidate(Long.toString(rs.getLong("video_id")),Objects.toString(rs.getString("title"),""),Math.max(0,Math.round(rs.getDouble("duration")*1000)),rs.getTimestamp("create_time",Calendar.getInstance(TimeZone.getTimeZone(storage))).toInstant()),args.toArray());
+        boolean more=found.size()>limit;var items=List.copyOf(found.subList(0,Math.min(limit,found.size())));return new VideoMatches(items,offset+items.size(),more);
+    }
     public record Page(String videoId,String title,long durationMs) {}
     public Page page(BusinessAuthentication.Principal principal,long videoId) {
         var rows = db.queryForList("SELECT title,duration FROM video WHERE video_id=? AND user_id=? AND is_delete=0",videoId,Long.parseLong(principal.userId()));

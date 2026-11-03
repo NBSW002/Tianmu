@@ -73,7 +73,7 @@ class TaskContractTest {
             RunState general = prepared("你好");
             assertEquals(new ToolCatalog().all().keySet(),general.task().allowedTools());
             assertDoesNotThrow(() -> new BusinessEvidencePolicy().checkVideoQuery(general,1001));
-            assertEquals(Set.of("list_skills","read_skill","read_result","read_history"),fixture.tools.definitions(general).stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
+            assertEquals(Set.of("list_skills","read_skill","read_result","read_history","ask_clarification"),fixture.tools.definitions(general).stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
             general.cancel();
             RunState run = prepared("分析视频1001第2秒到第6秒的画面");
             assertEquals(new ToolCatalog().all().keySet(),run.task().allowedTools());

@@ -1,0 +1,12 @@
+{
+  "name": "ask_clarification",
+  "description": "Ask the user to resolve a missing or conflicting requirement and end this turn in NEEDS_INPUT. Use only when clarification is necessary. Does not change authorization or frozen task scope. The next user reply is prepared and authorized again. Cannot share a tool batch.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "question": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "A concise, self-contained question identifying the missing or conflicting requirement. Do not ask for secrets or an already known condition."}
+    },
+    "required": ["question"],
+    "additionalProperties": false
+  }
+}

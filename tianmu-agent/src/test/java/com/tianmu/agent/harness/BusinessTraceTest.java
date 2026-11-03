@@ -38,7 +38,8 @@ class BusinessTraceTest {
             one(f, SpanType.RECEIVE_QUERY); one(f, SpanType.AGENT_START); one(f, SpanType.AGENT_END);
             var models = spans(f, SpanType.LLM_INFERENCE); assertEquals(2, models.size());
             assertEquals(List.of("CALL_TOOL", "CLARIFY"), models.stream().map(s -> s.getAttributes().get(AttributeKey.stringKey("model.decision"))).toList());
-            assertEquals(true, one(f, SpanType.TOOL_CALL).getAttributes().get(AttributeKey.booleanKey("tool.success")));
+            assertEquals(2,spans(f,SpanType.TOOL_CALL).size());
+            assertTrue(spans(f,SpanType.TOOL_CALL).stream().allMatch(s->Boolean.TRUE.equals(s.getAttributes().get(AttributeKey.booleanKey("tool.success")))));
             var finish = one(f, SpanType.FINISH);
             assertEquals("1.1", TraceEnvelope.from(finish, "test", "test").schemaVersion());
             assertEquals(200L, finish.getAttributes().get(AttributeKey.longKey("usage.input_tokens")));

@@ -32,7 +32,7 @@ public final class ExecutionState {
     }
     public synchronized void completeOperation(com.tianmu.agent.core.PendingOperation pending,ToolResult result){
         int index=exchanges.size()-1;if(index<0)throw new IllegalStateException("No pending tool call");var last=exchanges.get(index);
-        if(!pending.equals(last.result().pending()) || !last.call().name().equals(result.tool()) || result.pending()!=null || result.terminalAnswer()!=null)
+        if(!pending.equals(last.result().pending()) || !last.call().name().equals(result.tool()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null)
             throw new IllegalArgumentException("Operation result does not match pending execution");
         exchanges.set(index,new com.tianmu.agent.core.AgentTypes.ToolExchange(last.call(),result));observations.set(index,result);
     }

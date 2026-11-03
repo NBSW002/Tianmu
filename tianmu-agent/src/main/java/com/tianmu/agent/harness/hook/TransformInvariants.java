@@ -9,7 +9,8 @@ final class TransformInvariants {
     private TransformInvariants() {}
     private static final Set<String> FACT_KEYS = Set.of("video_id", "date", "metric", "value", "metric_version",
             "source", "data_as_of", "complete", "demo", "evidence_id", "skill", "tool_schemas", "error_code", "retryable", "attempt", "analysis", "sampling_method", "classification", "input_validation",
-            "summary","counts","topics","next_offset","status","operation_id","job_id","grounding","request");
+            "summary","counts","topics","next_offset","status","operation_id","job_id","grounding","request",
+            "items","candidate_only","historical","freshness","content","source_run_id","artifact_id","matches","matched_records","coverage","match_method","snapshot_counts");
     static void require(boolean condition) {
         if (!condition) throw new AgentException("HOOK_TRANSFORM_INVALID", "Transform violated a harness invariant");
     }
@@ -71,6 +72,7 @@ final class TransformInvariants {
     private static void result(ToolResult original, ToolResult transformed) {
         require(Objects.equals(original.tool(), transformed.tool()) && Objects.equals(original.evidenceId(), transformed.evidenceId()));
         require(Objects.equals(original.terminalAnswer(), transformed.terminalAnswer()));
+        require(Objects.equals(original.terminalClarification(), transformed.terminalClarification()));
         require(Objects.equals(original.pending(), transformed.pending()));
         for (String key : FACT_KEYS) {
             require(original.data().containsKey(key) == transformed.data().containsKey(key));

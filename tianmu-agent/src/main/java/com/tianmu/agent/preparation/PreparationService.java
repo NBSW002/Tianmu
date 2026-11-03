@@ -29,6 +29,8 @@ public class PreparationService implements AutoCloseable {
     private final com.tianmu.agent.runtime.store.ConversationStore repository;
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private org.springframework.beans.factory.ObjectProvider<com.tianmu.agent.query.VideoPagePort> pages;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private org.springframework.beans.factory.ObjectProvider<com.tianmu.agent.query.VideoSearchPort> videoSearch;
     private org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor calls = com.tianmu.agent.config.ExecutionConfiguration.standalone("agent-preparation", 6, 6, 48);
     private boolean ownsExecutor = true;
     private record Completed<T>(T value, Instant at) {}
@@ -79,6 +81,19 @@ public class PreparationService implements AutoCloseable {
                 page = new com.tianmu.agent.core.RequestContext(page.videoId(),metadata.title(),page.playbackMs()!=null && page.playbackMs()<metadata.durationMs() ? page.playbackMs():null);
             } else page = new com.tianmu.agent.core.RequestContext(page.videoId(),"",page.playbackMs());
         }
+        var discovery=VideoDiscovery.request(query,run.businessDate);
+        if(discovery.isPresent()){
+            page=null;
+            var port=videoSearch==null?null:videoSearch.getIfAvailable();
+            if(port!=null){
+                var candidates=harness.stage(run,"agent.prepare.video_discovery",null,null,Map.of(),()->port.search(discovery.get(),run.owner,
+                        new CallControl(deadline(run,policy.understandingTimeout()),run.cancellation())));
+                if(!candidates.hasMore() && candidates.items().size()==1){var match=candidates.items().get(0);
+                    int end=Math.min(160,match.title().length());if(end>0 && Character.isHighSurrogate(match.title().charAt(end-1)))end--;
+                    if(run.owner.videoIds().contains(Long.parseLong(match.videoId())))page=new com.tianmu.agent.core.RequestContext(match.videoId(),match.title().substring(0,end),null);
+                }
+            }
+        }
         var prior = run.memory().focus();
         if (prior == null) prior = com.tianmu.agent.application.ConversationFocus.recover(run.memory().recent(),page);
         var focus = com.tianmu.agent.application.ConversationFocus.update(run.id,run.message,page,prior);
@@ -86,8 +101,14 @@ public class PreparationService implements AutoCloseable {
             run.memory(new com.tianmu.agent.core.MemoryTypes.View(run.memory().version(),"",List.of(),true,run.memory().boundary(),page,focus));
         else run.memory(run.memory().withContext(page,focus));
         if (repository != null) repository.focus(run,focus);
-        Input contextInput = new Input(query, run.businessDate, run.owner, run.memory(), run.createdAt);
+        String analysisQuery=discovery.isPresent() && page!=null?VideoDiscovery.analysisText(query):query;
+        Input contextInput = new Input(analysisQuery, run.businessDate, run.owner, run.memory(), run.createdAt);
         run.emit("PROGRESS", Map.of("stage", "preparing"));
+        if(discovery.isPresent() && page==null || VideoDiscovery.historicalReport(query) && !com.tianmu.agent.core.DanmakuTarget.matcher(query).find()){
+            skipped.addAll(Set.of("intent","understanding","emotion","rewrite"));
+            return new Result(Route.HARNESS,new PreparedRequest(run.message,query,Emotion.UNKNOWN,degraded,skipped,Intent.OTHER,
+                    new com.tianmu.agent.core.TaskTypes.Specification("resource.lookup",Map.of(),Map.of())),null,null);
+        }
         com.tianmu.agent.core.TaskTypes.Specification specification;
         try { specification = meaning.resolve(run.query(), run.businessDate, run.createdAt,run.memory()); }
         catch (AgentException error) {
@@ -97,7 +118,7 @@ public class PreparationService implements AutoCloseable {
         }
         if (!specification.equals(meaning.resolve(query, run.businessDate, run.createdAt,run.memory())))
             throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Input transformation changed the task conditions");
-        String validationQuery=query;
+        String validationQuery=analysisQuery;
         var currentFocus=run.memory().focus();
         if(currentFocus!=null && !currentFocus.request().equals(query) && AnalysisSourceSelection.mentions(query)
                 && com.tianmu.agent.application.ConversationFocus.continuation(query))

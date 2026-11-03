@@ -62,14 +62,14 @@ class CatalogArchitectureTest {
         List<Resource> all = new ArrayList<>(Arrays.asList(original)); all.add(item); return all.toArray(Resource[]::new);
     }
     List<AgentTool> builtins() {
-        return new ArrayList<>(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
+        return new ArrayList<>(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
                 new QueryVideoMetricsTool((q, s) -> { fail("Query must not run"); return null; })));
     }
     @Test void generalToolsAreAlwaysVisibleAndBusinessToolsRequireTheirOwnSkill() {
         var catalog = new ToolCatalog(); var skills = new SkillCatalog();
         var registry = new ToolRegistry(builtins(),catalog,skills);
         var snapshot = registry.names();
-        assertEquals(Set.of("list_skills","read_skill","read_result","read_history"),registry.definitions(Set.of(),snapshot).stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of("list_skills","read_skill","read_result","read_history","ask_clarification"),registry.definitions(Set.of(),snapshot).stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
         assertEquals("SKILL_REQUIRED",assertThrows(AgentException.class,()->registry.admit("query_video_metrics",Set.of("video-content"),snapshot)).code());
         assertNotNull(registry.admit("read_result",Set.of(),snapshot));
         var video = registry.definitions(Set.of("video-content"),snapshot).stream().map(ToolDefinition::name).toList();
