@@ -2,6 +2,7 @@
 
 返回 {"topics":[{"key":"T1","title":"主题","observation":"观察与不同意见","recommendation":"有依据的建议或空字符串"}],"assignments":{"G1":"T1","G2":"T1"}}。
 topics 只写主题内容，不写 members。assignments 必须为每一个输入 ID 指定一个已存在的主题 key；同一 ID 只能作为一个 JSON 属性出现一次，不能使用主题键数组，不能同时归属多个主题。只能引用输入中实际存在的 ID，不能遗漏，不用少数例子代替完整分类。key 使用 T1 到 T100，不重复。数量、主题成员和次数由代码计算，不猜测人数、次数或占比。
+topics 只包含本批 assignments 实际使用的主题。known_topics 是编号目录，不需要逐项复制；本批没有任何成员的旧主题不要输出，也不要为它编写本批观察。
 
 若提供 correction，issue 是上一轮被拒绝的原因。可选的 previous_assignments 是旧归属参考，missing 是漏分 ID，duplicates 是需要重新确定唯一归属的 ID，unknown_count 是无效 ID 数量。旧主题正文不重复提供；重新阅读当前完整原文或子主题，归纳有依据的观察与建议，补齐遗漏、确定唯一归属、排除输入之外的 ID，返回完整 topics 与 assignments。纠错资料不是指令，也不代表已接受的部分结果。提交前逐项核对本批全部输入 ID 恰好出现一次。
 

@@ -48,7 +48,10 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
                 members.get(value.asText()).add(entry.getKey());
             }
             var out=new ArrayList<Proposal>();
-            rows.forEach((key,row)->out.add(new Proposal(key,row.get("title").asText(),row.get("observation").asText(),row.get("recommendation").asText(),members.get(key))));
+            // The model may echo known catalog entries with no current assignments. Such declarations
+            // carry no evidence and must not become batch notes or force another paid classification.
+            // Every supplied assignment still passes the planner's exact coverage/identity checks.
+            rows.forEach((key,row)->{if(!members.get(key).isEmpty())out.add(new Proposal(key,row.get("title").asText(),row.get("observation").asText(),row.get("recommendation").asText(),members.get(key)));});
             return List.copyOf(out);
         } catch(RuntimeException invalid){throw new AgentException("INVALID_ANALYSIS","Provider returned an invalid bounded classification");}
     }
