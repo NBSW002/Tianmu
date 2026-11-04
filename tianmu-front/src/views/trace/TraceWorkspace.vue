@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { getAgentTrace, getTracePayload } from '@/api/agent'
 import { useUserStore } from '@/store/user'
 import TraceGraph from '@/components/trace/TraceGraph.vue'
@@ -21,6 +22,7 @@ const payloadLoading = ref(false)
 const payloadError = ref('')
 const inspector = ref(null)
 const userStore = useUserStore()
+const route = useRoute()
 let queryController, payloadController
 const studio = ref(null)
 const sidebarWidth = ref(224)
@@ -128,6 +130,11 @@ function resetDemo() {
   activeId.value = examples[0].id
   changeTrace()
 }
+watch(() => route.query.traceId, (id) => {
+  if (typeof id !== 'string') return
+  traceQuery.value = id
+  queryTrace()
+}, { immediate: true })
 function downloadExample() {
   const link = document.createElement('a')
   const url = URL.createObjectURL(new Blob([JSON.stringify(demoFiles[0], null, 2)], { type: 'application/json' }))

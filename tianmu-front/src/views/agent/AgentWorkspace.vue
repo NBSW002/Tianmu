@@ -43,7 +43,7 @@
       </header>
       <div ref="conversationElement" class="conversation-scroll">
         <div class="workspace-content">
-          <section v-if="!turns.length" class="workspace-intro">
+          <section v-if="!conversationTurns.length" class="workspace-intro">
             <div class="welcome-symbol" aria-hidden="true">✦<i>✧</i></div>
             <div class="intro-tag">你的内容运营搭档</div>
             <h1>{{ form.videoId ? '这个视频，下一步怎么做？' : '一起，做好下一次内容。' }}</h1>
@@ -84,17 +84,23 @@
           </div>
 
           <section
-            v-if="turns.length"
+            v-if="conversationTurns.length"
             ref="resultsElement"
             class="results"
             aria-label="运营助手对话"
           >
-            <article v-for="turn in turns" :key="turn.runId" class="analysis-turn">
+            <article v-for="turn in conversationTurns" :key="turn.localId || turn.runId" class="analysis-turn">
               <div class="user-question">
                 <span>你</span>
                 <p>{{ turn.message }}</p>
               </div>
-              <section class="assistant-result">
+              <section v-if="turn.command === 'log'" class="assistant-result" aria-label="Trace ID 回复">
+                <div class="result-heading"><span class="assistant-avatar" aria-hidden="true">✦</span><strong>EchoFrame运营助手</strong></div>
+                <p class="answer-text">{{ turn.text }}</p>
+                <code v-if="turn.traceId" class="trace-id-reply">{{ turn.traceId }}</code>
+                <router-link v-if="turn.href" :to="turn.href" target="_blank" rel="noopener" class="text-button">查看运行追踪 ↗</router-link>
+              </section>
+              <section v-else class="assistant-result">
                 <div class="result-heading">
                   <span class="assistant-avatar" aria-hidden="true">✦</span
                   ><strong>EchoFrame运营助手</strong
@@ -108,7 +114,7 @@
                   <span v-if="!isTerminal(turn.snapshot.status)"
                     >已等待 {{ elapsed(turn.waitClock) }}</span
                   ><span v-if="turn.snapshot.totalModelCalls"
-                    >主流程模型调用 {{ turn.snapshot.totalModelCalls }} 次</span
+                    >模型调用合计 {{ turn.snapshot.totalModelCalls }} 次</span
                   ><span v-if="turn.snapshot.steps">已执行 {{ turn.snapshot.steps }} 轮</span>
                   <span v-if="turn.events.some(event => event.analysisCalls !== undefined)">后台分析模型调用 {{ Math.max(...turn.events.map(event => event.analysisCalls || 0)) }} 次</span>
                 </div>
@@ -216,7 +222,7 @@
             id="assistant-message"
             ref="composerInput"
             v-model="focus"
-            :disabled="busy"
+            :disabled="submitting || loadingRun"
             :maxlength="messageLimit"
             rows="3"
             :placeholder="
@@ -231,7 +237,7 @@
             ><button
               type="submit"
               class="send-button"
-              :disabled="busy || !focus.trim()"
+              :disabled="!focus.trim() || submitting || loadingRun || (running && !isLogCommand(focus))"
               :aria-label="submitting ? '正在发送' : '发送消息'"
             >
               {{ submitting ? '…' : '↑' }}
@@ -251,6 +257,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import RoomAudience from '@/components/agent/RoomAudience.vue';
 import QaKnowledge from '@/components/agent/QaKnowledge.vue';
 import CreatorDraft from '@/components/agent/CreatorDraft.vue';
+import { isLogCommand, logReply } from '@/agent/local-commands.mjs';
 import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from '@/store/user';
 import { useAgentRunMonitor } from '@/composables/useAgentRunMonitor';
@@ -316,6 +323,11 @@ const submitting = ref(false),
   clock = ref(performance.now()),
   resultsElement = ref(null);
 const activeTurn = computed(() => turns.value[turns.value.length - 1]);
+const commandReplies = ref([]);
+const conversationTurns = computed(() => [
+  ...commandReplies.value.filter(reply => !reply.afterRunId),
+  ...turns.value.flatMap(turn => [turn, ...commandReplies.value.filter(reply => reply.afterRunId === turn.runId)]),
+]);
 const activeRunId = computed(() => activeTurn.value?.runId);
 const running = computed(() => !!activeTurn.value && !terminal(activeTurn.value.snapshot?.status));
 const busy = computed(() => submitting.value || running.value || loadingRun.value);
@@ -452,6 +464,14 @@ function replaceRun(id, videoId = form.videoId) {
       });
 }
 async function submit() {
+  if (isLogCommand(focus.value) && !submitting.value && !loadingRun.value) {
+    commandReplies.value.push({ localId: createKey(), afterRunId: activeRunId.value,
+      command: 'log', message: '/log', ...logReply(activeTurn.value?.snapshot) });
+    focus.value = '';
+    await nextTick();
+    conversationElement.value?.scrollTo({ top: conversationElement.value.scrollHeight, behavior: 'smooth' });
+    return;
+  }
   if (busy.value) return;
   notice.value = '';
   let body;
@@ -500,6 +520,7 @@ async function submit() {
 }
 
 async function restoreRun(id) {
+  commandReplies.value = [];
   stopMonitoring();
   notice.value = '';
   loadingRun.value = true;
@@ -551,6 +572,7 @@ function selectHistory(item) {
   replaceRun(item.runId, item.videoId || '');
 }
 function newAnalysis() {
+  commandReplies.value = [];
   stopMonitoring();
   turns.value = [];
   focus.value = '';
@@ -600,6 +622,7 @@ watch(
     if (validRunId(id) && id !== activeRunId.value) restoreRun(id);
     else if (id && !validRunId(id)) notice.value = '任务链接不正确，请从最近任务重新打开。';
     else if (!id && activeTurn.value) {
+      commandReplies.value = [];
       stopMonitoring();
       turns.value = [];
       focus.value = '';
@@ -611,6 +634,7 @@ watch(
 watch(
   () => userStore.user.token,
   () => {
+    commandReplies.value = [];
     stopMonitoring();
     submitController?.abort();
     turns.value = [];
@@ -626,6 +650,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.trace-id-reply { display: block; overflow-wrap: anywhere; margin: 12px 0; user-select: all; }
 .agent-workspace {
   --ink: #292b38;
   --muted: #8c8e9c;
