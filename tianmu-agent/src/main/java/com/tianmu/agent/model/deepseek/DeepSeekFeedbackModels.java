@@ -17,7 +17,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     public DeepSeekFeedbackModels(DeepSeekClient client,DeepSeekProperties config,ObjectMapper json,PromptCatalog prompts){
         this.client=client;this.config=config;this.json=json;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha(instruction.getBytes(StandardCharsets.UTF_8));
     }
-    public String modelName(){return config.harnessModel();}
+    public String modelName(){return config.analysisModel();}
     public String policyHash(){return hash;}
     public List<Proposal> analyze(Input input,CallControl control){
         if(input.kind()!=FeedbackAnalysis.WorkKind.CLASSIFY)throw new IllegalArgumentException("Topic aggregation is code-only");
@@ -34,7 +34,8 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
         var body=complete(input,payload,control);
         try {
-            if(!body.isObject() || body.size()!=2 || !body.path("topics").isArray() || body.path("topics").size()>10 || !body.path("assignments").isObject())throw new IllegalArgumentException();
+            boolean formatMarker=body.size()==3 && body.path("type").isTextual() && "json_object".equals(body.path("type").asText());
+            if(!body.isObject() || !(body.size()==2 || formatMarker) || !body.path("topics").isArray() || body.path("topics").size()>10 || !body.path("assignments").isObject())throw new IllegalArgumentException();
             var rows=new LinkedHashMap<String,com.fasterxml.jackson.databind.JsonNode>();var members=new LinkedHashMap<String,List<String>>();
             for(var row:body.get("topics")){
                 if(!row.isObject() || row.size()!=4)throw new IllegalArgumentException();
@@ -56,7 +57,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         } catch(RuntimeException invalid){throw new AgentException("INVALID_ANALYSIS","Provider returned an invalid bounded classification");}
     }
     private com.fasterxml.jackson.databind.JsonNode complete(Input input,Map<String,Object> payload,CallControl control){
-        if(input.correction()==null)return client.complete(config.harnessModel(),client.messages(instruction,payload),6144,control,true);
+        if(input.correction()==null)return client.complete(config.analysisModel(),client.messages(instruction,payload),6144,control,true);
         var c=input.correction();var expected=new HashSet<String>();
         input.groups().forEach(g->expected.add(g.id()));input.children().forEach(t->expected.add(t.id()));
         var previous=new LinkedHashMap<String,String>();
@@ -68,7 +69,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
                 "duplicates",c.duplicates().stream().filter(expected::contains).toList(),
                 "unknown_count",c.unknown().size(),"issue",c.issue()));
         for(int detail=0;;detail++){
-            try { return client.complete(config.harnessModel(),client.messages(instruction,payload),6144,control,true); }
+            try { return client.complete(config.analysisModel(),client.messages(instruction,payload),6144,control,true); }
             catch(AgentException tooLarge){
                 if(!"MODEL_CONTEXT_TOO_LARGE".equals(tooLarge.code()) || detail==2)throw tooLarge;
                 // Both messages and the full provider envelope are guarded before any network call or model charge.

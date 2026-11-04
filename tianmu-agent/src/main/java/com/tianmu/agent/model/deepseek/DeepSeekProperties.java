@@ -8,16 +8,22 @@ import java.time.Duration;
 @ConfigurationProperties("agent.models")
 public record DeepSeekProperties(@DefaultValue("https://api.deepseek.com") URI baseUrl,
         String apiKey, @DefaultValue("deepseek-flash") String preparationModel,
-        @DefaultValue("deepseek-v4-pro") String harnessModel,
+        @DefaultValue("deepseek-flash") String harnessModel,
         @DefaultValue("3s") Duration connectTimeout,
-        @DefaultValue("384") int preparationMaxTokens, @DefaultValue("3072") int harnessMaxTokens) {
+        @DefaultValue("384") int preparationMaxTokens, @DefaultValue("3072") int harnessMaxTokens,
+        @DefaultValue("deepseek-flash") String analysisModel) {
+    public DeepSeekProperties(URI baseUrl, String apiKey, String preparationModel, String harnessModel,
+            Duration connectTimeout, int preparationMaxTokens, int harnessMaxTokens) {
+        this(baseUrl, apiKey, preparationModel, harnessModel, connectTimeout, preparationMaxTokens, harnessMaxTokens, "deepseek-flash");
+    }
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
     public DeepSeekProperties {
         if (apiKey == null || apiKey.isBlank()) throw new IllegalArgumentException("DEEPSEEK_API_KEY is required");
         boolean local = SetHolder.LOCAL.contains(baseUrl.getHost());
         if ((!"https".equals(baseUrl.getScheme()) && !(local && "http".equals(baseUrl.getScheme())))
                 || baseUrl.getRawUserInfo() != null || baseUrl.getRawQuery() != null || baseUrl.getFragment() != null)
             throw new IllegalArgumentException("A secure model base URL is required");
-        for (String model : new String[]{preparationModel, harnessModel})
+        for (String model : new String[]{preparationModel, harnessModel, analysisModel})
             if (model == null || !model.matches("[a-zA-Z0-9_.:/-]{1,100}")) throw new IllegalArgumentException("Invalid model ID");
         if (connectTimeout == null || connectTimeout.toMillis() < 1 || connectTimeout.compareTo(Duration.ofSeconds(30)) > 0
                 || preparationMaxTokens < 64 || preparationMaxTokens > 2048 || harnessMaxTokens < 128 || harnessMaxTokens > 8192)

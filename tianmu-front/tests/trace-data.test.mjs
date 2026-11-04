@@ -43,3 +43,15 @@ test('reject malformed exports and cyclic relationships before drawing', () => {
   const spans = [{ traceId: 't', spanId: 'a', parentSpanId: 'b', name: 'a' }, { traceId: 't', spanId: 'b', parentSpanId: 'a', name: 'b' }]
   assert.throws(() => parseTraceFile(JSON.stringify(spans)), /循环/)
 })
+
+test('resumed segments aggregate actual model spans without treating model-labelled markers as calls', () => {
+  const span = (id, name, attributes) => ({traceId:'resumed', spanId:id, name, attributes})
+  const [trace] = parseTraceFile(JSON.stringify([
+    span('start','agent_start',{'node.type':'STAGE','model.name':'flash'}),
+    span('foreground','agent.model',{'node.type':'MODEL','model.name':'flash','model.input_tokens':100,'model.output_tokens':10}),
+    span('background','feedback.model',{'node.type':'MODEL','model.name':'flash','model.input_tokens':200,'model.output_tokens':20}),
+    span('finish','finish',{'span.type':'finish','usage.scope':'RUN_PROCESS_SEGMENT','usage.input_tokens':200,'usage.output_tokens':20,'usage.complete':true}),
+  ]))
+  assert.equal(trace.totalTokens,330)
+  assert.equal(trace.usageComplete,true)
+})

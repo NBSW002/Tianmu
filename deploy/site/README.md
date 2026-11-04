@@ -107,3 +107,15 @@ VIDEO_MODEL=minimax-vlm-service
 工具返回的结构化事实沿用既有 evidence → 私有 MinIO 产物持久化。摘要缓存保存在 Agent MySQL 的 `agent_video_content_cache`，按租户、用户、视频源版本、区间、关注点和模型配置隔离，24小时过期；缓存命中前仍重新校验视频权限和源版本。原始帧在本次请求中使用，临时文件随后清理，不持久化帧图片，也不写入 LLM 历史。后台预处理任务、长期帧资产和全量播放时间直方图不在此版范围内。
 
 弹幕抽样 occurrences.playbackMs 为原始播放位置（毫秒，可空），bucket 仍是发送墙钟时间分箱，不能混用。报告可传入同一视频的 video_evidence_id 添加服务端生成的视频内容模块。Trace 包含 `video.source`、`video.extract`、`video.model.vision`；模型未报告 token 时标为未报告，整体用量标为部分统计，不估算成实际值。
+
+
+### Agent 模型与后台 Trace 发布
+
+现有部署的私有 `agent.env` 会覆盖代码默认值。切换 Flash 时，应同时设置
+`HARNESS_MODEL=deepseek-flash` 和 `ANALYSIS_MODEL=deepseek-flash`，并重新创建 Agent 容器；
+只更新前端或只修改默认值不会切换正在运行的模型。部署前等待运行中及等待后台任务的 Run 清空，避免冻结模型版本的任务被中途切换。
+
+`run.total_model_calls` 包括后台任务账本同步的累计调用数，`run.background_model_calls` 单独列出后台次数。
+主循环预算仍独立执行，Trace 中 `budget.scope=FOREGROUND`；后台预算在任务账本及工作结果中保留。
+重启后新建的 Trace 会话使用 `usage.scope=RUN_PROCESS_SEGMENT` 标识本进程上报的用量，不能冒充整个 Run 的历史总用量。
+后台工作用 `analysis.job_id / work_id / phase / work_kind / batch_ordinal` 关联，模型调用为 `feedback.model` 子 Span。

@@ -31,6 +31,7 @@ public final class FeedbackOperationCoordinator {
                 try{
                     assembler.verify(run.task());
                     var job=service.forRun(run.id);if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
+                    run.backgroundModelCalls(job.modelCalls());
                     if(job.phase()==Phase.READY){
                         run.emit("PROGRESS",Map.of("stage","feedback_analysis","phase","READY","completed_work",job.completedWork(),"model_calls",job.modelCalls(),"charged_tokens",job.chargedTokens()));
                         var asset=service.asset(job.id(),run.owner,FeedbackTaskPolicy.request(run.task().specification()));var evidence=FeedbackEvidenceBinding.bind(run,asset);
@@ -41,7 +42,11 @@ public final class FeedbackOperationCoordinator {
                     if(job.phase()==Phase.CANCELLED){run.cancel();continue;}
                     Long old=progress.put(run.id,job.version());if(old==null || old!=job.version())run.emit("PROGRESS",Map.of("stage",job.phase()==Phase.WAITING_AUTH?"analysis_waiting_auth":"feedback_analysis","phase",job.phase().name(),"completed_work",job.completedWork(),"model_calls",job.modelCalls(),"charged_tokens",job.chargedTokens()));
                     if(MemoryFeedbackJobStore.active(job.phase()) && submitted.add(job.id())){
-                        try{workers.execute(()->{try{harness.stage(run,"feedback.work",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",job.phase().name()),()->{service.advance(job.id(),run.cancellation());return null;});}finally{submitted.remove(job.id());}});}
+                        try{workers.execute(()->{try{harness.execute(run,()->harness.stage(run,"feedback.work",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",job.phase().name()),()->{
+                            service.advance(job.id(),run.cancellation(),()->run.backgroundModelCalls(service.forRun(run.id).modelCalls()));
+                            var current=service.forRun(run.id);run.backgroundModelCalls(current.modelCalls());
+                            return Map.of("phase",current.phase().name(),"completed_work",current.completedWork(),"model_calls",current.modelCalls(),"charged_tokens",current.chargedTokens());
+                        }));}finally{submitted.remove(job.id());}});}
                         catch(RejectedExecutionException full){submitted.remove(job.id());}
                     }
                 }catch(AgentException e){

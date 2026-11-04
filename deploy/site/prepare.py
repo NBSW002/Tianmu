@@ -64,7 +64,7 @@ env('agent.env', {
     'AGENT_OBJECT_STORE': 'minio', 'AGENT_MINIO_URL': 'http://minio:9000', 'AGENT_MINIO_BUCKET': 'tianmu-agent-artifacts',
     'AGENT_MINIO_PREFIX': 'site-artifacts/', 'HARNESS_TRACE_SINK': 'kafka', 'KAFKA_BOOTSTRAP_SERVERS': 'kafka:9092',
     'KAFKA_TRACE_TOPIC': 'Tianmu.agent.trace.v1', 'HARNESS_TRACE_DIRECTORY': '/data/trace', 'HARNESS_TRACE_DETAILS_ENABLED': 'true',
-    'PREPARATION_MODEL': 'deepseek-flash', 'HARNESS_MODEL': 'deepseek-v4-pro', 'HARNESS_LOOP_REQUEST_TIMEOUT': '240s',
+    'PREPARATION_MODEL': 'deepseek-flash', 'HARNESS_MODEL': 'deepseek-flash', 'ANALYSIS_MODEL': 'deepseek-flash', 'HARNESS_LOOP_REQUEST_TIMEOUT': '240s',
     'HARNESS_LOOP_MODEL_TIMEOUT': '60s', 'AGENT_PREPARATION_INTENT_TIMEOUT': '20s', 'AGENT_PREPARATION_UNDERSTANDING_TIMEOUT': '20s',
     'AGENT_PREPARATION_EMOTION_TIMEOUT': '10s',
 })

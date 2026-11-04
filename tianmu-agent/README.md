@@ -76,7 +76,8 @@ curl -s -H 'Authorization: Bearer demo-alice' \
 
 | 配置 / 机制 | 默认行为 |
 | --- | --- |
-| `HARNESS_MODEL` | `deepseek-v4-pro`，用于 Agent loop |
+| `HARNESS_MODEL` | `deepseek-flash`，用于 Agent loop |
+| `ANALYSIS_MODEL` | `deepseek-flash`，用于后台反馈分类，独立于 loop |
 | `PREPARATION_MODEL` | `deepseek-flash`，处理确实需要模型判断的问题准备 |
 | `AGENT_MAX_MODEL_CALLS` | 每个任务最多 16 次模型调用 |
 | `AGENT_MAX_TOKENS` | 默认 64,000 Token；设为 `0` 关闭 Token 上限 |

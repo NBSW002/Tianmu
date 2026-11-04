@@ -108,7 +108,7 @@ function normalizeTrace(spans, traceId, meta) {
       parent = byId.get(parent.parentId)
     }
   }
-  const modelNodes = nodes.filter((n) => n.kind === 'MODEL' || n.type === 'llm_inference' || n.model)
+  const modelNodes = nodes.filter((n) => n.kind === 'MODEL' || n.type === 'llm_inference' || (n.model && (n.inputTokens != null || n.outputTokens != null)))
   const sumTokens = (key) => {
     if (summary) return finite(summary.attributes[`usage.${key}`])
     const provided = modelNodes.map((n) => n[key === 'input_tokens' ? 'inputTokens' : 'outputTokens']).filter((v) => v != null)

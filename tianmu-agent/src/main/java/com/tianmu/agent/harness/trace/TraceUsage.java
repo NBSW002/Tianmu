@@ -14,6 +14,7 @@ public final class TraceUsage {
     private final LongAdder unreported = new LongAdder();
     private final LongAdder external = new LongAdder();
     public static void externalCall() { TraceUsage usage = Context.current().get(KEY); if (usage != null) usage.external.increment(); }
+    public long unreportedCalls() { return unreported.sum(); }
     public long externalCalls() { return external.sum(); }
     private final LongAdder cache = new LongAdder(), miss = new LongAdder(), missCalls = new LongAdder(), reasoning = new LongAdder(), cacheCalls = new LongAdder(), reasoningCalls = new LongAdder();
     public static void record(String model, long inputTokens, long outputTokens) {

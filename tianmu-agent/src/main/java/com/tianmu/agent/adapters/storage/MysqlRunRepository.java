@@ -296,7 +296,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         return terminalSnapshot(old, Status.CANCELLED, null, reason);
     }
     private Snapshot terminalSnapshot(Snapshot old, Status status, String code, StopReason reason) {
-        return new Snapshot(old.runId(), status, old.createdAt(), old.steps(), null, null, code, old.traceId(), reason, old.modelCalls(), old.route(), old.faqId(), old.faqVersion(), old.preparation(), old.task(), old.preparationCalls(), old.totalModelCalls(), old.sessionId(), old.turnSeq());
+        return new Snapshot(old.runId(), status, old.createdAt(), old.steps(), null, null, code, old.traceId(), reason, old.modelCalls(), old.route(), old.faqId(), old.faqVersion(), old.preparation(), old.task(), old.preparationCalls(), old.totalModelCalls(), old.sessionId(), old.turnSeq(), null, old.backgroundModelCalls());
     }
     private void signal(UUID id) { var handlers = listeners.get(id); if (handlers != null) handlers.values().forEach(r -> { try { r.run(); } catch (RuntimeException ignored) {} }); }
     private final class Events implements RunEventStore {

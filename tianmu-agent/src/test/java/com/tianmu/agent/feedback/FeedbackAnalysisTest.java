@@ -57,6 +57,23 @@ class FeedbackAnalysisTest {
         FeedbackJobStore.Job start(int count){total=count;return service.submit(UUID.randomUUID(),owner,request,null);}
         FeedbackJobStore.Job finish(UUID id){for(int i=0;i<2500;i++){var j=store.get(id);if(!MemoryFeedbackJobStore.active(j.phase()))return j;service.advance(id);}return fail("Job did not converge");}
     }
+    @Test void durableProviderReservationsReconcileRunCountsOncePerAttempt(){
+        var f=new Fixture();var job=f.start(81);
+        var run=new com.tianmu.agent.runtime.RunState(owner,"analysis");
+        run.bindControl(Duration.ofMinutes(1),2);
+        var notifications=new AtomicInteger();
+        for(int i=0;i<20 && MemoryFeedbackJobStore.active(f.store.get(job.id()).phase());i++) {
+            f.service.advance(job.id(),run.cancellation(),()->{
+                notifications.incrementAndGet();run.backgroundModelCalls(f.store.get(job.id()).modelCalls());
+            });
+        }
+        assertEquals(Phase.READY,f.store.get(job.id()).phase());
+        assertEquals(f.calls.get(),notifications.get());
+        assertEquals(f.calls.get(),run.snapshot().backgroundModelCalls());
+        assertTrue(f.calls.get()>2,"Analysis calls must not consume the foreground call limit");
+        run.modelCallStarted();run.modelCallStarted();
+        assertEquals(f.calls.get()+2,run.snapshot().totalModelCalls());
+    }
     @Test void fiveThousandOriginalsUseOnlyClassificationCallsAndBoundedPriorTopics(){
         var f=new Fixture();var maxGroups=new AtomicInteger();var modelBytes=new AtomicInteger();
         f.inspect=input->{maxGroups.accumulateAndGet(input.groups().size(),Math::max);modelBytes.accumulateAndGet(f.objects.bytes(input),Math::max);};

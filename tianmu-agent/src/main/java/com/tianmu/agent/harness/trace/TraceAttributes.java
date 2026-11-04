@@ -22,7 +22,7 @@ public final class TraceAttributes {
             "delivery.type", "delivery.replay", "delivery.success", "delivery.first_content_ms", "delivery.e2e_ms",
             "node.type", "node.status", "execution.attempt", "execution.retry_count", "execution.retryable", "execution.timeout_ms", "execution.queue_ms", "execution.active_ms", "execution.wait_ms",
             "model.provider", "model.usage_state", "model.total_tokens", "model.cache_hit_tokens", "model.cache_miss_tokens", "model.reasoning_tokens", "model.finish_reason", "model.temperature", "model.max_tokens", "model.streaming", "model.first_token_state", "model.response_ms", "model.message_count", "model.reasoning_state", "model.http_status",
-            "usage.external_model_calls", "usage.total_tokens", "usage.cache_hit_tokens", "usage.reasoning_tokens", "usage.state",
+            "analysis.job_id", "analysis.phase", "analysis.work_id", "analysis.work_kind", "analysis.batch_ordinal", "budget.scope", "run.background_model_calls", "usage.external_model_calls", "usage.total_tokens", "usage.cache_hit_tokens", "usage.reasoning_tokens", "usage.state",
             "context.history_removed", "context.schemas_removed", "context.byte_limit", "context.input_bytes", "context.output_bytes", "context.changed",
             "context.format", "context.history_messages", "context.classified_batches_released", "context.report_inputs_released", "context.projection_bytes_saved",
             "model.response_repaired", "model.validation_error",

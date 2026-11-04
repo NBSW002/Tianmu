@@ -118,7 +118,11 @@ public final class AgentTypes {
     public record Snapshot(UUID runId, Status status, Instant createdAt, int steps,
                            Answer answer, String clarification, String errorCode, String traceId,
                            StopReason stopReason, int modelCalls, Route route, String faqId, String faqVersion, PreparedRequest preparation, PreparedTask task,
-                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq, PendingOperation operation) {
+                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq, PendingOperation operation, int backgroundModelCalls) {
+        public Snapshot { if(backgroundModelCalls<0)throw new IllegalArgumentException("Invalid background call count"); }
+        public Snapshot(UUID runId,Status status,Instant createdAt,int steps,Answer answer,String clarification,String errorCode,String traceId,
+                        StopReason stopReason,int modelCalls,Route route,String faqId,String faqVersion,PreparedRequest preparation,PreparedTask task,
+                        int preparationCalls,int totalModelCalls,UUID sessionId,long turnSeq,PendingOperation operation){this(runId,status,createdAt,steps,answer,clarification,errorCode,traceId,stopReason,modelCalls,route,faqId,faqVersion,preparation,task,preparationCalls,totalModelCalls,sessionId,turnSeq,operation,0);}
         public Snapshot(UUID runId,Status status,Instant createdAt,int steps,Answer answer,String clarification,String errorCode,String traceId,
                         StopReason stopReason,int modelCalls,Route route,String faqId,String faqVersion,PreparedRequest preparation,PreparedTask task,
                         int preparationCalls,int totalModelCalls,UUID sessionId,long turnSeq){this(runId,status,createdAt,steps,answer,clarification,errorCode,traceId,stopReason,modelCalls,route,faqId,faqVersion,preparation,task,preparationCalls,totalModelCalls,sessionId,turnSeq,null);}

@@ -19,6 +19,7 @@ public final class HarnessSession {
     private final Context context;
     private final Tracer tracer;
     private final TraceUsage usage = new TraceUsage();
+    private final int initialModelCalls;
     private final com.tianmu.agent.runtime.control.ModelBudget budget;
     private final AtomicBoolean begun = new AtomicBoolean();
     private final AtomicBoolean observedTerminal = new AtomicBoolean();
@@ -29,6 +30,7 @@ public final class HarnessSession {
 
     HarnessSession(RunState run, Tracer tracer, HookDispatcher hooks, TraceDetails details, com.tianmu.agent.runtime.control.LoopPolicy policy) {
         this.run = run;
+        initialModelCalls = run.snapshot().totalModelCalls();
         this.hooks = hooks;
         this.tracer = tracer;
         var builder=tracer.spanBuilder("agent.run");
@@ -42,7 +44,7 @@ public final class HarnessSession {
         root = builder.startSpan();
         TraceNode.begin(root, "agent.run");
         budget = run.modelBudget();
-        Context base = Context.current().with(root).with(TraceUsage.KEY, usage);
+        Context base = TraceModelCall.bind(Context.current().with(root).with(TraceUsage.KEY, usage),tracer,TraceSemantics.identity(run));
         context = details == null ? base : details.bind(base, run.id);
         TraceAttributes.apply(root, TraceSemantics.identity(run));
         TraceAttributes.apply(root, Map.of("run.id", run.id.toString(), "input.char_count", run.message.length()));
@@ -109,10 +111,15 @@ public final class HarnessSession {
                     "run.stop_reason", snapshot.stopReason().name(), "run.model_calls", snapshot.modelCalls(),
                     "run.preparation_calls", snapshot.preparationCalls(), "run.total_model_calls", totalModelCalls));
             Map<String, Object> finish = new HashMap<>(usage.totals());
+            finish.put("run.background_model_calls", snapshot.backgroundModelCalls());
+            finish.put("budget.scope", "FOREGROUND");
+            if(initialModelCalls>0)finish.put("usage.scope", "RUN_PROCESS_SEGMENT");
             finish.putAll(budget.attributes());
-            finish.put("usage.complete", ((Number) finish.get("usage.reported_calls")).longValue() == totalModelCalls);
             long reported = ((Number) finish.get("usage.reported_calls")).longValue();
-            finish.put("usage.state", totalModelCalls == 0 ? "NOT_APPLICABLE" : reported == 0 ? "NOT_REPORTED" : reported == totalModelCalls ? "REPORTED" : "PARTIAL");
+            long expected = Math.max(0,totalModelCalls-initialModelCalls);
+            boolean complete = reported == expected && usage.unreportedCalls() == 0;
+            finish.put("usage.complete", complete);
+            finish.put("usage.state", expected == 0 && complete ? "NOT_APPLICABLE" : complete ? "REPORTED" : "PARTIAL");
             finish.put("finish.type", TraceSemantics.finishType(snapshot));
             finish.put("run.status", snapshot.status().name());
             finish.put("run.stop_reason", snapshot.stopReason().name());

@@ -32,7 +32,7 @@ public class RunState implements EvidenceContext {
     private volatile Status status = Status.QUEUED;
     private com.tianmu.agent.core.PendingOperation.Continuation continuation;
     private com.tianmu.agent.core.PendingOperation operation;
-    private int steps, modelCalls, preparationCalls, externalModelCalls, modelCallLimit = 16;
+    private int steps, modelCalls, preparationCalls, externalModelCalls, backgroundModelCalls, modelCallLimit = 16;
     private StopReason stopReason;
     private Result prepared;
     private PreparedTask task;
@@ -78,7 +78,8 @@ public class RunState implements EvidenceContext {
     public synchronized void restore(Snapshot value) {
         restored = value; status = value.status(); steps = value.steps(); answer = value.answer(); clarification = value.clarification();
         errorCode = value.errorCode(); stopReason = value.stopReason(); modelCalls = value.modelCalls(); preparationCalls = value.preparationCalls();
-        externalModelCalls = Math.max(0, value.totalModelCalls() - modelCalls - preparationCalls);
+        backgroundModelCalls = value.backgroundModelCalls();
+        externalModelCalls = Math.max(0, value.totalModelCalls() - modelCalls - preparationCalls - backgroundModelCalls);
         traceId = value.traceId(); task = value.task();
         operation=value.operation();
         if (task != null) modelCallLimit = task.maxModelCalls();
@@ -103,7 +104,7 @@ public class RunState implements EvidenceContext {
         return new Snapshot(id, status, createdAt, steps, answer, clarification, errorCode, traceId, stopReason, modelCalls,
                 prepared == null ? restored==null?null:restored.route() : prepared.route(), prepared == null || prepared.faq() == null ? restored==null?null:restored.faqId() : prepared.faq().id(),
                 prepared == null || prepared.faq() == null ? restored==null?null:restored.faqVersion() : prepared.faq().version(), prepared == null ? restored==null?null:restored.preparation() : prepared.request(), task,
-                preparationCalls, preparationCalls + modelCalls + externalModelCalls, sessionId, turnSeq, operation);
+                preparationCalls, preparationCalls + modelCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, operation, backgroundModelCalls);
     }
     public synchronized com.tianmu.agent.core.PendingOperation.Continuation continuation(){return continuation;}
     public synchronized void restoreContinuation(com.tianmu.agent.core.PendingOperation.Continuation value){
@@ -165,6 +166,14 @@ public class RunState implements EvidenceContext {
     public synchronized int modelCallLimit() { return modelCallLimit; }
     public void modelCallStarted() { checkpoint(); synchronized (this) { reserveModelCall(); modelCalls++; backend.save(this); } }
     public void preparationCallStarted() { checkpoint(); synchronized (this) { reserveModelCall(); preparationCalls++; backend.save(this); } }
+    /** Reconcile the durable analysis ledger; repeated scheduler ticks cannot double-count.
+     * Analysis admission remains governed by its own persisted budget. */
+    public synchronized void backgroundModelCalls(int calls) {
+        if(calls<0)throw new IllegalArgumentException("Invalid background call count");
+        if(calls<=backgroundModelCalls || com.tianmu.agent.core.AgentTypes.terminal(status))return;
+        int previous=backgroundModelCalls;backgroundModelCalls=calls;
+        try{backend.save(this);}catch(RuntimeException failure){backgroundModelCalls=previous;throw failure;}
+    }
     public void externalModelCallStarted() { checkpoint(); synchronized (this) { reserveModelCall(); externalModelCalls++; backend.save(this); } }
     private void reserveModelCall() {
         cancellation.checkpoint();
@@ -251,7 +260,7 @@ public class RunState implements EvidenceContext {
             };
             Snapshot base = snapshot();
             Snapshot proposed = new Snapshot(id, target, createdAt, steps, value, text, code, base.traceId(), reason, modelCalls,
-                    base.route(), base.faqId(), base.faqVersion(), base.preparation(), task, preparationCalls, modelCalls + preparationCalls + externalModelCalls, sessionId, turnSeq);
+                    base.route(), base.faqId(), base.faqVersion(), base.preparation(), task, preparationCalls, modelCalls + preparationCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, null, backgroundModelCalls);
             // No terminal status or DONE is exposed before this durable transaction succeeds.
             completed = backend.commit(this, proposed, event, data,
                     Map.of("status", target.name(), "run_id", id.toString(), "stop_reason", reason.name()));
@@ -277,7 +286,7 @@ public class RunState implements EvidenceContext {
             Snapshot base = snapshot();
             Snapshot proposed = new Snapshot(id, target, createdAt, steps, null, null, code, base.traceId(), reason, modelCalls,
                     base.route(), base.faqId(), base.faqVersion(), base.preparation(), task, preparationCalls,
-                    modelCalls + preparationCalls + externalModelCalls, sessionId, turnSeq);
+                    modelCalls + preparationCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, null, backgroundModelCalls);
             pendingTerminal = new PendingTerminal(proposed, target == Status.FAILED ? "ERROR" : "ABORT",
                     target == Status.FAILED ? Map.of("code", code) : Map.of("reason", reason.name().toLowerCase(Locale.ROOT)),
                     Map.of("status", target.name(), "run_id", id.toString(), "stop_reason", reason.name()));

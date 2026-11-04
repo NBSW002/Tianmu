@@ -281,11 +281,14 @@ class PreparationFlowTest {
         } finally { release.countDown(); }
     }
 
-    @Test void intentPolicyFailureIsNotConvertedToClarification() {
+    @Test void intentPolicyFailureIsNotConvertedToClarification() throws InterruptedException {
         try (var f = new HarnessLifecycleTest.Fixture(); var prep = service(f, miss(), new Model() {
             public Intent intent(Input i, CallControl c) { throw new AgentException("FORBIDDEN", "denied"); }
         })) {
-            RunState run = f.run(); execute(f, prep, run, forbidden());
+            RunState run = f.run();var committed=new CountDownLatch(1);run.onTerminal(ignored->committed.countDown());
+            execute(f, prep, run, forbidden());
+            // A fatal preparation branch cancels sibling waits before committing its failure.
+            assertTrue(committed.await(2,TimeUnit.SECONDS),"Policy denial must converge to a committed terminal");
             assertEquals(Status.FAILED, run.snapshot().status());
             assertEquals("FORBIDDEN", run.snapshot().errorCode());
             assertNull(run.preparedRequest());

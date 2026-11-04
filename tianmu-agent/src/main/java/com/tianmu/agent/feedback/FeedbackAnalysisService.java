@@ -48,7 +48,8 @@ public final class FeedbackAnalysisService {
     public void cancel(UUID id){var token=running.get(id);if(token!=null)token.cancel(StopReason.USER_CANCELLED);store.cancel(id);}
     public void resume(UUID id,AccessScope caller){owned(id,caller);if(!store.reauthorize(id,caller))throw new AgentException("ANALYSIS_NOT_PAUSED","Analysis is not waiting for authorization");}
     public void advance(UUID id) {advance(id,null);}
-    public void advance(UUID id,CancellationToken parent) {
+    public void advance(UUID id,CancellationToken parent) { advance(id,parent,()->{}); }
+    public void advance(UUID id,CancellationToken parent,Runnable accountAttempt) {
         var token=new CancellationToken();if(running.putIfAbsent(id,token)!=null)return;
         // The callback only propagates the fast signal; durable cancellation stays on this worker.
         var registration=parent==null?null:parent.onCancel(()->token.cancel(parent.reason()));
@@ -76,11 +77,14 @@ public final class FeedbackAnalysisService {
             }
             work=store.claim(id,Instant.now(),Duration.ofSeconds(policy.modelTimeout().toSeconds()+30));
             if(work!=null) {
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of(
+                        "analysis.work_id",work.id().toString(),"analysis.work_kind",work.kind().name(),"analysis.batch_ordinal",work.ordinal(),
+                        "execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));
                 Input stored=objects.get(work.input(),Input.class);
                 var prior=work.kind()==WorkKind.CLASSIFY?store.completedBefore(id,work.ordinal()):List.<FeedbackJobStore.Work>of();
                 if(work.kind()==WorkKind.CLASSIFY && prior.size()!=work.ordinal())throw new AgentException("STORAGE_CORRUPT","Classification prefix is incomplete");
                 input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?accumulate(prior):stored.children(),stored.kind()==WorkKind.CLASSIFY?j.video():null,stored.correction());
-                var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),()->{});
+                var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),accountAttempt);
                 List<Proposal> proposals;
                 if(input.kind()==WorkKind.MERGE){
                     var leaves=new ArrayList<Topic>();
@@ -89,7 +93,7 @@ public final class FeedbackAnalysisService {
                         throw new AgentException("STORAGE_CORRUPT","Aggregation references differ from accepted batch notes");
                     proposals=combine(leaves).stream().map(t->new Proposal(t.id(),t.title(),t.observation(),t.recommendation(),t.members())).toList();
                 }
-                else proposals=models.analyze(input,control);
+                else { var modelInput=input; proposals=com.tianmu.agent.harness.trace.TraceModelCall.call("feedback.model",Map.of("analysis.job_id",id.toString(),"analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),"analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)),()->models.analyze(modelInput,control)); }
                 token.checkpoint();var result=planner.validate(work.id().toString(),input,proposals);
                 store.complete(work,objects.put(id,result));return;
             }

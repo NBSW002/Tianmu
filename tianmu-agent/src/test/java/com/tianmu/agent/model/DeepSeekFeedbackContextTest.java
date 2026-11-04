@@ -20,21 +20,37 @@ class DeepSeekFeedbackContextTest {
     final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
     final List<JsonNode> requests=new CopyOnWriteArrayList<>();
     HttpServer server;
+    Map<String,Object> extraFields=Map.of();
     @BeforeEach void start()throws Exception {
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/chat/completions",exchange->{
             requests.add(json.readTree(exchange.getRequestBody()));
-            var result=Map.of("topics",List.of(Map.of("key","T1","title","反馈","observation","意见","recommendation","")),"assignments",Map.of("G1","T1"));
+            var result=new LinkedHashMap<String,Object>(Map.of("topics",List.of(Map.of("key","T1","title","反馈","observation","意见","recommendation","")),"assignments",Map.of("G1","T1")));
+            result.putAll(extraFields);
             byte[] response=json.writeValueAsBytes(Map.of("choices",List.of(Map.of("finish_reason","stop","message",Map.of("content",json.writeValueAsString(result))))));
             exchange.sendResponseHeaders(200,response.length);try(var out=exchange.getResponseBody()){out.write(response);}
         });server.start();
     }
     @AfterEach void stop(){server.stop(0);}
     DeepSeekFeedbackModels adapter(ContextPolicy policy){
-        var config=new DeepSeekProperties(URI.create("http://127.0.0.1:"+server.getAddress().getPort()),"local-test","fixture","fixture",Duration.ofSeconds(2),384,3072);
+        var config=new DeepSeekProperties(URI.create("http://127.0.0.1:"+server.getAddress().getPort()),"local-test","fixture","fixture",Duration.ofSeconds(2),384,3072,"analysis-only");
         return new DeepSeekFeedbackModels(new DeepSeekClient(config,json,policy),config,json,new PromptCatalog());
     }
     CallControl control(){return new CallControl(Instant.now().plusSeconds(15),new CancellationToken());}
+    @Test void flashFormatMarkerDoesNotDiscardAnOtherwiseValidClassification(){
+        var model=adapter(ContextPolicy.defaults());var original=model.analyze(input(false),control());
+        extraFields=Map.of("type","json_object");
+        assertEquals(original,model.analyze(input(false),control()),"Only the fixed marker is ignored; all assignments and prose remain intact");
+        for(var extra:List.<Map<String,Object>>of(Map.of("type","other"),Map.of("unexpected","json_object"),Map.of("type","json_object","extra",true))){
+            extraFields=extra;
+            assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->model.analyze(input(false),control())).code());
+        }
+    }
+    @Test void classificationUsesIndependentAnalysisModel(){
+        var model=adapter(ContextPolicy.defaults());model.analyze(input(false),control());
+        assertEquals("analysis-only",model.modelName());
+        assertEquals("analysis-only",requests.get(0).path("model").asText());
+    }
     Input input(boolean correction){
         var times=new ArrayList<Long>();var moments=new ArrayList<VideoContent.Moment>();
         for(long t=0;t<12;t++){times.add(t);moments.add(new VideoContent.Moment(t,"画".repeat(600)));}
