@@ -2,6 +2,11 @@
 /* global defineProps */
 defineProps({ name: { type: String, default: 'trace' }, size: { type: [Number, String], default: 18 } })
 const paths = {
+  search: 'M16 16l5 5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
+  route: 'M5 20V8a3 3 0 0 1 3-3h11 M15 1l4 4-4 4 M5 12h8l6 7 M15 19h4v-4',
+  emotion: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M8 9h.01 M16 9h.01 M8 14q4 5 8 0',
+  question: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M9 8a3 3 0 0 1 6 0c0 2-3 2-3 5 M12 17h.01',
+  layers: 'm12 3 9 5-9 5-9-5z M3 12l9 5 9-5 M3 16l9 5 9-5',
   trace: 'M5 5h4v4H5z M15 15h4v4h-4z M7 9v6h8 M15 5h4v4h-4z M9 7h6',
   model: 'M9 3h6l4 4v10l-4 4H9l-4-4V7z M9 9h6v6H9z M12 1v2 M12 21v2 M1 12h4 M19 12h4',
   tool: 'm14 6 4-4 4 4-4 4 M3 21l12-12 M4 3l5 5 M3 4l2-2 4 4-2 2',

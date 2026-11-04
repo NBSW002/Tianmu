@@ -9,6 +9,7 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
+import { buildTracePresentation, layoutPresentation, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -47,15 +48,25 @@ document.title = 'Trace Studio · EchoFrame运行追踪'
 onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort() })
 
 const trace = computed(() => traces.value.find((item) => item.id === activeId.value) || traces.value[0])
-const selected = computed(() => trace.value.nodes.find((node) => node.id === selectedId.value))
-const timingNodes = computed(() => trace.value.nodes.filter((node) => !['REQUEST', 'LOOP'].includes(node.kind)))
-const iconFor = (node) => node.kind === 'MODEL' ? 'model' : node.kind === 'TOOL' ? 'tool' : 'stage'
+const expanded = ref(new Set())
+const presentation = computed(() => buildTracePresentation(trace.value.nodes))
+const graph = computed(() => layoutPresentation(presentation.value, expanded.value))
+const selected = computed(() => graph.value.nodes.find(n => n.id === selectedId.value)?.data || (presentation.value.rawById.has(selectedId.value) ? presentNode(presentation.value.rawById.get(selectedId.value)) : null))
+const selectedSource = computed(() => presentation.value.rawById.get(selected.value?.sourceId))
+const selectedMembers = computed(() => (selected.value?.memberIds || []).filter(id => id !== selected.value.sourceId).map(id => presentation.value.rawById.get(id)).filter(Boolean))
+const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
+function toggleGroup(id) {
+  const next = new Set(expanded.value)
+  if (next.has(id)) { next.delete(id); selectedId.value = id } else next.add(id)
+  expanded.value = next
+}
 const clock = (value) => value == null ? '未提供' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(value))
 const date = (value) => value == null ? '时间未提供' : new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
 
 function selectNode(id) { selectedId.value = id }
 function changeTrace() {
-  selectedId.value = trace.value.nodes.find((node) => node.type === 'llm_inference')?.id || trace.value.nodes[0].id
+  expanded.value = new Set()
+  selectedId.value = presentation.value.cards[0]?.id || trace.value.nodes[0].id
 }
 function cancelQuery() {
   queryController?.abort()
@@ -85,9 +96,9 @@ async function queryTrace() {
   } catch (error) { if (!controller.signal.aborted) queryError.value = error.message }
   finally { if (queryController === controller) querying.value = false }
 }
-watch([trace, selected], async (_, __, onCleanup) => {
+watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCleanup) => {
   payloadController?.abort()
-  const node = selected.value, current = trace.value
+  const node = selectedSource.value, current = trace.value
   payloadError.value = ''
   payloadLoading.value = false
   if (!current.remote || !node) return
@@ -110,7 +121,7 @@ watch([trace, selected], async (_, __, onCleanup) => {
   } catch (error) { if (!controller.signal.aborted) payloadError.value = error.message }
   finally { if (!controller.signal.aborted) payloadLoading.value = false }
 })
-watch(selected, async () => { await nextTick(); if (inspector.value) inspector.value.scrollTop = 0 })
+watch(selectedId, async () => { await nextTick(); if (inspector.value) inspector.value.scrollTop = 0 })
 watch(() => userStore.user?.token, () => {
   cancelQuery()
   queryError.value = '登录状态已变化，请重新查询'
@@ -185,16 +196,17 @@ function downloadExample() {
       <div class="workspace-panels">
         <section class="graph-column" aria-label="执行过程">
           <div class="view-tabs">
-            <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">调用图</button>
-            <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">节点列表</button>
-            <span>{{ trace.nodes.length }} 节点</span>
+            <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">执行图</button>
+            <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
+            <span>{{ presentation.cards.length }} 卡片 / {{ trace.nodes.length }} Span</span>
           </div>
-          <TraceGraph :trace="trace" :selected-id="selectedId" :mode="mode" @select="selectNode" />
+          <TraceGraph :trace="trace" :graph="graph" :expanded="expanded" :selected-id="selectedId" :mode="mode" @select="selectNode" @toggle="toggleGroup" />
+          <p v-if="mode === 'graph' && presentation.notices.length" class="projection-notice">{{ presentation.notices.join(' · ') }}</p>
           <section class="timing-panel" aria-label="执行时间线">
             <div class="timing-heading"><h2>执行时间线</h2><span>{{ formatDuration(trace.extentMs) }}</span></div>
             <div class="timing-axis"><span>0 ms</span><span>{{ Math.round(trace.extentMs / 2) }}</span><span>{{ Math.round(trace.extentMs) }}</span></div>
             <button v-for="node in timingNodes" :key="node.id" type="button" class="timing-row" :class="{ active: node.id === selectedId, failed: ['FAILED', 'TIMED_OUT'].includes(node.status) }" :aria-label="`查看 ${node.label}，耗时 ${formatDuration(node.durationMs)}`" :aria-pressed="node.id === selectedId" @click="selectNode(node.id)">
-              <span class="timing-name" :title="node.label">{{ nodeDisplayName(node) }}</span><span class="timing-track"><i :style="timingStyle(node)" :class="`bar-${node.kind.toLowerCase()}`" /></span><span class="timing-value">{{ formatDuration(node.durationMs) }}</span>
+              <span class="timing-name" :title="node.label">{{ mode === 'graph' ? cardTitle(node) : nodeDisplayName(node) }}</span><span class="timing-track"><i v-if="node.durationMs != null && node.offsetMs != null" :style="timingStyle(node)" :class="`bar-${node.kind.toLowerCase()}`" /></span><span class="timing-value">{{ formatDuration(node.durationMs) }}</span>
             </button>
           </section>
         </section>
@@ -203,14 +215,17 @@ function downloadExample() {
         <aside ref="inspector" class="inspector-column" aria-label="节点详情" tabindex="0">
           <div class="inspector-heading">节点详情</div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
-            <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="iconFor(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ nodeDisplayName(selected) }}</h2><small>{{ selected.tool || selected.model || selected.name }}</small></div></div>
+            <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.tool || selected.model || selected.name }}</small></div></div>
             <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">第 {{ selected.turn }} 轮</span></div>
+            <p class="semantic-result">{{ selected.summary }}</p>
+            <p v-if="selected.sourceNote || selected.legacy" class="projection-notice">{{ selected.sourceNote || '历史记录缺少任务 ID，按同一运行的父级范围归组；内部阶段可能未记录。' }}</p>
+            <section v-if="selectedMembers.length" class="member-section"><h3>内部记录 · {{ selectedMembers.length }}</h3><button v-for="member in selectedMembers" :key="member.id" type="button" @click="selectNode(member.id)"><span>{{ nodeDisplayName(member) }}</span><small :class="{ error: ['FAILED', 'TIMED_OUT'].includes(member.status) }">{{ statusLabel(member.status) }} · {{ formatDuration(member.durationMs) }}</small></button></section>
             <dl v-if="selected.kind === 'MODEL' || selected.totalTokens != null" class="token-grid"><div><dt>输入 Token</dt><dd>{{ formatValue(selected.inputTokens) }}</dd></div><div><dt>输出 Token</dt><dd>{{ formatValue(selected.outputTokens) }}</dd></div></dl>
             <p v-if="payloadLoading || payloadError" class="payload-state" role="status">{{ payloadError || '正在加载节点正文…' }}</p>
-            <TraceCode :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
-            <TraceCode :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
-            <section class="metadata-section"><h3>节点属性</h3><dl class="node-metadata"><div><dt>Span ID</dt><dd>{{ selected.id }}</dd></div><div><dt>Parent Span ID</dt><dd>{{ selected.parentId || '根节点' }}</dd></div><div><dt>开始时间 · 北京</dt><dd>{{ date(selected.startMs) }} {{ clock(selected.startMs) }}</dd></div><div><dt>模型</dt><dd>{{ selected.model || '—' }}</dd></div><div><dt>原始名称</dt><dd>{{ selected.name }}</dd></div></dl></section>
-            <TraceCode title="原始属性" :value="selected.attributes" state="COMPLETE" />
+            <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
+            <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
+            <section class="metadata-section"><h3>节点属性</h3><dl class="node-metadata"><div><dt>{{ selected.synthetic ? '展示分组 ID' : 'Span ID' }}</dt><dd>{{ selected.id }}</dd></div><div><dt>Parent Span ID</dt><dd>{{ selected.parentId || '根节点' }}</dd></div><div><dt>开始时间 · 北京</dt><dd>{{ date(selected.startMs) }} {{ clock(selected.startMs) }}</dd></div><div><dt>模型</dt><dd>{{ selected.model || '—' }}</dd></div><div><dt>原始名称</dt><dd>{{ selected.name }}</dd></div></dl></section>
+            <TraceCode v-if="selectedSource" title="原始属性" :value="selected.attributes" state="COMPLETE" />
           </div>
         </aside>
       </div>
@@ -247,6 +262,14 @@ html.trace-workspace-page #app { max-width: none; background: #fbfafc; }
 .query-state { font-size: 10px; color: #8b8096; margin: 8px 0 0; overflow-wrap: anywhere; }
 .query-state.error, .payload-state { color: #ab5774; }
 .payload-state { font-size: 11px; }
+.projection-notice { margin: 0; padding: 8px 20px; font-size: 10px; color: #928398; background: #fbf9fc; }
+.semantic-result { padding: 12px; border-radius: 8px; background: #faf6fa; color: #706078; font-size: 13px; }
+.member-section { margin: 20px 0; }
+.member-section h3 { font-size: 12px; font-weight: 500; color: #766881; }
+.member-section button { display: flex; justify-content: space-between; gap: 8px; width: 100%; background: none; border: 0; border-bottom: 1px solid #f0ecf3; padding: 8px 0; text-align: left; color: #766881; }
+.member-section button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.member-section small { font-size: 10px; flex-shrink: 0; color: #99909f; }
+.member-section small.error { color: #b6596b; }
 .workspace-brand { font-size: 24px; font-weight: 800; letter-spacing: 2px; padding: 0 10px; }
 .workspace-brand span { display: block; font-size: 11px; color: #9992a0; font-weight: 400; letter-spacing: 4px; margin-top: 2px; }
 .history-heading { display: flex; justify-content: space-between; font-size: 11px; color: #847a8c; padding: 0 9px; margin: 24px 0 12px; }
