@@ -1,8 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getAgentTrace, getTracePayload } from '@/api/agent'
 import { useUserStore } from '@/store/user'
 import TraceGraph from '@/components/trace/TraceGraph.vue'
+import TraceDivider from '@/components/trace/TraceDivider.vue'
 import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
@@ -21,9 +22,24 @@ const payloadError = ref('')
 const inspector = ref(null)
 const userStore = useUserStore()
 let queryController, payloadController
-const fileInput = ref(null)
-const importError = ref('')
-const importing = ref(false)
+const studio = ref(null)
+const sidebarWidth = ref(224)
+const inspectorWidth = ref(330)
+const studioWidth = ref(window.innerWidth)
+const resizing = ref(false)
+const maxSidebar = computed(() => Math.max(180, Math.min(440, studioWidth.value - inspectorWidth.value - 380)))
+const maxInspector = computed(() => Math.max(260, Math.min(640, studioWidth.value - sidebarWidth.value - 380)))
+function resizeSidebar(delta) { sidebarWidth.value = Math.max(180, Math.min(maxSidebar.value, sidebarWidth.value + delta)) }
+function resizeInspector(delta) { inspectorWidth.value = Math.max(260, Math.min(maxInspector.value, inspectorWidth.value + delta)) }
+let workspaceObserver
+onMounted(() => {
+  workspaceObserver = new ResizeObserver(([entry]) => {
+    studioWidth.value = entry.contentRect.width
+    if (studioWidth.value > 1100) { resizeSidebar(0); resizeInspector(0) }
+  })
+  workspaceObserver.observe(studio.value)
+})
+onBeforeUnmount(() => workspaceObserver?.disconnect())
 const previousTitle = document.title
 document.title = 'Trace Studio · EchoFrame运行追踪'
 onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort() })
@@ -106,26 +122,10 @@ function timingStyle(node) {
   const extent = trace.value.extentMs || 1
   return { left: `${Math.min(100, Math.max(0, (node.offsetMs || 0) / extent * 100))}%`, width: `${Math.min(100, Math.max(0.5, (node.durationMs || 0) / extent * 100))}%` }
 }
-async function importFile(event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  cancelQuery()
-  importing.value = true
-  importError.value = ''
-  try {
-    if (file.size > 10 * 1024 * 1024) throw new Error('文件超过 10 MB，请按运行拆分后导入。')
-    const imported = parseTraceFile(await file.text(), file.name)
-    traces.value = imported
-    activeId.value = imported[0].id
-    changeTrace()
-  } catch (error) { importError.value = error.message }
-  finally { importing.value = false; event.target.value = '' }
-}
 function resetDemo() {
   cancelQuery()
   traces.value = examples
   activeId.value = examples[0].id
-  importError.value = ''
   changeTrace()
 }
 function downloadExample() {
@@ -139,7 +139,7 @@ function downloadExample() {
 </script>
 
 <template>
-  <div class="trace-studio">
+  <div ref="studio" class="trace-studio" :class="{ resizing }" :style="{ '--sidebar-width': `${sidebarWidth}px`, '--inspector-width': `${inspectorWidth}px` }">
     <aside class="workspace-sidebar">
       <router-link class="workspace-brand" to="/">EchoFrame<span>运营助手</span></router-link>
       <form class="trace-search" @submit.prevent="queryTrace">
@@ -147,10 +147,6 @@ function downloadExample() {
         <div class="search-field"><input id="trace-id-query" v-model="traceQuery" placeholder="输入 Trace ID" autocomplete="off" spellcheck="false" :aria-invalid="!!queryError" aria-describedby="trace-query-state" @input="cancelQuery(); queryError = ''" /><button type="submit" :disabled="querying" :aria-label="querying ? '正在查询 Trace' : '查询 Trace'" title="查询"><TraceIcon name="arrow" :size="16" /></button></div>
         <p id="trace-query-state" class="query-state" :class="{ error: queryError }" role="status">{{ queryError || (querying ? '正在查询…' : '查询已有运行，不会启动新任务') }}</p>
       </form>
-      <button class="import-button" type="button" :disabled="importing" @click="fileInput.click()">
-        <TraceIcon name="plus" :size="16" />{{ importing ? '正在导入…' : '导入日志' }}
-      </button>
-      <input ref="fileInput" class="file-input" type="file" accept=".json,.jsonl,application/json" aria-label="选择 Trace 日志" @change="importFile" />
       <div class="history-heading">运行记录<span>{{ traces.length }}</span></div>
       <nav class="run-list" aria-label="运行记录">
         <button v-for="item in traces" :key="item.id" type="button" :class="{ selected: activeId === item.id }" :aria-current="activeId === item.id ? 'true' : undefined" @click="cancelQuery(); activeId = item.id; changeTrace()">
@@ -166,13 +162,13 @@ function downloadExample() {
       </details>
       <button class="example-button" type="button" @click="trace.demo ? downloadExample() : resetDemo()">{{ trace.demo ? '下载示例' : '返回示例' }}<TraceIcon :name="trace.demo ? 'download' : 'arrow'" :size="14" /></button>
     </aside>
+    <TraceDivider label="调整运行记录宽度" :value="sidebarWidth" :min="180" :max="maxSidebar" @resize="resizeSidebar" @dragging="resizing = $event" @reset="resizeSidebar(224 - sidebarWidth)" />
 
     <main class="workspace-main">
       <header class="workspace-header">
         <div class="workspace-heading"><span class="brand-symbol"><TraceIcon name="trace" :size="21" /></span><h1>运行追踪</h1><span class="demo-badge">{{ trace.demo ? '示例' : trace.remote ? '在线查询' : '本地日志' }}</span></div>
         <router-link class="back-agent" to="/agent">返回 Agent ↗</router-link>
       </header>
-      <div v-if="importError" class="import-error" role="alert">{{ importError }}</div>
       <div class="run-toolbar">
         <div class="run-context"><h2 :title="trace.title">{{ trace.title }}</h2><span class="model-name" :title="trace.model">{{ trace.model }}</span></div>
         <span class="status-pill" :class="trace.status.toLowerCase()">{{ statusLabel(trace.status) }}</span>
@@ -196,6 +192,7 @@ function downloadExample() {
           </section>
         </section>
 
+        <TraceDivider label="调整节点详情宽度" :value="inspectorWidth" :min="260" :max="maxInspector" reverse @resize="resizeInspector" @dragging="resizing = $event" @reset="resizeInspector(330 - inspectorWidth)" />
         <aside ref="inspector" class="inspector-column" aria-label="节点详情" tabindex="0">
           <div class="inspector-heading">节点详情</div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
@@ -227,13 +224,14 @@ html.trace-workspace-page #app { max-width: none; background: #fbfafc; }
   font: 14px/1.6 'Harmony Font', 'PingFang SC', 'Microsoft YaHei', sans-serif; color-scheme: light;
 }
 .trace-studio * { box-sizing: border-box; }
+.trace-studio.resizing { user-select: none; cursor: col-resize; }
 .trace-studio button, .trace-studio select { font: inherit; }
 .trace-studio button { cursor: pointer; }
 .trace-studio button:disabled { opacity: .5; cursor: wait; }
 .trace-studio a { color: inherit; text-decoration: none; }
 .trace-studio :is(button, a, input, select, summary):focus-visible { outline: 3px solid #e8b0c4; outline-offset: 3px; }
 .inspector-column:focus-visible { outline: 2px solid #e8b0c4; outline-offset: -2px; }
-.workspace-sidebar { width: 224px; flex-shrink: 0; display: flex; flex-direction: column; padding: 28px 16px 20px; background: #f4f2f6; border-right: 1px solid var(--line); }
+.workspace-sidebar { width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; padding: 28px 16px 20px; background: #f4f2f6; border-right: 1px solid var(--line); }
 .trace-search { margin-top: 28px; }
 .trace-search label { display: block; color: #76657f; font-size: 11px; margin-bottom: 8px; }
 .search-field { display: flex; border: 1px solid #e3d9e6; background: #fff; border-radius: 9px; }
@@ -244,10 +242,7 @@ html.trace-workspace-page #app { max-width: none; background: #fbfafc; }
 .payload-state { font-size: 11px; }
 .workspace-brand { font-size: 24px; font-weight: 800; letter-spacing: 2px; padding: 0 10px; }
 .workspace-brand span { display: block; font-size: 11px; color: #9992a0; font-weight: 400; letter-spacing: 4px; margin-top: 2px; }
-.import-button { display: flex; justify-content: center; align-items: center; gap: 8px; margin: 16px 0 24px; padding: 10px; border: 1px solid #e6dce5; border-radius: 11px; background: #fff; color: #91647b; }
-.import-button:hover { border-color: #cda5c3; }
-.file-input { display: none; }
-.history-heading { display: flex; justify-content: space-between; font-size: 11px; color: #847a8c; padding: 0 9px; margin-bottom: 12px; }
+.history-heading { display: flex; justify-content: space-between; font-size: 11px; color: #847a8c; padding: 0 9px; margin: 24px 0 12px; }
 .run-list { overflow: auto; flex: 1; min-height: 100px; }
 .run-list button { display: block; text-align: left; width: 100%; border: 0; background: none; padding: 12px 10px; border-radius: 9px; margin-bottom: 5px; }
 .run-list button:hover { background: #ffffff80; }
@@ -285,7 +280,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .run-metrics { display: flex; gap: 18px; margin-left: auto; flex-shrink: 0; color: #6e6479; font: 12px var(--trace-mono); }
 .run-metrics>span { display: flex; gap: 6px; align-items: center; }
 .run-metrics small { font: 10px 'Microsoft YaHei', sans-serif; color: #928398; }
-.workspace-panels { display: grid; grid-template-columns: minmax(0, 1fr) 320px; flex: 1; min-height: 0; margin: 0 20px 20px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+.workspace-panels { display: grid; grid-template-columns: minmax(0, 1fr) 8px var(--inspector-width); flex: 1; min-height: 0; margin: 0 20px 20px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
 .graph-column { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .view-tabs { display: flex; align-items: center; gap: 24px; height: 50px; padding: 0 20px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .view-tabs button { height: 100%; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #8b8195; font-size: 12px; }
@@ -321,8 +316,6 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .timing-track i.bar-tool { background: #8db6a6; }
 .timing-row.failed .timing-track i { background: #cf8795; }
 .timing-value { text-align: right; }
-.import-error { margin: 14px 24px 0; padding: 10px 14px; border: 1px solid #eed6de; background: #fdf1f4; color: #a4506e; border-radius: 8px; font-size: 12px; }
-@media(min-width:1400px) { .workspace-panels { grid-template-columns: minmax(0, 1fr) 350px; } }
 @media(min-width:1101px) { .graph-column { overflow: auto; } }
 @media(max-width:1100px) {
   .workspace-sidebar { width: 180px; padding-inline: 12px; }
@@ -335,7 +328,6 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
   .workspace-sidebar { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 16px; border-right: 0; border-bottom: 1px solid var(--line); }
   .workspace-brand { font-size: 21px; padding: 0; }
   .workspace-brand span { display: none; }
-  .import-button { margin: 0; padding: 7px 12px; font-size: 12px!important; }
   .trace-search { grid-column: 1/-1; grid-row: 2; margin: 0; }
   .trace-search label { display: none; }
   .mobile-run-select { display: block; grid-column: 1/-1; width: 100%; background: #fff; border: 1px solid #e6dce5; border-radius: 8px; padding: 9px; color: #706279; font-size: 12px!important; }

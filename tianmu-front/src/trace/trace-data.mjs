@@ -1,3 +1,5 @@
+import { buildTraceGraph } from './trace-layout.mjs'
+
 // Adapt the existing TraceEnvelope export without depending on a running backend.
 const STATUS_LABELS = {
   SUCCEEDED: '成功', FAILED: '失败', TIMED_OUT: '超时', CANCELLED: '已取消',
@@ -130,26 +132,7 @@ function normalizeTrace(spans, traceId, meta) {
   }
 }
 
-export function layoutTrace(nodes) {
-  const byId = new Map(nodes.map((node) => [node.id, node]))
-  const children = new Map(nodes.map((node) => [node.id, []]))
-  const roots = []
-  for (const node of nodes) {
-    if (byId.has(node.parentId)) children.get(node.parentId).push(node)
-    else roots.push(node)
-  }
-  const positions = new Map()
-  let row = 0
-  function visit(node, depth) {
-    const nested = children.get(node.id)
-    const rows = nested.map((child) => visit(child, depth + 1))
-    const y = rows.length ? (rows[0] + rows[rows.length - 1]) / 2 : row++ * 80
-    positions.set(node.id, { x: depth * 248, y })
-    return y
-  }
-  roots.forEach((root) => { visit(root, 0); row += 0.5 })
-  return nodes.map((node) => ({ id: node.id, type: 'trace', position: positions.get(node.id), sourcePosition: 'right', targetPosition: 'left', data: node }))
-}
+export const layoutTrace = (nodes) => buildTraceGraph(nodes).nodes
 
 // Keep names consistent across the graph, timeline and inspector; retain raw names in metadata.
 export const nodeDisplayName = (node) => ({ agent_start: '运行开始', pre_route: '请求路由', query_understanding: '理解问题', agent_loop: '执行循环', llm_inference: '模型调用', 'model.request': '模型请求', tool_call: '工具调用', answer_ready: '结果交付', error: '执行失败', finish: '结束' }[node.type] || node.label)

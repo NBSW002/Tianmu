@@ -57,4 +57,29 @@ function example(failed = false) {
   return { demo: true, title: failed ? '弹幕查询 · 工具超时' : '弹幕查询 · 正常完成', spans, details }
 }
 
-export const demoFiles = [example(), example(true)]
+// Synthetic concurrency fixture: both branches really overlap. This is not a
+// claim about the production worker's concurrency or measured performance.
+function parallelExample() {
+  const traceId = 'c3e75df847f14db79df00f92b1ac2403'
+  const spans = [], details = {}
+  const add = (n, parent, name, kind, offset, duration, extra = {}) => {
+    spans.push({ traceId, spanId: id(n), parentSpanId: parent ? id(parent) : null, name,
+      startTimeUnixNano: String(start + BigInt(offset) * 1000000n),
+      endTimeUnixNano: String(start + BigInt(offset + duration) * 1000000n),
+      status: 'UNSET', attributes: { 'node.type': kind, 'node.status': 'SUCCEEDED', 'run.id': 'demo-parallel-batches', ...extra } })
+    details[id(n)] = { input: { example: true }, output: { example: true, completed: true } }
+  }
+  add(20, null, 'agent.run', 'REQUEST', 0, 7000)
+  add(21, 20, '准备数据', 'STAGE', 20, 300)
+  add(22, 20, '弹幕分析', 'STAGE', 400, 4800)
+  add(23, 20, '评论分析', 'STAGE', 400, 4800)
+  for (let i = 0; i < 4; i++) {
+    add(30 + i, 22, 'feedback.work', 'MODEL', 450 + i * 1100, 1000, { 'model.name': '演示模型' })
+    add(40 + i, 23, 'feedback.work', 'MODEL', 450 + i * 1100, 1000, { 'model.name': '演示模型' })
+  }
+  add(50, 20, '生成报告', 'MODEL', 5300, 1400, { 'model.name': '演示模型' })
+  add(51, 20, 'agent.deliver', 'DELIVERY', 6800, 100, { 'span.type': 'answer_ready' })
+  return { demo: true, title: '报告分析 · 并行与重复步骤', spans, details }
+}
+
+export const demoFiles = [example(), example(true), parallelExample()]
