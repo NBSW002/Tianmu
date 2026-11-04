@@ -36,6 +36,9 @@ async function request(path, options = {}) {
       AUTH_CONTEXT_EXPIRED: '登录已失效，请重新登录',
       FORBIDDEN: '你没有权限分析这个视频或直播间',
       RUN_NOT_FOUND: '任务不存在或已过期',
+      TRACE_NOT_FOUND: '未找到可访问的 Trace，日志可能尚未归档或已过期',
+      TRACE_UNAVAILABLE: 'Trace 查询服务尚未配置或暂不可用',
+      TRACE_TOO_LARGE: 'Trace 超出查看上限，请按任务拆分导出',
       RESULT_NOT_FOUND: '报告不存在或已过期',
       DATE_OUT_OF_RANGE: '请选择最近 30 天内已经结束的时段',
       CAPACITY_EXCEEDED: '当前分析任务较多，请稍后重试',
@@ -65,6 +68,17 @@ async function request(path, options = {}) {
 function runPath(id) {
   if (!validRunId(id)) throw new Error('无效的任务 ID')
   return `/api/agent/runs/${id}`
+}
+
+export async function getAgentTrace(traceId, signal) {
+  if (!/^[a-f0-9]{32}$/.test(traceId)) throw new Error('Trace ID 应为 32 位十六进制字符')
+  return (await request(`/api/agent/traces/${traceId}`, { signal })).json()
+}
+
+export async function getTracePayload(runId, reference, signal) {
+  if (!/^[a-f0-9]{16}\/(input|output)\/[1-9]\d{0,6}\/[a-f0-9]{64}$/.test(reference))
+    throw new Error('节点正文引用无效')
+  return (await request(`${runPath(runId)}/trace-payloads/${reference}`, { signal })).json()
 }
 
 export async function getQaCatalog(signal) {

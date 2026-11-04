@@ -82,7 +82,7 @@ services:
     depends_on: [business-mysql, elasticsearch, minio, canal, rocketmq-broker]
     networks: [shared]
   agent:
-    image: tianmu-agent:${SITE_RELEASE}
+    image: tianmu-agent:${SITE_AGENT_RELEASE:-${SITE_RELEASE}}
     restart: unless-stopped
     init: true
     mem_limit: 640m
@@ -96,8 +96,11 @@ services:
       VIDEO_MODEL_API_KEY_FILE: /run/secrets/video-model-api-key
       AGENT_MINIO_ACCESS_KEY_FILE: /run/secrets/minio-access-key
       AGENT_MINIO_SECRET_KEY_FILE: /run/secrets/minio-secret-key
+      TRACE_QUERY_ENDPOINT: ${TRACE_QUERY_ENDPOINT:-http://clickhouse:8123}
+      TRACE_QUERY_USER: trace_reader
+      TRACE_QUERY_PASSWORD_FILE: /run/secrets/trace-query-password
       JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:MaxMetaspaceSize=160m -XX:ActiveProcessorCount=2 -Dfile.encoding=UTF-8 -Duser.timezone=UTC
-    secrets: [agent-db-password, redis-password, model-api-key, video-model-api-key, minio-access-key, minio-secret-key]
+    secrets: [agent-db-password, redis-password, model-api-key, video-model-api-key, minio-access-key, minio-secret-key, trace-query-password]
     volumes: [agent-traces:/data/trace]
     depends_on: [business]
   frontend:
@@ -131,6 +134,8 @@ secrets:
     file: '${SITE_CONFIG_DIR}/secrets/minio-access-key'
   minio-secret-key:
     file: '${SITE_CONFIG_DIR}/secrets/minio-secret-key'
+  trace-query-password:
+    file: '${SITE_CONFIG_DIR}/secrets/trace-query-password'
 volumes:
   business-mysql-data:
   minio-data:

@@ -76,6 +76,10 @@ harness:
     consecutive-tool-failures: 3
     finalize-enabled: true
   trace:
+    query:
+      endpoint: ${TRACE_QUERY_ENDPOINT:}
+      user: ${TRACE_QUERY_USER:trace_reader}
+      password-file: ${TRACE_QUERY_PASSWORD_FILE:}
     sink: ${HARNESS_TRACE_SINK:file}
     directory: ${HARNESS_TRACE_DIRECTORY:./var/trace}
     max-pending-files: 10000

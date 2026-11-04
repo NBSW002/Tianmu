@@ -70,6 +70,16 @@ sh deploy/site/renew-tls.sh /opt/tianmu-site/config
 
 按返回的 `runId` / `traceId` 查询 ClickHouse `tianmu_trace.trace_spans_current`，核对节点类型、父子关系、耗时、工具调用、模型 token 用量及私有明细引用。Trace 明细需通过带网站身份鉴权的接口读取，不应由 Nginx 直接公开对象桶。
 
+### Trace 页面查询
+
+`/trace` 支持本地日志导入和按完整 Trace ID 查询。在线入口为 `GET /api/agent/traces/{traceId}`，使用网站 Bearer 身份，并逐个核对链路涉及任务的归属和当前资源权限；节点输入输出复用原有私有正文接口。查询不会执行 Agent 或调用模型。
+
+网站 Compose 已挂载 Trace 查询私有密码文件，默认连接容器网络内的 `http://clickhouse:8123`。发布前运行 `python3 deploy/site/prepare_trace_query.py --config /opt/tianmu-site/config`，创建独立 `trace_reader` 账号、密码文件及两张 Trace 表的 SELECT 授权；脚本复用密码文件，不打印凭据。不要把密码写入前端或仓库。其他部署需配置 `TRACE_QUERY_ENDPOINT`、`TRACE_QUERY_USER`、`TRACE_QUERY_PASSWORD_FILE`；endpoint 留空时接口明确返回 503，导入日志仍可使用。
+
+实现遵循 [ClickHouse HTTP 接口](https://clickhouse.com/docs/interfaces/http)：固定参数化 SELECT、GET 读取、不跟随重定向；限制 4 个并发、2 秒连接超时、7 秒读超时、服务端 5 秒查询时间、2,000 条记录和 10 MiB 响应。超限报错，不将截断链路展示为完整结果。正在运行的任务可能尚未完整归档，可再次查询同一 ID 刷新。
+
+上线验收须使用两个真实网站账号验证归属隔离，并检查已归档 Trace 的图、时间线和私有正文。本地自动化验证使用 HTTP 桩和演示模型，不能替代生产 ClickHouse 配置验收。仅更新 Agent 时可通过 `SITE_AGENT_RELEASE` 指定新镜像，同时保留 `SITE_RELEASE` 对应的业务服务镜像。
+
 `inspect_run.py --run-id UUID --output 私有目录` 可在服务器导出该验收账号的报告、span 和经过服务端脱敏的明细，并逐份校验 SHA-256。失败任务诊断可加 `--allow-failed`。导出脚本复用该验收账号现有的 Redis 登录会话，不打印凭据。
 
 数据库事件约束通过 `V3__artifact_ready_event.sql` 增加 `ARTIFACT_READY`；既有迁移保持不变。报告保存后的通知、终态和重建后的回放由 `MysqlStorageIntegrationTest` 覆盖。可用 Dockerfile 的 `storage-verify` target 在独立的 `_it` 库和无密码测试 Redis 上运行；凭据通过 BuildKit `storage-it-env` secret 临时注入，不拷入镜像。不要将集成测试指向网站或 Agent 的正式库。

@@ -35,21 +35,23 @@ async function copy() {
     <pre v-if="value != null" tabindex="0"><code><span v-for="(token, index) in tokens" :key="index" :class="`syntax-${token.type}`">{{ token.text }}</span></code></pre>
     <div v-else class="code-empty">
       <TraceIcon name="info" :size="17" />
-      <p>{{ reference ? '该日志仅包含详情引用。请导入包含脱敏输入输出的 JSON，或后续连接详情接口。' : '此节点未提供该内容。' }}<small>采集状态：{{ state || 'NOT_CAPTURED' }}</small></p>
+      <p>{{ reference ? '正文未载入' : '暂无内容' }}<small>{{ state || 'NOT_CAPTURED' }}</small></p>
     </div>
   </section>
 </template>
 
 <style scoped>
-.trace-code { margin-top: 25px; }
-.code-heading,.code-actions { display:flex;align-items:center;justify-content:space-between;gap:10px; }
-h3 { margin:0;font-size:12px;font-weight:550;color:#bdc8d9;letter-spacing:.03em; }
-.code-format { font:10px var(--trace-mono);color:#64748d;letter-spacing:.1em; }
-.code-state { font-size:10px;color:#e9bc72; }
-button { border:0;background:none;color:#74839a;padding:3px;cursor:pointer;display:flex; }
-button:hover { color:#62d5d0; }
-pre { margin:11px 0 0;background:#0d121b;border:1px solid #202938;border-radius:8px;padding:15px 13px;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:235px;font:11px/1.85 var(--trace-mono);tab-size:2;color:#8fa0b8; }
-.syntax-key { color:#8aade1; }.syntax-string { color:#b8cc97; }.syntax-literal { color:#e1ba7a; }
-.code-empty { display:flex;gap:9px;margin-top:10px;padding:14px 12px;background:#0d121b;border:1px dashed #253044;border-radius:8px;color:#6e7f98; }
-.code-empty svg { flex-shrink:0;margin-top:2px; }.code-empty p { margin:0;font-size:11px;line-height:1.8; }.code-empty small { display:block;font:10px/1.8 var(--trace-mono);margin-top:6px; }
+.trace-code { margin-top: 22px; }
+.code-heading, .code-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+h3 { margin: 0; font-size: 12px; font-weight: 500; color: #766881; }
+.code-format { font: 10px var(--trace-mono); color: #83718f; }
+.code-state { font-size: 10px; color: #aa844e; }
+button { border: 0; background: none; color: #a08da6; padding: 3px; cursor: pointer; display: flex; }
+button:hover { color: #b5668c; }
+button:focus-visible { outline: 2px solid #d9a5c1; outline-offset: 3px; }
+pre { margin: 10px 0 0; background: #faf8fb; border: 1px solid #f0eaf3; border-radius: 8px; padding: 15px 14px; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.9 var(--trace-mono); tab-size: 2; color: #64576e; }
+pre:focus-visible { outline: 2px solid #d9a5c1; }
+.syntax-key { color: #82558e; }.syntax-string { color: #527561; }.syntax-literal { color: #986541; }
+.code-empty { display: flex; gap: 8px; margin-top: 10px; padding: 14px 12px; background: #faf8fb; border: 1px dashed #e8e0ec; border-radius: 8px; color: #95869e; }
+.code-empty svg { flex-shrink: 0; margin-top: 2px; }.code-empty p { margin: 0; font-size: 11px; line-height: 1.8; }.code-empty small { display: block; font: 9px/1.8 var(--trace-mono); margin-top: 4px; }
 </style>
