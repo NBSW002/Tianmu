@@ -1,0 +1,10 @@
+{
+  "name": "analyze_comments",
+  "description": "Prepare every selected comment/reply from the host-frozen feedback snapshot: exact grouping, reply-context candidate clustering and retained originals. No local video-clip grounding or report generation. If VIDEO was selected, obtain current video evidence first for the shared task. May be batched with analyze_danmaku. PENDING is durably resumed by the host; do not poll. READY returns source evidence for create_feedback_report.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  }
+}

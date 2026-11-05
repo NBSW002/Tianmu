@@ -29,7 +29,7 @@
         "description": "Zero-based section offset; continue using the returned next_offset.",
         "type": "integer",
         "minimum": 0,
-        "maximum": 5000
+        "maximum": 100000
       },
       "limit": {
         "description": "Maximum section records per page, from 1 to 10; default 10.",

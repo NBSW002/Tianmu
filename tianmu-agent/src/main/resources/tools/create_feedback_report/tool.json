@@ -1,6 +1,6 @@
 {
   "name": "create_feedback_report",
-  "description": "Render and save a requested private report from completed current-run feedback analysis. All selected sources must already be analyzed. Pure host rendering: this does not invent missing video grounding or run another summarization model.",
+  "description": "Generate and save a private report from all selected current-run source evidence. With source evidence this starts budgeted background LLM reading and synthesis, validates complete coverage and persists HTML before READY. The host waits on PENDING; do not poll. Legacy evidence_id accepts an already-completed analyze_feedback asset; never mix legacy and source references.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -9,11 +9,21 @@
         "minLength": 1,
         "maxLength": 80,
         "description": "Completed current-run feedback evidence returned by analyze_feedback, not a pending operation ID or old-run evidence."
+      },
+      "comment_evidence_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Required when COMMENT is selected: current-run analyze_comments source evidence."
+      },
+      "danmaku_evidence_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Required when DANMAKU is selected: current-run analyze_danmaku source evidence."
       }
     },
-    "required": [
-      "evidence_id"
-    ],
+    "required": [],
     "additionalProperties": false
   }
 }

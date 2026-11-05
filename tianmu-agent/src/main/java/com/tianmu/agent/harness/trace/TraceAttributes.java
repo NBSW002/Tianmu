@@ -30,7 +30,11 @@ public final class TraceAttributes {
             "detail.input_ref", "detail.input_state", "detail.input_bytes", "detail.input_redacted",
             "detail.output_ref", "detail.output_state", "detail.output_bytes", "detail.output_redacted",
             "detail.provider_output_ref", "detail.provider_output_state", "detail.provider_output_bytes", "detail.provider_output_redacted",
-            "detail.error_ref", "detail.error_state", "detail.error_bytes", "detail.error_redacted");
+            "detail.error_ref", "detail.error_state", "detail.error_bytes", "detail.error_redacted",
+            "context.request_bytes", "context.tools_bytes", "context.message_bytes", "context.system_bytes", "context.user_bytes", "context.assistant_bytes", "context.tool_result_bytes", "context.duplicate_result_bytes", "context.history_bytes",
+            "usage.attempted_calls", "usage.unreported_calls", "usage.cache_miss_tokens", "usage.cache_reported_calls", "model.dispatched",
+            "analysis.retry_wait_ms",
+            "io.feedback_object_ms", "io.feedback_object_calls", "io.feedback_database_ms", "io.feedback_database_calls");
     public static Map<String, Object> sanitize(Map<String, ?> values) {
         Map<String, Object> clean = new TreeMap<>();
         values.forEach((key, value) -> {

@@ -72,9 +72,20 @@ public final class FeedbackAnalysis {
         }
     }
     public record Asset(UUID jobId, UUID producerRun, String tenantId, String userId, Request request,
-                        Snapshot snapshot, List<Blob> roots, String model, String policyHash, VideoContent.Facts video) {
+                        Snapshot snapshot, List<Blob> roots, String model, String policyHash, VideoContent.Facts video,
+                        List<Integer> observationCounts) {
+        /** Assets written before the observation index remain readable. Null means unindexed, not empty. */
+        public Asset(UUID jobId, UUID producerRun, String tenantId, String userId, Request request,
+                     Snapshot snapshot, List<Blob> roots, String model, String policyHash, VideoContent.Facts video) {
+            this(jobId,producerRun,tenantId,userId,request,snapshot,roots,model,policyHash,video,null);
+        }
         public Asset {
             roots = List.copyOf(roots); Objects.requireNonNull(jobId); Objects.requireNonNull(producerRun);
+            if(observationCounts!=null){
+                observationCounts=List.copyOf(observationCounts);
+                if(observationCounts.size()>10000 || observationCounts.stream().anyMatch(n->n<0 || n>10))
+                    throw new IllegalArgumentException("Invalid observation index");
+            }
             if (roots.size() > 1 || request == null || snapshot == null || model == null || policyHash == null
                     || request.grounding() == Grounding.VIDEO_GROUNDED && (video == null || video.videoId() != request.query().videoId())
                     || request.grounding() == Grounding.FEEDBACK_ONLY && video != null) throw new IllegalArgumentException("Invalid analysis asset");

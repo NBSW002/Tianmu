@@ -25,6 +25,24 @@ import static org.mockito.Mockito.*;
 /** Opt-in real MySQL/Redis integration. Refuses URLs outside a database ending in _it. */
 @EnabledIfEnvironmentVariable(named="AGENT_STORAGE_IT", matches="true")
 class MysqlStorageIntegrationTest {
+    @Test void sourcePreparationLedgerFencesRetriesAndPersistsSharedEmbeddingBudget(){
+        var run=create("来源准备");var jobs=new MysqlFeedbackJobStore(source,mapper,repository::verifyReady);
+        var now=Instant.now();var request=new FeedbackAnalysis.Request(new DanmakuTypes.Query(1001,LocalDate.now().minusDays(1).atStartOfDay(),LocalDate.now().atStartOfDay()),Set.of(FeedbackAnalysis.Source.COMMENT),FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,com.tianmu.agent.feedback.FeedbackPreparationService.VERSION);
+        var job=jobs.create(new com.tianmu.agent.feedback.FeedbackJobStore.Job(UUID.randomUUID(),run.id,owner,request,FeedbackAnalysis.Phase.QUEUED,now,now.plusSeconds(120),20000,3,0,0,"fixture","hash",null,null,null,null,0,0));
+        var ledger=new MysqlFeedbackPreparationStore(source,mapper,repository::verifyReady);
+        var step=com.tianmu.agent.feedback.FeedbackPreparationStore.Step.SNAPSHOT;
+        ledger.request(job.id(),step);ledger.request(job.id(),step);
+        var first=ledger.claim(job.id(),step,now,Duration.ofSeconds(30));assertNotNull(first);
+        assertNull(ledger.claim(job.id(),step,now,Duration.ofSeconds(30)));
+        ledger.reserveEmbedding(job.id(),1);
+        db.update("UPDATE agent_feedback_preparation SET lease_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE job_id=?",job.id().toString());
+        var rebuilt=new MysqlFeedbackPreparationStore(source,mapper,repository::verifyReady);
+        var second=rebuilt.claim(job.id(),step,Instant.now(),Duration.ofSeconds(30));assertEquals(first.fence()+1,second.fence());
+        var blob=new FeedbackAnalysis.Blob("fb_"+UUID.randomUUID().toString().replace("-","")+".json",2,"0".repeat(64));
+        assertFalse(ledger.complete(first,blob));assertTrue(rebuilt.complete(second,blob));
+        assertEquals(blob,ledger.get(job.id(),step).result());assertNull(ledger.claim(job.id(),step,now,Duration.ofSeconds(30)));
+        assertEquals("EMBEDDING_BUDGET_EXCEEDED",assertThrows(AgentException.class,()->rebuilt.reserveEmbedding(job.id(),1)).code());
+    }
     @Test void lookupAndSavedReportProvenanceSurviveReload(){
         var run=create("historical video report");run.start();
         String id="ev_"+UUID.randomUUID();
@@ -95,6 +113,21 @@ class MysqlStorageIntegrationTest {
         var real=objects.put(j.id(),Map.of("private","fixture"));assertTrue(java.nio.file.Files.exists(directory.resolve(real.key())));
         run.cancel();repository.deleteSession(run.sessionId,owner);repository.garbageCollect();objects.collectExpired();
         assertFalse(java.nio.file.Files.exists(directory.resolve(real.key())));assertNull(store.get(j.id()));
+    }
+    @Test void feedbackObservationRangesAreOrderedBoundedAndJobScoped(){
+        var run=create("分页反馈");var store=new MysqlFeedbackJobStore(source,mapper,repository::verifyReady);
+        var now=Instant.now();var request=new FeedbackAnalysis.Request(new DanmakuTypes.Query(1001,LocalDate.now().minusDays(1).atStartOfDay(),LocalDate.now().atStartOfDay()),Set.of(FeedbackAnalysis.Source.COMMENT),FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,"feedback-analysis-v1");
+        var job=store.create(new com.tianmu.agent.feedback.FeedbackJobStore.Job(UUID.randomUUID(),run.id,owner,request,FeedbackAnalysis.Phase.QUEUED,now,now.plusSeconds(120),20000,3,0,0,"fixture","hash",null,null,null,null,0,0));
+        var blob=new FeedbackAnalysis.Blob("fb_"+UUID.randomUUID().toString().replace("-","")+".json",2,"0".repeat(64));
+        assertTrue(store.initialize(job.id(),job.version(),new FeedbackAnalysis.Snapshot("feedback-snapshot-v1",now,new FeedbackAnalysis.Counts(3,0,0,0,3),List.of(blob),"0".repeat(64)),null,List.of(blob,blob,blob)));
+        for(int i=0;i<3;i++)assertTrue(store.complete(store.claim(job.id(),Instant.now(),Duration.ofSeconds(30)),blob));
+        assertEquals(List.of(1,2),store.completedRange(job.id(),0,1,2).stream().map(com.tianmu.agent.feedback.FeedbackJobStore.Work::ordinal).toList());
+        assertEquals(1,store.completedRange(job.id(),0,1,1).size());
+        assertTrue(store.completedRange(job.id(),0,3,1).isEmpty());
+        assertTrue(store.completedRange(job.id(),1,0,3).isEmpty());
+        assertTrue(store.completedRange(UUID.randomUUID(),0,0,3).isEmpty());
+        db.update("UPDATE agent_feedback_work SET state='PENDING' WHERE job_id=? AND ordinal_no=1",job.id().toString());
+        assertEquals(List.of(2),store.completedRange(job.id(),0,1,2).stream().map(com.tianmu.agent.feedback.FeedbackJobStore.Work::ordinal).toList());
     }
     @TempDir Path directory;
     HikariDataSource source; MysqlRunRepository repository; RedisMemoryCache cache; JdbcTemplate db;

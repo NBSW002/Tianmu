@@ -173,6 +173,7 @@ class DeepSeekAdapterTest {
                 .withInitializer(context -> context.getEnvironment().setActiveProfiles("deepseek"))
                 .withUserConfiguration(DeepSeekAdapters.class)
                 .withBean(ObjectMapper.class, () -> mapper).withBean(PromptCatalog.class, PromptCatalog::new)
+                .withBean(io.opentelemetry.api.trace.Tracer.class,()->io.opentelemetry.api.OpenTelemetry.noop().getTracer("binding-test"))
                 .withPropertyValues("agent.models.api-key=test-secret", "agent.context.max-input-bytes=1024", "agent.context.max-history-bytes=0")
                 .run(context -> {
                     assertNull(context.getStartupFailure());
@@ -189,6 +190,29 @@ class DeepSeekAdapterTest {
             assertEquals("MODEL_CONTEXT_TOO_LARGE", error.code());
             assertEquals(0L, budget.attributes().get("budget.charged_tokens"));
             assertTrue(requests.isEmpty());
+        }
+    }
+    @Test void requestSpansCountDispatchedCallsAndKeepFailureLatencyAndPayloadComposition(){
+        var spans=new CopyOnWriteArrayList<io.opentelemetry.sdk.trace.data.SpanData>();
+        var exporter=new io.opentelemetry.sdk.trace.export.SpanExporter(){
+            public io.opentelemetry.sdk.common.CompletableResultCode export(Collection<io.opentelemetry.sdk.trace.data.SpanData> batch){spans.addAll(batch);return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess();}
+            public io.opentelemetry.sdk.common.CompletableResultCode flush(){return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess();}
+            public io.opentelemetry.sdk.common.CompletableResultCode shutdown(){return flush();}
+        };
+        try(var provider=io.opentelemetry.sdk.trace.SdkTracerProvider.builder().addSpanProcessor(io.opentelemetry.sdk.trace.export.SimpleSpanProcessor.create(exporter)).build()){
+            var traced=new DeepSeekClient(properties,mapper,new com.tianmu.agent.model.ContextPolicy(2048,0),provider.get("test"));
+            var usage=new com.tianmu.agent.harness.trace.TraceUsage();
+            try(var scope=io.opentelemetry.context.Context.current().with(com.tianmu.agent.harness.trace.TraceUsage.KEY,usage)
+                    .with(com.tianmu.agent.harness.trace.TraceUsage.RUN_ID,"fixture-run").makeCurrent()){
+                traced.complete(properties.harnessModel(),List.of(Map.of("role","user","content","fixture")),128,control());
+                status=429;assertThrows(RuntimeException.class,()->traced.complete(properties.harnessModel(),List.of(Map.of("role","user","content","fixture")),128,control()));
+                assertThrows(AgentException.class,()->traced.complete(properties.harnessModel(),List.of(Map.of("role","user","content","x".repeat(3000))),128,control()));
+            }
+            var calls=spans.stream().filter(s->s.getName().equals("model.request")).map(s->com.tianmu.agent.harness.trace.TraceEnvelope.from(s,"test","v1").attributes()).toList();
+            assertEquals(3,calls.size());assertEquals(List.of(true,true,false),calls.stream().map(a->a.get("model.dispatched")).toList());
+            for(int i=0;i<2;i++){assertTrue(((Number)calls.get(i).get("model.response_ms")).longValue()>=0);assertTrue(((Number)calls.get(i).get("context.request_bytes")).longValue()>0);assertEquals("fixture-run",calls.get(i).get("run.id"));}
+            assertEquals(429L,calls.get(1).get("model.http_status"));assertEquals("NOT_REPORTED",calls.get(1).get("model.usage_state"));
+            assertEquals(2L,usage.totals().get("usage.attempted_calls"));assertEquals(false,usage.totals().get("usage.complete"));assertEquals(2,requests.size());
         }
     }
     @Test void inputAwareTokenLimitStopsNetworkDispatch() {

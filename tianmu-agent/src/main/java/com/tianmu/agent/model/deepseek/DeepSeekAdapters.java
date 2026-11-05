@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 @Profile("deepseek")
 @EnableConfigurationProperties({DeepSeekProperties.class, com.tianmu.agent.model.ContextPolicy.class})
 public class DeepSeekAdapters {
-    @Bean DeepSeekClient deepSeekClient(DeepSeekProperties properties, ObjectMapper mapper, com.tianmu.agent.model.ContextPolicy policy) { return new DeepSeekClient(properties, mapper, policy); }
+    @Bean DeepSeekClient deepSeekClient(DeepSeekProperties properties, ObjectMapper mapper, com.tianmu.agent.model.ContextPolicy policy,io.opentelemetry.api.trace.Tracer tracer) { return new DeepSeekClient(properties, mapper, policy,tracer); }
     @Bean PreparationModelPort deepSeekPreparation(DeepSeekClient client, DeepSeekProperties properties, ObjectMapper mapper, PromptCatalog prompts) {
         return new DeepSeekPreparationModel(client, properties, mapper, prompts);
     }

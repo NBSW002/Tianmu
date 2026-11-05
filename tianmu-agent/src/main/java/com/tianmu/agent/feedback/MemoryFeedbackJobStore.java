@@ -53,8 +53,9 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
         var rows=work.values().stream().filter(w->w.jobId().equals(id) && w.level()==level).sorted(Comparator.comparingInt(Work::ordinal)).toList();
         return rows.stream().anyMatch(w->!w.state().equals("COMPLETE"))?List.of():rows;
     }
-    public synchronized List<Work> completedBefore(UUID id,int ordinal){
-        return work.values().stream().filter(w->w.jobId().equals(id) && w.level()==0 && w.ordinal()<ordinal && w.state().equals("COMPLETE")).sorted(Comparator.comparingInt(Work::ordinal)).toList();
+    public synchronized List<Work> completedRange(UUID id,int level,int fromOrdinal,int limit){
+        return work.values().stream().filter(w->w.jobId().equals(id) && w.level()==level && w.state().equals("COMPLETE")
+                && w.ordinal()>=fromOrdinal && w.ordinal()<fromOrdinal+limit).sorted(Comparator.comparingInt(Work::ordinal)).toList();
     }
     public synchronized boolean hasLevel(UUID id,int level){return work.values().stream().anyMatch(w->w.jobId().equals(id) && w.level()==level);}
     public synchronized boolean planLevel(UUID id,long version,int level,List<Blob> inputs) {

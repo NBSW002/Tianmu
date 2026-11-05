@@ -88,7 +88,10 @@ public class RunService {
     }
     public List<RunState> waiting(){return runs.values().stream().filter(r->r.snapshot().status()==Status.WAITING_OPERATION).toList();}
     public void resumeOperation(RunState run,com.tianmu.agent.core.PendingOperation expected,ToolResult result){
-        if(!run.completeOperation(expected,result))return;
+        resumeOperations(run,expected,java.util.List.of(result));
+    }
+    public void resumeOperations(RunState run,com.tianmu.agent.core.PendingOperation expected,java.util.List<ToolResult> results){
+        if(!run.completeOperations(expected,results))return;
         try{executor.execute(()->orchestrator.resume(run));}
         catch(RejectedExecutionException full){run.fail("QUEUE_FULL");}
     }

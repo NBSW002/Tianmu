@@ -26,15 +26,23 @@ public final class ExecutionState {
     public synchronized void restore(com.tianmu.agent.core.PendingOperation.Continuation continuation){
         if(!exchanges.isEmpty())throw new IllegalStateException("Execution was already restored");
         activeSkills.addAll(continuation.skills());exchanges.addAll(continuation.exchanges());continuation.exchanges().forEach(e->observations.add(e.result()));
+        continuation.exchanges().forEach(e->restoreReport(e.result()));
     }
     public synchronized void rollbackOperation(com.tianmu.agent.core.PendingOperation.Continuation saved){
-        exchanges.clear();observations.clear();activeSkills.clear();restore(saved);
+        exchanges.clear();observations.clear();activeSkills.clear();readyReports.clear();restore(saved);
     }
     public synchronized void completeOperation(com.tianmu.agent.core.PendingOperation pending,ToolResult result){
-        int index=exchanges.size()-1;if(index<0)throw new IllegalStateException("No pending tool call");var last=exchanges.get(index);
-        if(!pending.equals(last.result().pending()) || !last.call().name().equals(result.tool()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null)
-            throw new IllegalArgumentException("Operation result does not match pending execution");
-        exchanges.set(index,new com.tianmu.agent.core.AgentTypes.ToolExchange(last.call(),result));observations.set(index,result);
+        completeOperations(pending,List.of(result));
     }
+    public synchronized void completeOperations(com.tianmu.agent.core.PendingOperation pending,List<ToolResult> results){
+        var matching=new LinkedHashMap<String,Integer>();
+        for(int i=0;i<exchanges.size();i++)if(pending.equals(exchanges.get(i).result().pending())){
+            if(matching.put(exchanges.get(i).call().name(),i)!=null)throw new IllegalStateException("Repeated pending tool name");
+        }
+        if(results.size()!=matching.size() || results.stream().map(ToolResult::tool).distinct().count()!=results.size())throw new IllegalArgumentException("Incomplete operation group");
+        for(var result:results)if(!matching.containsKey(result.tool()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null)throw new IllegalArgumentException("Invalid operation group result");
+        for(var result:results){int index=matching.get(result.tool());var old=exchanges.get(index);exchanges.set(index,new com.tianmu.agent.core.AgentTypes.ToolExchange(old.call(),result));observations.set(index,result);restoreReport(result);}
+    }
+    private void restoreReport(ToolResult result){if(result.tool().equals("create_feedback_report") && "READY".equals(result.data().get("status")) && result.data().containsKey("artifact_id") && result.evidenceId()!=null)readyReports.add(result.evidenceId());}
     public EvidenceStore evidence() { return evidence; }
 }

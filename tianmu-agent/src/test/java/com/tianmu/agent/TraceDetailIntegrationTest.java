@@ -38,7 +38,11 @@ class TraceDetailIntegrationTest {
         String path = "/api/agent/runs/" + run.id + "/trace-payloads/" + query.attributes().get("detail.output_ref");
         String body = mvc.perform(get(path).header("Authorization", "Bearer demo-alice")).andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        assertEquals("READY", json.readTree(body).path("value").path("data").path("status").asText());
+        // The tool span captures submission; background completion must not rewrite its historical output.
+        assertEquals("PENDING", json.readTree(body).path("value").path("data").path("status").asText());
+        var completed=run.execution().exchanges().stream().map(e -> e.result()).filter(r -> r.tool().equals("create_feedback_report")).findFirst().orElseThrow();
+        assertEquals("READY",completed.data().get("status"));
+        assertNotNull(completed.data().get("artifact_id"));
         mvc.perform(get(path)).andExpect(status().isUnauthorized());
         mvc.perform(get(path).header("Authorization", "Bearer demo-bob")).andExpect(status().isNotFound());
         var model = spans.stream().filter(s -> s.name().equals("agent.model")).findFirst().orElseThrow();

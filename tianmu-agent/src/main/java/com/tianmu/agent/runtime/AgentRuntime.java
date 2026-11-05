@@ -90,6 +90,14 @@ public class AgentRuntime {
         }
     }
     private void runLoopBody(RunState run, String message) {
+        var exchanges=run.execution().exchanges();
+        if(!exchanges.isEmpty()){
+            var last=exchanges.get(exchanges.size()-1).result();
+            if(last.tool().equals("create_feedback_report") && last.pending()==null && "READY".equals(last.data().get("status"))
+                    && last.evidenceId()!=null && run.execution().hasReport(last.evidenceId()) && last.data().containsKey("url")){
+                delivery.answer(run,new Answer((Boolean.TRUE.equals(last.data().get("demo"))?"【模拟数据】":"")+"反馈报告已生成并保存。\n[查看 HTML 报告]("+last.data().get("url")+")（需登录鉴权）",List.of(last.evidenceId())),delivery.reserve(run),StopReason.TOOL_DELIVERY);return;
+            }
+        }
         run.emit("PROGRESS", Map.of("stage", "harness"));
         Progress progress = new Progress();
         for(var exchange:run.execution().exchanges()){
@@ -143,7 +151,13 @@ public class AgentRuntime {
                 tools.checkBatch(batch,run);
                 boolean done=false;
                 // Read batches share a model turn but execute serially under the existing deadline/budget controls.
-                for(var call:batch) { run.checkpoint();if(executeTool(run,context,call,progress,false)){done=true;break;} }
+                boolean sources=batch.stream().allMatch(c->Set.of("analyze_comments","analyze_danmaku").contains(c.name()));
+                for(var call:batch) { run.checkpoint();if(executeTool(run,context,call,progress,false,sources)){done=true;break;} }
+                if(sources){
+                    var pending=run.execution().exchanges().stream().map(e->e.result().pending()).filter(Objects::nonNull).distinct().toList();
+                    if(pending.size()>1)throw new AgentException("INVALID_TOOL_RESULT","Source calls must share a durable operation group");
+                    if(!pending.isEmpty()){run.waitFor(pending.get(0));done=true;}
+                }
                 yield done;
             }
             case CLARIFY -> executeTool(run,context,new ToolCall("ask_clarification",Map.of("question",decision.clarification())),progress,true);
@@ -151,6 +165,9 @@ public class AgentRuntime {
         };
     }
     private boolean executeTool(RunState run, ModelContext context, ToolCall call, Progress progress, boolean allowCorrection) {
+        return executeTool(run,context,call,progress,allowCorrection,false);
+    }
+    private boolean executeTool(RunState run,ModelContext context,ToolCall call,Progress progress,boolean allowCorrection,boolean deferWait){
         if (call == null) throw new AgentException("INVALID_DECISION", "Missing tool call");
         if (context.availableTools().stream().noneMatch(tool -> tool.name().equals(call.name())))
             throw new AgentException("TOOL_NOT_AVAILABLE", "Tool is not exposed in the current model context");
@@ -205,7 +222,7 @@ public class AgentRuntime {
         }
         run.emit("PROGRESS", Map.of("stage", "tool_completed", "tool", name));
         if(result.terminalClarification()!=null){delivery.clarification(run,result.terminalClarification(),delivery.reserve(run));return true;}
-        if(result.pending()!=null){run.waitFor(result.pending());return true;}
+        if(result.pending()!=null){if(deferWait)return false;run.waitFor(result.pending());return true;}
         if (result.terminalAnswer() != null) {
             delivery.answer(run, result.terminalAnswer(), delivery.reserve(run), StopReason.TOOL_DELIVERY);
             return true;

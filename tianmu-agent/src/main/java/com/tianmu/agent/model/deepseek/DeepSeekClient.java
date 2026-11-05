@@ -21,12 +21,17 @@ public final class DeepSeekClient {
     private final HttpClient http;
     private final com.tianmu.agent.model.ModelContextBuilder contexts;
     private final com.tianmu.agent.model.HarnessContextBuilder harnessContexts;
+    private final io.opentelemetry.api.trace.Tracer tracer;
     private volatile long quotaBlockedUntil;
     private static final long QUOTA_COOLDOWN_NANOS=Duration.ofMinutes(5).toNanos();
     public DeepSeekClient(DeepSeekProperties config, ObjectMapper mapper) {
         this(config, mapper, com.tianmu.agent.model.ContextPolicy.defaults());
     }
     public DeepSeekClient(DeepSeekProperties config, ObjectMapper mapper, com.tianmu.agent.model.ContextPolicy contextPolicy) {
+        this(config,mapper,contextPolicy,null);
+    }
+    public DeepSeekClient(DeepSeekProperties config,ObjectMapper mapper,com.tianmu.agent.model.ContextPolicy contextPolicy,io.opentelemetry.api.trace.Tracer tracer){
+        this.tracer=tracer;
         contexts = new com.tianmu.agent.model.ModelContextBuilder(mapper, contextPolicy);
         harnessContexts = new com.tianmu.agent.model.HarnessContextBuilder(mapper,contextPolicy);
         this.config = config; this.mapper = mapper.copy()
@@ -63,6 +68,19 @@ public final class DeepSeekClient {
         return complete(model,messages,maxTokens,control,external,nativeTools,null);
     }
     private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool) {
+        if(tracer==null)return invoke(model,messages,maxTokens,control,external,nativeTools,requiredTool);
+        var span=tracer.spanBuilder("model.request").startSpan();
+        com.tianmu.agent.harness.trace.TraceNode.begin(span,"model.request");
+        TraceAttributes.apply(span,Map.of("model.dispatched",false,"model.name",model));
+        String run=io.opentelemetry.context.Context.current().get(com.tianmu.agent.harness.trace.TraceUsage.RUN_ID);
+        if(run!=null)TraceAttributes.apply(span,Map.of("run.id",run));
+        try(var scope=span.makeCurrent()){
+            var result=invoke(model,messages,maxTokens,control,external,nativeTools,requiredTool);
+            com.tianmu.agent.harness.trace.TraceNode.success(span);return result;
+        }catch(RuntimeException error){com.tianmu.agent.harness.trace.TraceNode.failure(span,error);span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR);throw error;}
+        finally{span.end();}
+    }
+    private JsonNode invoke(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool) {
         control.checkpoint();
         if(quotaBlockedUntil!=0 && System.nanoTime()-quotaBlockedUntil<0)
             throw new AgentException("MODEL_QUOTA_EXHAUSTED","Model provider quota is unavailable; calls paused for five minutes");
@@ -83,6 +101,7 @@ public final class DeepSeekClient {
                 requestBody.put("tool_choice",choice);requestBody.put("parallel_tool_calls",false);
                 TraceAttributes.apply(Span.current(),Map.of("model.tool_choice",requiredTool==null?"auto":requiredTool));
             }
+            TraceAttributes.apply(Span.current(),com.tianmu.agent.model.ModelPayloadMetrics.measure(mapper,requestBody));
             contexts.check(List.of(Map.of("request",requestBody)));
             TraceDetails.capture("input", requestBody, "MODEL_REQUEST");
             byte[] payload = mapper.writeValueAsBytes(requestBody);
@@ -91,7 +110,9 @@ public final class DeepSeekClient {
                     .timeout(Duration.ofNanos(nanos)).header("Authorization", "Bearer " + config.apiKey())
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofByteArray(payload)).build();
             long reservation=(long)payload.length+maxTokens+1024;
-            JsonNode body = com.tianmu.agent.runtime.control.ModelBudget.execute(control, model, external, reservation, () -> exchange(request, control));
+            JsonNode body = com.tianmu.agent.runtime.control.ModelBudget.execute(control, model, external, reservation, () -> {
+                TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));return exchange(request, control);
+            });
             TraceDetails.capture("provider_output", body, "MODEL_PROVIDER_RESPONSE");
             JsonNode choice = body.path("choices").path(0);
             if (choice.path("finish_reason").isTextual()) TraceAttributes.apply(Span.current(), Map.of("model.finish_reason", choice.path("finish_reason").asText()));
@@ -132,8 +153,8 @@ public final class DeepSeekClient {
         }
     }
     private JsonNode exchange(HttpRequest request, CallControl control) {
+        long requestStarted = System.nanoTime();
         try {
-            long requestStarted = System.nanoTime();
             CompletableFuture<HttpResponse<byte[]>> future = http.sendAsync(request, info -> new com.tianmu.agent.resource.BoundedHttpBody(131072));
             try (var registration = control.cancellation().onCancel(() -> future.cancel(true))) {
                 HttpResponse<byte[]> response;
@@ -155,6 +176,7 @@ public final class DeepSeekClient {
             }
         } catch (AgentException e) { throw e; }
         catch (Exception e) { control.checkpoint(); throw unavailable(); }
+        finally{TraceAttributes.apply(Span.current(),Map.of("model.response_ms",Math.max(0,(System.nanoTime()-requestStarted)/1_000_000)));}
     }
     private IllegalStateException unavailable() { return new IllegalStateException("Model response unavailable"); }
 }

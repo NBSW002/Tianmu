@@ -34,6 +34,7 @@ public class ToolDispatcher {
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.access.IdentityPort identity;
     private final com.tianmu.agent.runtime.store.ConversationStore conversations;
     private com.tianmu.agent.feedback.FeedbackAnalysisService feedback;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.feedback.FeedbackPreparationService preparation;
     @org.springframework.beans.factory.annotation.Autowired
     void feedbackService(com.tianmu.agent.feedback.FeedbackAnalysisService feedback){this.feedback=feedback;}
     @org.springframework.beans.factory.annotation.Autowired
@@ -61,6 +62,9 @@ public class ToolDispatcher {
     public void checkBatch(List<ToolCall> calls,RunState run) {
         if(calls.size()<2 || calls.size()>4)throw new AgentException("INVALID_DECISION","Native read batch must contain two to four calls");
         Set<ToolCall> unique=new HashSet<>();
+        if(calls.stream().anyMatch(c->Set.of("analyze_comments","analyze_danmaku").contains(c.name()))
+                && (calls.stream().anyMatch(c->!Set.of("analyze_comments","analyze_danmaku").contains(c.name())) || calls.stream().map(ToolCall::name).distinct().count()!=calls.size()))
+            throw new AgentException("INVALID_DECISION","Source preparation batches contain one call per selected source only");
         for(var call:calls) {
             if (!permitted(call.name(), run)) throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Tool is outside the frozen source selection");
             var tool=registry.admit(call.name(),run.execution().activeSkills(),snapshotTools(run));
@@ -210,6 +214,43 @@ public class ToolDispatcher {
             if(job.phase()==com.tianmu.agent.core.FeedbackAnalysis.Phase.READY){var asset=feedback.asset(job.id(),run.owner,request);var ev=bindFeedback(run,asset);return new ToolResult(tool.name(),Map.of("status","READY","evidence_id",ev.id(),"summary",feedback.read(asset,"summary",0,1)),ev.id());}
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Analysis cannot be started in this state");
             return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-analysis",job.deadline()));
+        }
+        public ToolResult prepareFeedback(com.tianmu.agent.core.FeedbackAnalysis.Source source,String videoEvidenceId){
+            if(preparation==null || !tool.name().equals(com.tianmu.agent.application.FeedbackSourceEvidence.tool(source)))throw new AgentException("TOOL_CAPABILITY_DENIED","Source preparation unavailable");
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.pipelineRequest(run.task().specification());checkFeedback(request);
+            VideoContent.Facts video=null;
+            if(request.grounding()==com.tianmu.agent.core.FeedbackAnalysis.Grounding.VIDEO_GROUNDED){
+                var candidates=run.execution().evidence().snapshot().values().stream().filter(e->e.videoContent()!=null && (videoEvidenceId==null || e.id().equals(videoEvidenceId)))
+                        .filter(e->e.videoContent().videoId()==request.query().videoId()).toList();
+                if(candidates.size()!=1)throw new AgentException("INVALID_EVIDENCE","Read the selected video evidence before preparing sources");
+                video=candidates.get(0).videoContent();business.checkVideoQuery(run,video.videoId(),video.startMs(),video.endMs());
+            }else if(videoEvidenceId!=null)throw new AgentException("TASK_CONSTRAINT_VIOLATION","Video was not selected");
+            var job=preparation.request(run.id,run.owner,request,video,run.deadline(),source);
+            if(preparation.ready(job.id(),source))return com.tianmu.agent.application.FeedbackSourceEvidence.bind(run,job,preparation.result(job.id(),run.owner,source,run.callControl()));
+            if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Source preparation cannot proceed");
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-sources",job.deadline()));
+        }
+        public ToolResult createPreparedReport(String comment,String danmaku){
+            if(preparation==null || !tool.name().equals("create_feedback_report") || analysisContract()==null || !analysisContract().reportRequired())throw new AgentException("TOOL_CAPABILITY_DENIED","Report was not requested");
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.pipelineRequest(run.task().specification());UUID jobId=null;
+            for(var source:com.tianmu.agent.core.FeedbackAnalysis.Source.values()){
+                String id=source==com.tianmu.agent.core.FeedbackAnalysis.Source.COMMENT?comment:danmaku;
+                if(request.sources().contains(source)!=(id!=null))throw new AgentException("INVALID_EVIDENCE","Provide exactly the selected source evidence");
+                if(id==null)continue;var ev=evidence(id);
+                if(ev.lookup()==null || !ev.lookup().operation().equals(com.tianmu.agent.application.FeedbackSourceEvidence.tool(source)))throw new AgentException("INVALID_EVIDENCE","Expected source evidence from this run");
+                UUID candidate=UUID.fromString(ev.lookup().data().get("job_id").toString());
+                if(jobId!=null && !jobId.equals(candidate))throw new AgentException("INVALID_EVIDENCE","Sources belong to different jobs");jobId=candidate;
+            }
+            var job=feedback.owned(jobId,run.owner);checkFeedback(job.request());
+            if(!job.runId().equals(run.id))throw new AgentException("INVALID_EVIDENCE","Sources belong to another run");
+            job=preparation.startReport(jobId,run.owner,run.callControl());
+            if(job.phase()==com.tianmu.agent.core.FeedbackAnalysis.Phase.READY){
+                var asset=feedback.asset(job.id(),run.owner,request);var ev=bindFeedback(run,asset);var report=saveReport(ev.id(),feedback.report(asset));
+                return new ToolResult(tool.name(),Map.of("status","READY","artifact_id",report.artifactId(),"url",report.url()),ev.id(),
+                        new Answer((asset.model().equals("demo-scripted-feedback")?"【模拟数据】":"")+"反馈报告已生成并保存。\n[查看 HTML 报告]("+report.url()+")（需登录鉴权）",List.of(ev.id())));
+            }
+            if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Report cannot proceed");
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-report",job.deadline()));
         }
         public Map<String,Object> readFeedback(Evidence evidence,String section,int offset,int limit){
             checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());return feedback.read(asset,section,offset,limit);

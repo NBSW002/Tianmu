@@ -12,6 +12,23 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PendingOperationTest {
+    @Test void sourceGroupRestoresBothProviderCallsAndRejectsPartialCompletion() throws Exception {
+        var r=run();var op=new PendingOperation(UUID.randomUUID(),"feedback-sources",r.deadline());
+        for(String name:List.of("analyze_comments","analyze_danmaku"))r.execution().observe(new ToolCall(name,Map.of(),"provider-"+name),new ToolResult(name,Map.of("status","PENDING"),null,null,op));
+        r.waitFor(op);
+        var json=new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var frame=json.readValue(json.writeValueAsBytes(r.continuation()),PendingOperation.Continuation.class);
+        var restored=new RunState(r.id,r.sessionId,r.turnSeq,r.owner,r.message,r.query(),r.createdAt,r.deadline(),RunBackend.MEMORY,new InMemoryRunEventStore(),new InMemoryEvidenceStore(),true);
+        restored.restore(r.snapshot());restored.restoreContinuation(frame);
+        var comments=new ToolResult("analyze_comments",Map.of("status","READY"),"ev_comments");
+        var danmaku=new ToolResult("analyze_danmaku",Map.of("status","READY"),"ev_danmaku");
+        assertThrows(IllegalArgumentException.class,()->restored.completeOperations(op,List.of(comments)));
+        assertEquals(Status.WAITING_OPERATION,restored.snapshot().status());
+        assertTrue(restored.completeOperations(op,List.of(danmaku,comments)));
+        assertEquals("provider-analyze_comments",restored.execution().exchanges().get(0).call().providerCallId());
+        assertEquals(comments,restored.execution().exchanges().get(0).result());assertEquals(danmaku,restored.execution().exchanges().get(1).result());
+        r.cancel();restored.cancel();
+    }
     @Test void harnessResumptionKeepsTheOriginalTraceInsteadOfRejectingANewTraceId(){
         try(var provider=io.opentelemetry.sdk.trace.SdkTracerProvider.builder().build()){
             var tracer=provider.get("test");var hooks=new com.tianmu.agent.harness.hook.HookDispatcher(List.of(),tracer);

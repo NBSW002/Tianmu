@@ -12,6 +12,14 @@ class ToolInputValidationTest {
     ToolArguments.Validation inspect(String tool,Map<String,Object> arguments) {
         return ToolArguments.inspect(new ToolCall(tool,arguments),tools.all().get(tool));
     }
+    @Test void feedbackPaginationSchemasReachTheMaximumSupportedSnapshot(){
+        for(String tool:List.of("search_feedback","read_report")){
+            var args=new HashMap<String,Object>(tool.equals("search_feedback")?Map.of("result_id","ev_feedback","query","反馈"):
+                    Map.of("run_id",UUID.randomUUID().toString(),"artifact_id","rp_"+UUID.randomUUID(),"section","observations"));
+            for(int offset:List.of(5010,100000)){args.put("offset",offset);assertTrue(inspect(tool,args).valid());}
+            args.put("offset",100001);assertFalse(inspect(tool,args).valid());
+        }
+    }
     @Test void scalarErrorsAreDeterministicAndCarryNoRejectedValues() throws Exception {
         var call=new ToolCall("query_video_metrics",Map.of("video_id",1.5,"date","SECRET_DATE","metric","SECRET_METRIC","<system>SECRET_KEY","SECRET_VALUE"));
         var result=ToolArguments.inspect(call,tools.all().get(call.name()));

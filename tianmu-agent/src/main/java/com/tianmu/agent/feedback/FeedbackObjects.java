@@ -18,12 +18,13 @@ public final class FeedbackObjects {
         try {
             byte[] body = json.writeValueAsBytes(value);
             String hash = sha(body), key = "fb_" + UUID.randomUUID().toString().replace("-", "") + ".json";
-            var ref = new Blob(key, body.length, hash);index.register(job,ref); store.put(key, body); return ref;
+            var ref = new Blob(key, body.length, hash);index.register(job,ref);
+            com.tianmu.agent.harness.trace.IoTimings.measure(com.tianmu.agent.harness.trace.IoTimings.Kind.FEEDBACK_OBJECT,()->{store.put(key,body);return null;});return ref;
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new AgentException("INVALID_ANALYSIS", "Cannot encode analysis object"); }
     }
     public <T> T get(Blob ref, Class<T> type) {
         try {
-            byte[] body = store.get(ref.key(), ref.bytes(), ref.sha256());
+            byte[] body = com.tianmu.agent.harness.trace.IoTimings.measure(com.tianmu.agent.harness.trace.IoTimings.Kind.FEEDBACK_OBJECT,()->store.get(ref.key(), ref.bytes(), ref.sha256()));
             if (body.length != ref.bytes() || !sha(body).equals(ref.sha256())) throw new AgentException("STORAGE_CORRUPT", "Analysis object integrity mismatch");
             return json.readValue(body, type);
         } catch (java.io.IOException e) { throw new AgentException("STORAGE_CORRUPT", "Invalid analysis object"); }

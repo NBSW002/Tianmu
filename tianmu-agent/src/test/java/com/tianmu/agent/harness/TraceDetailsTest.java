@@ -15,6 +15,29 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class TraceDetailsTest {
+    @Test void cacheMissAndMissingUsageSurviveExportWithoutImplyingCompleteCacheAccounting(){
+        var usage=new TraceUsage();
+        try(var scope=Context.current().with(TraceUsage.KEY,usage).makeCurrent()){
+            TraceUsage.record("fixture",100L,10L,60L,null,null);TraceUsage.record("fixture",100L,10L,null,40L,null);
+            TraceUsage.record("fixture",null,null,null,null,null);
+        }
+        var attrs=TraceAttributes.sanitize(usage.totals());assertEquals(40L,attrs.get("usage.cache_miss_tokens"));
+        assertEquals(0L,attrs.get("usage.cache_reported_calls"));assertEquals(3L,attrs.get("usage.attempted_calls"));
+        assertEquals(1L,attrs.get("usage.unreported_calls"));assertEquals(false,attrs.get("usage.complete"));assertEquals("RUN_PROCESS_SEGMENT",attrs.get("usage.scope"));
+    }
+    @Test void nestedDatabaseOperationsAreTimedOnceAndFailuresRemainFailures(){
+        var recording=new HarnessLifecycleTest.Recording();var io=new IoTimings();
+        try(var provider=SdkTracerProvider.builder().addSpanProcessor(SimpleSpanProcessor.create(recording)).build()){
+            var span=provider.get("test").spanBuilder("feedback.work").startSpan();
+            try(var scope=Context.current().with(IoTimings.KEY,io).makeCurrent()){
+                assertThrows(IllegalStateException.class,()->IoTimings.measure(IoTimings.Kind.FEEDBACK_DATABASE,()->
+                        IoTimings.measure(IoTimings.Kind.FEEDBACK_DATABASE,()->{throw new IllegalStateException("fixture");})));
+                IoTimings.measure(IoTimings.Kind.FEEDBACK_OBJECT,()->42);
+            }
+            io.export(span);span.end();var attrs=TraceEnvelope.from(recording.spans.get(0),"test","v1").attributes();
+            assertEquals(1L,attrs.get("io.feedback_database_calls"));assertEquals(1L,attrs.get("io.feedback_object_calls"));assertTrue(((Number)attrs.get("io.feedback_database_ms")).doubleValue()>=0);
+        }
+    }
     @TempDir Path directory;
     final ObjectMapper json = new ObjectMapper().findAndRegisterModules();
     @Test void providerJsonTextRetainsWhitespaceAndMalformedTrailingBracesForDiagnosis() throws Exception {

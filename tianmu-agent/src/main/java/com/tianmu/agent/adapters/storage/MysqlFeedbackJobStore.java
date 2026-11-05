@@ -28,7 +28,8 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
         db=new JdbcTemplate(source);db.setQueryTimeout(5);tx=new TransactionTemplate(new DataSourceTransactionManager(source));tx.setTimeout(5);
         json=mapper.copy().findAndRegisterModules();
     }
-    private <T> T write(Supplier<T> call) { authority.run();return tx.execute(s->call.get()); }
+    private <T> T timed(Supplier<T> call){return com.tianmu.agent.harness.trace.IoTimings.measure(com.tianmu.agent.harness.trace.IoTimings.Kind.FEEDBACK_DATABASE,call);}
+    private <T> T write(Supplier<T> call) { return timed(()->{authority.run();return tx.execute(s->call.get());}); }
     private String encode(Object value) { try{return json.writeValueAsString(value);}catch(Exception e){throw new IllegalArgumentException("Invalid analysis storage payload",e);} }
     private <T> T decode(Object value,Class<T> type) { if(value==null)return null;try{return json.readValue(value.toString(),type);}catch(Exception e){throw new AgentException("STORAGE_CORRUPT","Invalid analysis record");} }
     private static Timestamp stamp(Instant t) { return Timestamp.from(t); }
@@ -47,7 +48,7 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
     }
     public Job get(UUID id) {var rows=db.queryForList("SELECT j.* FROM agent_feedback_job j JOIN agent_run r ON r.run_id=j.run_id JOIN agent_session s ON s.session_id=r.session_id AND s.tenant_id=r.tenant_id WHERE j.job_id=? AND r.data_expires_at>UTC_TIMESTAMP(6) AND s.status='OPEN' AND s.expires_at>UTC_TIMESTAMP(6)",id.toString());return rows.isEmpty()?null:job(rows.get(0));}
     public Job forRun(UUID run) {var rows=db.queryForList("SELECT * FROM agent_feedback_job WHERE run_id=?",run.toString());return rows.isEmpty()?null:job(rows.get(0));}
-    public Work work(UUID id){var rows=db.queryForList("SELECT * FROM agent_feedback_work WHERE work_id=?",id.toString());return rows.isEmpty()?null:work(rows.get(0));}
+    public Work work(UUID id){return timed(()->{var rows=db.queryForList("SELECT * FROM agent_feedback_work WHERE work_id=?",id.toString());return rows.isEmpty()?null:work(rows.get(0));});}
     private Job locked(UUID id) {var rows=db.queryForList("SELECT * FROM agent_feedback_job WHERE job_id=? FOR UPDATE",id.toString());return rows.isEmpty()?null:job(rows.get(0));}
     private boolean running(Job j) {return j!=null && com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(j.phase());}
     public Job create(Job proposed) {
@@ -102,11 +103,14 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
         });
     }
     public List<Work> completedLevel(UUID id,int level) {
-        var rows=db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND level_no=? ORDER BY ordinal_no",id.toString(),level).stream().map(this::work).toList();
-        return rows.stream().anyMatch(w->!w.state().equals("COMPLETE"))?List.of():rows;
+        return timed(()->{var rows=db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND level_no=? ORDER BY ordinal_no",id.toString(),level).stream().map(this::work).toList();
+        return rows.stream().anyMatch(w->!w.state().equals("COMPLETE"))?List.of():rows;});
+    }
+    public List<Work> completedRange(UUID id,int level,int fromOrdinal,int limit){
+        return timed(()->db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND level_no=? AND ordinal_no>=? AND ordinal_no<? AND state='COMPLETE' ORDER BY ordinal_no",
+                id.toString(),level,fromOrdinal,fromOrdinal+limit).stream().map(this::work).toList());
     }
     public boolean hasLevel(UUID id,int level){return db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND level_no=?",Long.class,id.toString(),level)>0;}
-    public List<Work> completedBefore(UUID id,int ordinal){return db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND level_no=0 AND ordinal_no<? AND state='COMPLETE' ORDER BY ordinal_no",id.toString(),ordinal).stream().map(this::work).toList();}
     public boolean planLevel(UUID id,long version,int level,List<Blob> inputs) {
         return write(()->{
             Job j=locked(id);if(!running(j) || j.version()!=version || db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND level_no=?",Long.class,id.toString(),level)>0)return false;

@@ -157,10 +157,13 @@ class InputValidationRecoveryTest {
             assertEquals("TOOL_FAILURE_LIMIT",run.snapshot().errorCode());assertEquals(1,count.get());assertTrue(run.execution().observations().isEmpty());
         }
     }
-    @Test void cancellationWinsBeforeValidationCanProduceFeedback() {
+    @Test void cancellationWinsBeforeValidationCanProduceFeedback() throws InterruptedException {
         try(var fixture=new HarnessLifecycleTest.Fixture()) {
             var run=fixture.run();var effects=new AtomicInteger();var tools=dispatcher(fixture,effects,this::empty);
+            var committed=new java.util.concurrent.CountDownLatch(1);run.onTerminal(ignored->committed.countDown());
             new AgentRuntime(context->{run.cancel();return Decision.tool("read_result",Map.of());},tools,fixture.harness).execute(run);
+            // Adapter cancellation wakes execute() before the cancelling worker finishes its terminal commit.
+            assertTrue(committed.await(2,java.util.concurrent.TimeUnit.SECONDS),"Cancellation must converge to a committed terminal");
             assertEquals(Status.CANCELLED,run.snapshot().status());assertEquals(0,effects.get());assertTrue(run.execution().observations().isEmpty());
         }
     }

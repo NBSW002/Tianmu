@@ -1,12 +1,15 @@
 {
   "name": "comment-analysis",
-  "version": "3.0.0",
-  "description": "读取作者本人视频在指定区间的完整评论和回复，默认全量、明确指定时间时按区间，结合视频内容理解观众反馈；作者发言单独统计。",
+  "version": "4.0.0",
+  "description": "分析评论正文与回复语境，区分作者和观众；需要报告时组织所选来源证据并保存。",
   "tools": [
     "analyze_video_content",
     "analyze_feedback",
     "search_my_videos",
     "read_report",
-    "search_feedback"
+    "search_feedback",
+    "analyze_comments",
+    "analyze_danmaku",
+    "create_feedback_report"
   ]
 }

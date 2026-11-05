@@ -90,7 +90,8 @@ public class RuntimeHarness implements AutoCloseable {
         String outcome = "success";
         String error = "";
         Map<String, Object> resultAttributes = new HashMap<>();
-        try (Scope scope = parent.with(span).makeCurrent(); TraceLogScope mdc = new TraceLogScope(span, run.id.toString())) {
+        var io=new com.tianmu.agent.harness.trace.IoTimings();
+        try (Scope scope = parent.with(span).with(com.tianmu.agent.harness.trace.IoTimings.KEY,io).makeCurrent(); TraceLogScope mdc = new TraceLogScope(span, run.id.toString())) {
             try {
                 run.checkpoint();
                 if (before != null) session.fire(before, attributes);
@@ -119,7 +120,7 @@ public class RuntimeHarness implements AutoCloseable {
                 TraceAttributes.apply(span, result);
                 if (after != null) session.fire(after, result);
             }
-        } finally { span.end(); }
+        } finally { io.export(span);span.end(); }
     }
     public Runnable contextual(Runnable operation) {
         Context captured = Context.current();

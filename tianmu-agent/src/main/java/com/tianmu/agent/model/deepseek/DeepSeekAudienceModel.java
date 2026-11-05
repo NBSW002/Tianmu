@@ -31,7 +31,7 @@ public final class DeepSeekAudienceModel implements AudienceModelPort {
         Map<String,Object> input=new LinkedHashMap<>();input.put("corpus",corpus);
         input.put("previous",previous.stream().map(t->Map.of("id",t.id(),"title",t.title(),"sample_ids",t.sampleIds())).toList());
         input.put("range",data.query());if(video!=null)input.put("video",Map.of("summary",video.summary(),"moments",video.moments(),"sampledAtMs",video.sampledAtMs()));
-        var result=client.complete(config.harnessModel(),client.messages(prompt,input),6144,control,true);
+        var result=client.complete(config.analysisModel(),client.messages(prompt,input),6144,control,true);
         if(!result.path("topics").isArray())throw new AgentException("INVALID_REPORT","Missing room topics");
         for(var topic:result.get("topics")){
             var refs=topic.path("sample_ids");if(!refs.isArray())throw new AgentException("INVALID_REPORT","Missing topic members");

@@ -41,7 +41,7 @@ public final class HarnessContextBuilder {
             removeOldestTurn(history);messages=assemble(instruction,context,history,working,calls);
         }
         bounds.check(messages);
-        TraceAttributes.apply(Span.current(),Map.of("context.format","native_roles_v1","context.output_bytes",bytes(messages),
+        TraceAttributes.apply(Span.current(),Map.of("context.format","native_roles_v1","context.output_bytes",bytes(messages),"context.history_bytes",bytes(history),
                 "context.history_messages",history.size(),"context.schemas_removed",schemas,
                 "context.byte_limit",policy.maxInputBytes()));
         return List.copyOf(messages);

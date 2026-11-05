@@ -15,8 +15,10 @@ public final class FeedbackPlanner {
     private final FeedbackPolicy policy;
     public FeedbackPlanner(FeedbackObjects objects,FeedbackPolicy policy){this.objects=objects;this.policy=policy;}
     public Collector collector(UUID job,Request request){return new Collector(job,request);}
+    public Collector collector(UUID job,Request request,Map<String,String> candidates){var collector=new Collector(job,request);collector.candidates=Map.copyOf(candidates);return collector;}
     public final class Collector {
         private final UUID job; private final Request request;
+        private Map<String,String> candidates=Map.of();
         private final List<Blob> chunks=new ArrayList<>(),inputs=new ArrayList<>();
         private final List<Unit> chunk=new ArrayList<>();private final LinkedHashMap<Key,List<Unit>> batch=new LinkedHashMap<>();
         private final Set<String> ids=new HashSet<>(),people=new HashSet<>();private final MessageDigest digest;
@@ -43,7 +45,7 @@ public final class FeedbackPlanner {
         private void flushChunk(){if(!chunk.isEmpty()){chunks.add(objects.put(job,List.copyOf(chunk)));chunk.clear();chunkBytes=0;}}
         private void flushBatch(){
             if(batch.isEmpty())return;var groups=new ArrayList<Group>();
-            for(var entry:batch.entrySet()) {var k=entry.getKey();var rows=entry.getValue();groups.add(new Group("G"+(++sequence),k.source(),k.text(),k.context(),k.author(),k.at(),rows.size(),rows.stream().map(Unit::id).toList()));}
+            for(var entry:batch.entrySet()) {var k=entry.getKey();var rows=entry.getValue();groups.add(new Group("G"+(++sequence),k.source(),k.text(),k.context(),k.author(),k.at(),rows.size(),rows.stream().map(Unit::id).toList(),candidates.get(rows.get(0).id())));}
             inputs.add(objects.put(job,new Input(WorkKind.CLASSIFY,groups,List.of(),null)));batch.clear();batchBytes=0;batchRecords=0;
         }
         public Planned finish(FeedbackSnapshotPort.Receipt receipt) {

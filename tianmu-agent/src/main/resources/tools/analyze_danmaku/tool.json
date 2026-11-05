@@ -1,0 +1,17 @@
+{
+  "name": "analyze_danmaku",
+  "description": "Prepare every selected danmaku from the same frozen snapshot, preserving playback positions and original membership. Candidate grouping is constrained by playback context, not a semantic verdict. When VIDEO is selected obtain its evidence first. May be batched with analyze_comments; host handles PENDING waiting/recovery. READY is source preparation, not a completed report.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "video_evidence_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Current-run video evidence matching selected playback range when VIDEO is selected. Omit for feedback-only tasks."
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  }
+}

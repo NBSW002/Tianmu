@@ -126,9 +126,12 @@ public class RunState implements EvidenceContext {
         emit("PROGRESS",Map.of("stage","waiting_operation","operation_id",pending.id().toString()));
     }
     public synchronized boolean completeOperation(com.tianmu.agent.core.PendingOperation expected,ToolResult result){
+        return completeOperations(expected,java.util.List.of(result));
+    }
+    public synchronized boolean completeOperations(com.tianmu.agent.core.PendingOperation expected,java.util.List<ToolResult> results){
         checkpoint();if(status!=Status.WAITING_OPERATION || !expected.equals(operation))return false;
         var saved=continuation;
-        execution.completeOperation(expected,result);status=Status.RUNNING;operation=null;continuation=null;
+        execution.completeOperations(expected,results);status=Status.RUNNING;operation=null;continuation=null;
         try{backend.save(this);}catch(RuntimeException failure){
             status=Status.WAITING_OPERATION;operation=expected;continuation=saved;execution.rollbackOperation(saved);throw failure;
         }

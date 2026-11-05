@@ -14,6 +14,8 @@ public final class AnalysisExecutionPolicy {
         if (spec == null || spec.analysis() == null) return true;
         var contract = spec.analysis();
         return switch (tool) {
+            case "analyze_comments" -> contract.includes(COMMENT) && spec.typed() instanceof TaskConditions.Report && contract.reportRequired();
+            case "analyze_danmaku" -> contract.includes(DANMAKU) && spec.typed() instanceof TaskConditions.Report && contract.reportRequired();
             case "analyze_feedback" -> !contract.textSources().isEmpty() && (spec.typed() instanceof TaskConditions.Report && Set.of("audience.report","danmaku.report","comments.analysis").contains(spec.type()) || spec.typed() instanceof TaskConditions.Interaction draft && draft.feedback()!=null);
             case "create_feedback_report" -> contract.reportRequired() && !contract.textSources().isEmpty();
             case "prepare_comment_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("COMMENT");

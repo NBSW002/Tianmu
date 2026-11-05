@@ -20,7 +20,7 @@
         "description": "Zero-based offset among keyword matches; continue using next_offset.",
         "type": "integer",
         "minimum": 0,
-        "maximum": 5000
+        "maximum": 100000
       },
       "limit": {
         "description": "Maximum matching records per page, from 1 to 10; default 10.",

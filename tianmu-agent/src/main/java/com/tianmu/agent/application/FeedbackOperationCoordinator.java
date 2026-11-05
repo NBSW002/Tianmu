@@ -17,6 +17,7 @@ public final class FeedbackOperationCoordinator {
     private final FeedbackAnalysisService service;private final RunService runs;
     private final com.tianmu.agent.harness.RuntimeHarness harness;
     private final TaskAssembler assembler;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.runtime.store.ReportStore reportStore;
     private final ThreadPoolExecutor workers;
     private final Set<UUID> submitted=ConcurrentHashMap.newKeySet();private final Map<UUID,Long> progress=new ConcurrentHashMap<>();
     public FeedbackOperationCoordinator(FeedbackAnalysisService service,RunService runs,com.tianmu.agent.harness.RuntimeHarness harness,TaskAssembler assembler){
@@ -27,22 +28,30 @@ public final class FeedbackOperationCoordinator {
     public void tick(){
         try {
             for(var run:runs.waiting()){
-                var op=run.snapshot().operation();if(op==null || !op.kind().equals("feedback-analysis"))continue;
+                var op=run.snapshot().operation();if(op==null || !Set.of("feedback-analysis","feedback-report").contains(op.kind()))continue;
                 try{
                     assembler.verify(run.task());
                     var job=service.forRun(run.id);if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
                     run.backgroundModelCalls(job.modelCalls());
                     if(job.phase()==Phase.READY){
-                        run.emit("PROGRESS",Map.of("stage","feedback_analysis","phase","READY","completed_work",job.completedWork(),"model_calls",job.modelCalls(),"charged_tokens",job.chargedTokens()));
-                        var asset=service.asset(job.id(),run.owner,FeedbackTaskPolicy.request(run.task().specification()));var evidence=FeedbackEvidenceBinding.bind(run,asset);
-                        var result=new ToolResult("analyze_feedback",Map.of("status","READY","evidence_id",evidence.id(),"summary",service.read(asset,"summary",0,1)),evidence.id());
-                        runs.resumeOperation(run,op,result);progress.remove(run.id);continue;
+                        if(submitted.add(job.id())){
+                            try{workers.execute(()->{
+                                try{harness.execute(run,()->harness.stage(run,"feedback.deliver",null,null,Map.of("analysis.job_id",job.id().toString()),()->{
+                                    deliver(run,op,job);return true;
+                                }));}
+                                catch(AgentException failure){if(!Set.of("STORAGE_UNAVAILABLE","OBJECT_STORE_UNAVAILABLE","AUTH_CONTEXT_EXPIRED","UNAUTHORIZED").contains(failure.code()))run.fail(failure.code());}
+                                catch(RuntimeException failure){run.fail("REPORT_DELIVERY_FAILED");}
+                                finally{submitted.remove(job.id());}
+                            });}catch(RejectedExecutionException full){submitted.remove(job.id());}
+                        }
+                        continue;
                     }
                     if(job.phase()==Phase.FAILED){run.fail(job.errorCode()==null?"ANALYSIS_FAILED":job.errorCode());continue;}
                     if(job.phase()==Phase.CANCELLED){run.cancel();continue;}
                     Long old=progress.put(run.id,job.version());if(old==null || old!=job.version())run.emit("PROGRESS",Map.of("stage",job.phase()==Phase.WAITING_AUTH?"analysis_waiting_auth":"feedback_analysis","phase",job.phase().name(),"completed_work",job.completedWork(),"model_calls",job.modelCalls(),"charged_tokens",job.chargedTokens()));
                     if(MemoryFeedbackJobStore.active(job.phase()) && submitted.add(job.id())){
-                        try{workers.execute(()->{try{harness.execute(run,()->harness.stage(run,"feedback.work",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",job.phase().name()),()->{
+                        long enqueued=System.nanoTime();
+                        try{workers.execute(()->{try{harness.execute(run,()->harness.stage(run,"feedback.work",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",job.phase().name(),"execution.queue_ms",Math.max(0,(System.nanoTime()-enqueued)/1_000_000)),()->{
                             service.advance(job.id(),run.cancellation(),()->run.backgroundModelCalls(service.forRun(run.id).modelCalls()));
                             var current=service.forRun(run.id);run.backgroundModelCalls(current.modelCalls());
                             return Map.of("phase",current.phase().name(),"completed_work",current.completedWork(),"model_calls",current.modelCalls(),"charged_tokens",current.chargedTokens());
@@ -63,6 +72,17 @@ public final class FeedbackOperationCoordinator {
                 catch(AgentException e){if(Set.of("RUN_NOT_FOUND","SESSION_NOT_FOUND","FORBIDDEN").contains(e.code()))service.cancel(job.id());}
             }
         }catch(RuntimeException unavailable){org.slf4j.LoggerFactory.getLogger(getClass()).warn("feedback_scheduler_unavailable type={} location={}",unavailable.getClass().getSimpleName(),java.util.Arrays.stream(unavailable.getStackTrace()).filter(f->f.getClassName().startsWith("com.tianmu.")).limit(5).toList());}
+    }
+    private void deliver(RunState run,PendingOperation op,FeedbackJobStore.Job job){
+        run.checkpoint();
+        var request=op.kind().equals("feedback-report")?FeedbackTaskPolicy.pipelineRequest(run.task().specification()):FeedbackTaskPolicy.request(run.task().specification());
+        var asset=service.asset(job.id(),run.owner,request);var evidence=FeedbackEvidenceBinding.bind(run,asset);
+        ToolResult result;
+        if(op.kind().equals("feedback-report")){
+            var report=new ReportArtifacts(reportStore).save(run,evidence.id(),service.report(asset));
+            result=new ToolResult("create_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
+        }else result=new ToolResult("analyze_feedback",Map.of("status","READY","evidence_id",evidence.id(),"summary",service.read(asset,"summary",0,1)),evidence.id());
+        runs.resumeOperation(run,op,result);progress.remove(run.id);
     }
     @PreDestroy public void close(){workers.shutdown();}
 }

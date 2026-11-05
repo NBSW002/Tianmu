@@ -44,7 +44,7 @@ public final class HarnessSession {
         root = builder.startSpan();
         TraceNode.begin(root, "agent.run");
         budget = run.modelBudget();
-        Context base = TraceModelCall.bind(Context.current().with(root).with(TraceUsage.KEY, usage),tracer,TraceSemantics.identity(run));
+        Context base = TraceModelCall.bind(Context.current().with(root).with(TraceUsage.KEY, usage).with(TraceUsage.RUN_ID,run.id.toString()),tracer,TraceSemantics.identity(run));
         context = details == null ? base : details.bind(base, run.id);
         TraceAttributes.apply(root, TraceSemantics.identity(run));
         TraceAttributes.apply(root, Map.of("run.id", run.id.toString(), "input.char_count", run.message.length()));

@@ -72,12 +72,18 @@ curl -s -H 'Authorization: Bearer demo-alice' \
 
 报告保留原文引用和分类细节。采样帧不能证明连续动作或声音；弹幕播放位置不是采样画面存在的证明。统计、权限、成员覆盖与 HTML 渲染由代码负责，主题含义及建议是模型判断。
 
+分类上下文中的主题目录由已提交批次增量维护，只保留首次出现的顺序、首次标题和累计条数，最多 100 个主题。进程内最多缓存 32 个任务目录，闲置一小时过期；重启或目录失效后，以每次最多 64 条账本记录重建已接受的前缀，再继续增量读取。目录不接受未提交结果，也不随纠错输入持久化，旧纠错输入仍可读取。正常连续处理 B 批时，构建目录只读 B−1 个历史结果对象；最终归并和报告仍读取完整批次证据。此项不改变模型请求内容、调用次数或 Token 预算，无新增迁移，也不代表模型推理本身变快。
+
+新反馈资产保存按批次顺序排列的话题数量索引。历史报告的 `observations` 页据此只查询当前页涉及的批次账本和结果对象；子话题页也只加载所选成员，仍按 16000 字节预算返回并以 `next_offset` 续读。旧资产没有索引时按流读取到所需页，不重跑模型、不改写历史；旧资产的深页仍需扫描前面的批次。搜索及历史报告分页偏移允许到 100000，与反馈容量配置的最高值一致，默认快照上限仍为 5000。字面搜索为计算准确匹配总数，仍扫描完整快照，不代表已实现全文索引。
+
+此优化不需要数据库迁移，使用已有 `(job_id, level_no, ordinal_no)` 索引。新资产增加 `observationCounts` 字段；当前版本兼容旧资产，但直接回滚到不认识该字段的旧读取器无法读取新资产，发布前需安排兼容读取器的回滚版本。分页优化不改变分类模型、提示词、主题正文或报告生成流程。
+
 ## 模型、缓存与成本
 
 | 配置 / 机制 | 默认行为 |
 | --- | --- |
 | `HARNESS_MODEL` | `deepseek-flash`，用于 Agent loop |
-| `ANALYSIS_MODEL` | `deepseek-flash`，用于后台反馈分类，独立于 loop |
+| `ANALYSIS_MODEL` | `deepseek-flash`，用于后台反馈分类与观众归纳，可独立于 loop 配置 |
 | `PREPARATION_MODEL` | `deepseek-flash`，处理确实需要模型判断的问题准备 |
 | `AGENT_MAX_MODEL_CALLS` | 每个任务最多 16 次模型调用 |
 | `AGENT_MAX_TOKENS` | 默认 64,000 Token；设为 `0` 关闭 Token 上限 |
@@ -171,6 +177,29 @@ git diff --check
 ```
 
 默认测试不需要模型 Key，也不调用付费模型。真实存储测试需隔离 MySQL / Redis，并显式设置 `AGENT_STORAGE_IT=true`。
+
+模型成本核对使用每次请求的 `model.request` 子 Span，以 `run.id`、父 Span 和反馈工作的 `analysis.job_id/work_id/batch_ordinal` 串联准备、主循环和后台分类。只有 `model.dispatched=true` 表示已经进入网络调用；拒绝于预算或上下文检查的请求单独统计。失败请求也记录网络等待时间，供应商未返回 usage 时标记未知，不按免费处理。根 Span 的 usage 是当前进程段汇总（`RUN_PROCESS_SEGMENT`），不能再与请求级用量相加，也不能代替跨重启账单。
+
+`context.*_bytes` 记录实际请求、原生工具 Schema、各角色消息及重复工具结果的 JSON 字节数，不是 Token，也不能直接相加还原请求大小。当前策略保留本轮完整工具交互，只对可省略的历史轮次裁剪；Skill 结果中重复的相同工具 Schema 去重，策略正文和业务证据仍保留。原生 `tools` 仍随每次无状态模型请求发送。超出最终请求预算时明确失败，不用截断证据换取成功。
+
+`execution.queue_ms` 是后台工作入队到执行的时间，`analysis.retry_wait_ms` 是安排的重试间隔；`model.response_ms` 包括网络和供应商等待，不能解释为纯推理耗时。`io.feedback_object_*` 计量反馈对象读写，`io.feedback_database_*` 只计量已埋点的反馈账本操作，包含连接池、锁和事务等待，不覆盖全部业务 SQL。不同阶段可能重叠，不能将这些时长简单相加当作端到端耗时；缺失字段表示未测量。
+
+离线费用汇总不访问模型或加载请求正文：
+
+```sh
+python scripts/summarize_model_trace.py /private/trace/archive/spans.jsonl --prices /private/prices.json --output /private/cost-summary.json
+python scripts/test_model_trace_summary.py
+```
+
+价格文件显式保存日期、来源和每百万 Token 的费率范围，避免把历史运行套入隐含的实时价格。例如（数值仅展示结构，实际运行前核对供应商价格）：
+
+```json
+{"currency":"USD","source":"https://api-docs.deepseek.com/quick_start/pricing/","checked_at":"YYYY-MM-DD","models":{"deepseek-flash":{"minimum":{"cache_hit":0.003,"cache_miss":0.15,"output":0.6},"maximum":{"cache_hit":0.006,"cache_miss":0.3,"output":1.2}}}}
+```
+
+汇总按 Trace/Span ID 去重，只统计传入文件内的请求；进程退出时尚未投递的 Trace Outbox `.pending` 文件也可作为输入，不能只读 archive 就认定完整。需与任务及后台账本调用计数对账，不能仅凭 usage 齐全认定无丢失。输出费用是估算而非供应商账单，未定价调用单独列出。
+
+付费验收 `PaidContextCostEvaluationTest` 默认跳过。显式设置 `AGENT_PAID_EVAL=true`、`PAID_EVAL_DIR`（仓库外目录）、`DEEPSEEK_API_KEY` 后，可单独以 `-Dtest=PaidContextCostEvaluationTest` 执行。该测试只发送 243 条合成评论，主循环与后台均使用 `deepseek-flash`，覆盖报告生成、历史读取及歧义澄清；最多三个任务各 8 次调用、128,000 Token，后台最多 8 次调用、120,000 Token。测试预算独立于应用默认 64,000 Token；后者可能在已用 Token 加下一请求保守预留超过上限时提前拒绝，即使已结算用量尚未达到上限。测试保存脱敏的合成请求和响应快照用于诊断，使用 Demo 权限和内存账本、本地私有对象目录，不验证真实 MySQL/MinIO 性能，也不发布任何内容。默认全量测试和免 Key Demo 不运行此验收。
 
 隔离测试库须以 `utf8mb4 / utf8mb4_bin` 初始化，与 `deploy/site/compose.yaml` 中生产 MySQL 的配置一致；例如创建专用 `_it` 库后执行 `ALTER DATABASE tianmu_ci_it CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;`，再执行 Flyway。MySQL 8.4 的默认 `utf8mb4_0900_ai_ci` 会导致 V7 新表和 V1 会话表的外键列排序规则不兼容。CI 在迁移前显式设置临时库默认值，保留已经上线的 V7 文件及其校验和；不要对生产库运行测试初始化或盲目执行 Flyway repair。
 

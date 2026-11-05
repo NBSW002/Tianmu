@@ -64,7 +64,7 @@ public final class ModelContextBuilder {
             JsonNode schemas = result.path("data").path("tool_schemas");
             if (!(schemas instanceof ArrayNode array)) continue;
             for (int i = array.size() - 1; i >= 0; i--) {
-                if (exposed.contains(array.get(i))) { array.remove(i); removed++; }
+                if (!exposed.add(array.get(i))) { array.remove(i); removed++; }
             }
         }
         return removed;

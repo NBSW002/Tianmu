@@ -8,7 +8,7 @@ import java.util.*;
 public record PendingOperation(UUID id,String kind,Instant deadline) {
     public PendingOperation {
         Objects.requireNonNull(id);Objects.requireNonNull(deadline);
-        if(!"feedback-analysis".equals(kind))throw new IllegalArgumentException("Unsupported operation kind");
+        if(!Set.of("feedback-analysis","feedback-sources","feedback-report").contains(kind))throw new IllegalArgumentException("Unsupported operation kind");
     }
     public record Budget(long limit,long reservation,long charged,long reported,long unknown,boolean exhausted) {}
     public record Continuation(PendingOperation operation,Set<String> skills,List<ToolExchange> exchanges,MemoryTypes.View memory,Budget budget,String traceParent) {

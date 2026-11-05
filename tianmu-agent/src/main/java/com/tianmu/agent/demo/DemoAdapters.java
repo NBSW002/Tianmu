@@ -85,6 +85,23 @@ public class DemoAdapters {
             if(context.task()!=null && context.task().specification().reading()!=null && com.tianmu.agent.application.AnalysisExecutionPolicy.permits("analyze_feedback",context.task().specification())) {
                 String skill="comments.analysis".equals(context.task().specification().type())?"comment-analysis":context.task().specification().type().equals("audience.report")?"audience-report":"danmaku-analysis";
                 if(!context.activeSkills().contains(skill))return Decision.tool("read_skill",Map.of("name",skill));
+                if(context.task().specification().reading().reportRequired()){
+                    var contract=context.task().specification().reading();
+                    var visual=context.observations().stream().filter(r->r.tool().equals("analyze_video_content")).findFirst();
+                    if(contract.includes(com.tianmu.agent.core.AnalysisContract.Source.VIDEO) && visual.isEmpty()){
+                        var request=com.tianmu.agent.application.FeedbackTaskPolicy.request(context.task().specification());
+                        return Decision.tool("analyze_video_content",Map.of("video_id",request.query().videoId()));
+                    }
+                    var calls=new ArrayList<ToolCall>();var arguments=new HashMap<String,Object>();
+                    for(var source:contract.textSources()){
+                        String tool=source.name().equals("COMMENT")?"analyze_comments":"analyze_danmaku";
+                        var ready=context.observations().stream().filter(r->r.tool().equals(tool)).findFirst();
+                        if(ready.isEmpty())calls.add(new ToolCall(tool,tool.equals("analyze_danmaku") && visual.isPresent()?Map.of("video_evidence_id",visual.get().evidenceId()):Map.of()));
+                        else arguments.put(source.name().equals("COMMENT")?"comment_evidence_id":"danmaku_evidence_id",ready.get().evidenceId());
+                    }
+                    if(!calls.isEmpty())return new Decision(Kind.TOOL,calls.get(0),null,null,calls.subList(1,calls.size()));
+                    return Decision.tool("create_feedback_report",arguments);
+                }
                 var analyzed=context.observations().stream().filter(r->r.tool().equals("analyze_feedback")).findFirst();
                 if(analyzed.isEmpty())return Decision.tool("analyze_feedback",Map.of());
                 if(context.task().specification().reading().reportRequired())return Decision.tool("create_feedback_report",Map.of("evidence_id",analyzed.get().evidenceId()));

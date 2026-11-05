@@ -38,5 +38,10 @@
     "id": "harness.finalize",
     "version": "1.0.0",
     "path": "harness/finalize.md"
+  },
+  {
+    "id": "feedback.pipeline",
+    "version": "1.0.0",
+    "path": "feedback/pipeline.md"
   }
 ]

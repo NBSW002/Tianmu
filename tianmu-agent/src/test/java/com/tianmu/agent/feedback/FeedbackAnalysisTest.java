@@ -23,7 +23,13 @@ class FeedbackAnalysisTest {
     FeedbackPolicy policy(){return new FeedbackPolicy(5000,67108864,24000,40,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
     final class Fixture {
         final MemoryFeedbackJobStore store=new MemoryFeedbackJobStore();
-        final FeedbackObjects objects=new FeedbackObjects(new FileObjectStore(directory),json);
+        final AtomicInteger reads=new AtomicInteger();
+        final FeedbackObjects objects=new FeedbackObjects(new com.tianmu.agent.runtime.store.ObjectStore(){
+            final FileObjectStore delegate=new FileObjectStore(directory);
+            public void put(String key,byte[] bytes){delegate.put(key,bytes);}
+            public byte[] get(String key,long size,String hash){reads.incrementAndGet();return delegate.get(key,size,hash);}
+            public void delete(String key){delegate.delete(key);}
+        },json);
         final AtomicBoolean authorized=new AtomicBoolean(true);final AtomicInteger exports=new AtomicInteger(),calls=new AtomicInteger();
         int total;java.util.function.Consumer<Input> inspect=input->{};
         java.util.function.Function<Input,List<Proposal>> proposals;
@@ -57,6 +63,90 @@ class FeedbackAnalysisTest {
         FeedbackJobStore.Job start(int count){total=count;return service.submit(UUID.randomUUID(),owner,request,null);}
         FeedbackJobStore.Job finish(UUID id){for(int i=0;i<2500;i++){var j=store.get(id);if(!MemoryFeedbackJobStore.active(j.phase()))return j;service.advance(id);}return fail("Job did not converge");}
     }
+    @Test void observationIndexSurvivesRestartAndDeepPagesReadOnlyIntersectingBatches() throws Exception {
+        var f=new Fixture();
+        f.proposals=input->{
+            int n=f.calls.get()%3+1;var out=new ArrayList<Proposal>();
+            for(int i=0;i<n;i++){
+                var ids=new ArrayList<String>();for(int k=i;k<input.groups().size();k+=n)ids.add(input.groups().get(k).id());
+                out.add(new Proposal("T"+(i+1),"观点"+i,"完整观察","建议",ids));
+            }
+            return out;
+        };
+        var job=f.start(240);assertEquals(Phase.READY,f.finish(job.id()).phase());
+        var pagedStore=org.mockito.Mockito.spy(f.store);
+        var restarted=new FeedbackAnalysisService(pagedStore,f.objects,f.source,f.models,policy());
+        var asset=restarted.historicalAsset(job.id(),owner);
+        assertEquals(List.of(2,3,1,2,3,1),asset.observationCounts());
+        var all=f.store.completedLevel(job.id(),0).stream().flatMap(w->f.objects.get(w.result(),ResultNode.class).topics().stream()).map(Topic::id).toList();
+        f.reads.set(0);
+        var deep=restarted.notes(asset,9,3);
+        assertEquals(all.subList(9,12),((List<Map<String,Object>>)deep.get("observations")).stream().map(t->t.get("id")).toList());
+        assertEquals(2,f.reads.get());assertEquals(12,deep.get("next_offset"));assertEquals(true,deep.get("complete"));
+        org.mockito.Mockito.verify(pagedStore).completedRange(job.id(),0,4,2);
+        org.mockito.Mockito.verify(pagedStore,org.mockito.Mockito.never()).completedLevel(job.id(),0);
+        f.reads.set(0);assertEquals(List.of(),restarted.notes(asset,100000,10).get("observations"));assertEquals(0,f.reads.get());
+
+        // Simulate the exact old persisted JSON shape, not merely an in-memory constructor.
+        var legacyJson=(com.fasterxml.jackson.databind.node.ObjectNode)json.valueToTree(asset);legacyJson.remove("observationCounts");
+        var legacy=json.treeToValue(legacyJson,Asset.class);assertNull(legacy.observationCounts());
+        assertEquals(deep,restarted.notes(legacy,9,3));
+        f.reads.set(0);restarted.notes(legacy,0,1);assertEquals(1,f.reads.get(),"A legacy first page must not load later batches");
+        var seen=new ArrayList<Object>();int offset=0;
+        while(true){var page=restarted.notes(asset,offset,2);((List<Map<String,Object>>)page.get("observations")).forEach(t->seen.add(t.get("id")));
+            offset=(int)page.get("next_offset");if((boolean)page.get("complete"))break;}
+        assertEquals(all,seen);
+        var corrupt=new Asset(asset.jobId(),asset.producerRun(),asset.tenantId(),asset.userId(),asset.request(),asset.snapshot(),asset.roots(),asset.model(),asset.policyHash(),asset.video(),List.of(1,3,1,2,3,1));
+        assertEquals("STORAGE_CORRUPT",assertThrows(AgentException.class,()->restarted.notes(corrupt,0,1)).code());
+        org.mockito.Mockito.doReturn(List.of()).when(pagedStore).completedRange(job.id(),0,4,2);
+        assertEquals("STORAGE_CORRUPT",assertThrows(AgentException.class,()->restarted.notes(asset,9,3)).code());
+    }
+    @Test void mergedChildrenReadOnlyTheRequestedMembersAndOutOfRangePagesReadNoChildren(){
+        var f=new Fixture();var job=f.start(240);assertEquals(Phase.READY,f.finish(job.id()).phase());
+        var asset=f.service.asset(job.id(),owner,request);var root=f.service.topics(asset).get(0);
+        assertEquals(6,root.members().size());f.reads.set(0);
+        var page=f.service.read(asset,"children",root.id(),3,1);
+        assertEquals(root.members().get(3),((Map<?,?>)((List<?>)page.get("topics")).get(0)).get("id"));
+        assertEquals(2,f.reads.get(),"One parent result and one selected child result");
+        assertEquals(4,page.get("next_offset"));assertEquals(false,page.get("complete"));
+        f.reads.set(0);var empty=f.service.read(asset,"children",root.id(),100,10);
+        assertEquals(1,f.reads.get());assertEquals(6,empty.get("next_offset"));assertEquals(true,empty.get("complete"));
+    }
+    @Test void byteLimitedObservationAndChildPagesResumeWithoutSkippingTheWithheldItem(){
+        var f=new Fixture();
+        f.proposals=input->List.of(new Proposal("T1","观点","观".repeat(2400),"建".repeat(1200),input.groups().stream().map(Group::id).toList()));
+        var job=f.start(120);assertEquals(Phase.READY,f.finish(job.id()).phase());var asset=f.service.asset(job.id(),owner,request);
+        var root=f.service.topics(asset).get(0);
+        for(String section:List.of("observations","children")){
+            var seen=new ArrayList<Object>();
+            for(int offset=0;offset<3;offset++){
+                f.reads.set(0);
+                var page=section.equals("observations")?f.service.notes(asset,offset,10):f.service.read(asset,section,root.id(),offset,10);
+                var rows=(List<Map<String,Object>>)page.get(section.equals("observations")?section:"topics");
+                assertEquals(1,rows.size());seen.add(rows.get(0).get("id"));
+                assertEquals(offset+1,page.get("next_offset"));assertEquals(offset==2,page.get("complete"));
+                assertTrue(json.valueToTree(rows).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length<16000);
+                assertTrue(f.reads.get()<=(section.equals("observations")?2:3),"At most one candidate beyond the byte budget is fetched");
+            }
+            assertEquals(root.members(),seen);
+        }
+    }
+    @Test void searchCanContinuePastFiveThousandAndEmptyPagesDoNotReadClassificationObjects(){
+        var execution=new FeedbackPolicy(6000,67108864,24000,100,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));
+        var f=new Fixture(execution);var job=f.start(5021);assertEquals(Phase.READY,f.finish(job.id()).phase());
+        var asset=f.service.asset(job.id(),owner,request);var ids=new ArrayList<Object>();
+        for(int offset:List.of(5000,5010,5020)){
+            var page=f.service.search(asset,"观众反馈",offset,10);var rows=(List<Map<String,Object>>)page.get("matches");
+            rows.forEach(t->{ids.add(t.get("id"));assertNotNull(t.get("topic_id"));});
+            assertEquals(5021,page.get("matched_records"));assertEquals(Math.min(5021,offset+10),page.get("next_offset"));
+            assertEquals(offset==5020,page.get("complete"));
+        }
+        assertEquals(21,new HashSet<>(ids).size());assertEquals("D:2511",ids.get(20));
+        f.reads.set(0);var empty=f.service.search(asset,"不存在",0,10);
+        assertEquals(List.of(),empty.get("matches"));assertEquals(true,empty.get("complete"));assertEquals(asset.snapshot().chunks().size(),f.reads.get());
+        assertEquals(true,f.service.search(asset,"观众反馈",100000,10).get("complete"));
+        assertThrows(AgentException.class,()->f.service.search(asset,"观众反馈",100001,10));
+    }
     @Test void durableProviderReservationsReconcileRunCountsOncePerAttempt(){
         var f=new Fixture();var job=f.start(81);
         var run=new com.tianmu.agent.runtime.RunState(owner,"analysis");
@@ -76,8 +166,11 @@ class FeedbackAnalysisTest {
     }
     @Test void fiveThousandOriginalsUseOnlyClassificationCallsAndBoundedPriorTopics(){
         var f=new Fixture();var maxGroups=new AtomicInteger();var modelBytes=new AtomicInteger();
-        f.inspect=input->{maxGroups.accumulateAndGet(input.groups().size(),Math::max);modelBytes.accumulateAndGet(f.objects.bytes(input),Math::max);};
-        var job=f.start(5000);var finished=f.finish(job.id());assertEquals(Phase.READY,finished.phase(),finished.errorCode());
+        f.inspect=input->{maxGroups.accumulateAndGet(input.groups().size(),Math::max);modelBytes.accumulateAndGet(f.objects.bytes(Map.of("groups",input.groups(),"known_topics",input.knownTopics())),Math::max);};
+        var job=f.start(5000);f.service.advance(job.id());f.reads.set(0);
+        for(int i=0;i<125;i++)f.service.advance(job.id());
+        assertEquals(249,f.reads.get(),"125 batch inputs plus 124 accepted results, not 7750 prefix result reads");
+        var finished=f.finish(job.id());assertEquals(Phase.READY,finished.phase(),finished.errorCode());
         var asset=f.service.asset(job.id(),owner,request);assertEquals(5000,asset.snapshot().counts().total());assertEquals(2500,asset.snapshot().counts().comments());
         assertEquals(2500,asset.snapshot().counts().danmaku());assertTrue(asset.snapshot().chunks().size()>1);
         assertEquals(5000,f.service.topics(asset).stream().mapToLong(Topic::messages).sum());assertEquals(40,maxGroups.get());
@@ -172,8 +265,8 @@ class FeedbackAnalysisTest {
         f.inspect=input->{
             assertEquals(WorkKind.CLASSIFY,input.kind());
             int before=batches.getAndIncrement()*40;
-            assertEquals(before==0?0:before,input.children().stream().mapToLong(Topic::messages).sum());
-            if(before>0)assertEquals("T1",input.children().get(0).id());
+            assertEquals(before,input.knownTopics().stream().mapToLong(KnownTopic::messages).sum());
+            if(before>0)assertEquals("T1",input.knownTopics().get(0).key());
         };
         var job=f.start(243);assertEquals(Phase.READY,f.finish(job.id()).phase());
         assertEquals(7,f.calls.get());var asset=f.service.asset(job.id(),owner,request);
@@ -185,7 +278,23 @@ class FeedbackAnalysisTest {
         var first=f.store.claim(job.id(),Instant.now(),Duration.ofSeconds(60));
         assertTrue(f.store.retry(first,"INVALID_ANALYSIS",Instant.now().plusSeconds(30),3));
         assertNull(f.store.claim(job.id(),Instant.now(),Duration.ofSeconds(60)));
-        assertEquals(0,f.store.completedBefore(job.id(),1).size());
+        assertEquals(0,f.store.completedRange(job.id(),0,0,1).size());
+    }
+    @Test void rejectedCommitDoesNotPolluteTheNextBatchDirectory(){
+        var f=new Fixture();var guarded=org.mockito.Mockito.spy(f.store);var rejected=new AtomicReference<FeedbackJobStore.Work>();
+        org.mockito.Mockito.doAnswer(call->{
+            FeedbackJobStore.Work claim=call.getArgument(0);
+            if(rejected.compareAndSet(null,claim))return false;
+            return call.callRealMethod();
+        }).when(guarded).complete(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any());
+        var service=new FeedbackAnalysisService(guarded,f.objects,f.source,f.models,policy());
+        f.proposals=input->List.of(new Proposal(f.calls.get()==1?"T99":"T1",f.calls.get()==1?"未提交主题":"已提交主题","观点","",input.groups().stream().map(Group::id).toList()));
+        var job=f.start(80);service.advance(job.id());service.advance(job.id());
+        assertEquals(0,f.store.get(job.id()).completedWork());
+        assertTrue(f.store.retry(rejected.get(),"MODEL_UNAVAILABLE",Instant.MIN,3));
+        f.inspect=input->assertTrue(input.knownTopics().isEmpty());service.advance(job.id());
+        f.inspect=input->assertEquals(List.of(new KnownTopic("T1","已提交主题",40)),input.knownTopics());service.advance(job.id());
+        assertEquals(2,f.store.get(job.id()).completedWork());assertEquals(3,f.calls.get());
     }
     @Test void identicalAuthorizedSnapshotsReuseCompletedClassificationsWithNewRunLocalEvidence(){
         var f=new Fixture();var first=f.start(81);assertEquals(Phase.READY,f.finish(first.id()).phase());assertEquals(3,f.calls.get());

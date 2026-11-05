@@ -1,0 +1,42 @@
+# Single-host acceptance only. Provision private user.yaml and embedEtcd.yaml before starting.
+name: tianmu-feedback-vector
+services:
+  milvus:
+    image: milvusdb/milvus:v2.6.4
+    command: [milvus, run, standalone]
+    restart: unless-stopped
+    mem_limit: 768m
+    memswap_limit: 1024m
+    cpus: 1.0
+    environment:
+      ETCD_USE_EMBED: 'true'
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 384MiB
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - ${SITE_CONFIG_DIR}/milvus/embedEtcd.yaml:/milvus/configs/embedEtcd.yaml:ro
+      - ${SITE_CONFIG_DIR}/milvus/user.yaml:/milvus/configs/user.yaml:ro
+    networks:
+      shared:
+        aliases: [feedback-milvus]
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9091/healthz]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+volumes:
+  milvus-data:
+networks:
+  shared:
+    external: true
+    name: ${SITE_NETWORK:-tianmu-staging_default}

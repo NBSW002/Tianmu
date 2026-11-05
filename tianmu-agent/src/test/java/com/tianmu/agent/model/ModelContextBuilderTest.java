@@ -9,6 +9,16 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ModelContextBuilderTest {
+    @Test void identicalSchemasAcrossSkillReadsAreKeptOnceWithoutChangingEvidence() throws Exception {
+        var schema=Map.of("name","query","description","desc","inputSchema",Map.of("type","object"));
+        var first=new ToolResult("read_skill",Map.of("tool_schemas",List.of(schema),"instructions","keep both strategies"),null);
+        var second=new ToolResult("read_skill",Map.of("tool_schemas",List.of(schema),"instructions","different strategy"),null);
+        var fact=new ToolResult("read_result",Map.of("text","必需的证据"),"ev_a");
+        var messages=new ModelContextBuilder(json,ContextPolicy.defaults()).build("rules",Map.of("tools",List.of(),"results",List.of(first,second,fact)));
+        var results=payload(messages).path("results");assertEquals(1,results.get(0).path("data").path("tool_schemas").size());
+        assertEquals(0,results.get(1).path("data").path("tool_schemas").size());assertEquals("different strategy",results.get(1).path("data").path("instructions").asText());
+        assertEquals(json.valueToTree(fact),results.get(2));assertEquals(1,((List<?>)second.data().get("tool_schemas")).size());
+    }
 
     private final ObjectMapper json = new ObjectMapper().findAndRegisterModules();
     private MemoryTypes.Message message(UUID run, long sequence, String role, String text) {
