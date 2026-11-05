@@ -1,6 +1,6 @@
 <template>
   <button v-if="allowedPage && !visible && !fullPage" title="打开个人助手" class="assistant-launcher" @click="assistant.show()" aria-label="打开个人助手"><EchoMark /></button>
-  <Transition name="assistant-panel" :css="allowedPage"><section v-show="visible" class="assistant-host" :class="{ 'assistant-full': fullPage, 'assistant-drawer': !fullPage }" aria-label="个人助手" @keydown.esc="dismiss">
+  <Transition name="assistant-panel" :css="allowedPage"><section ref="panel" v-show="visible" class="assistant-host" :style="fullPage ? undefined : drawerStyle" :class="{ 'assistant-full': fullPage, 'assistant-drawer': !fullPage }" aria-label="个人助手" @keydown.esc="dismiss">
     <template v-if="!users.isLogin"><div class="assistant-login"><h2>你的个人助手</h2><p>登录后开始对话，历史记录仅对你可见。</p><button @click="users.updateDialogVisible(true)">登录</button><button @click="assistant.open = false">收起</button></div></template>
     <template v-else>
       <p v-if="capabilityError" class="assistant-access-note" role="alert">{{ capabilityError }} <button @click="refreshCapabilities">重试</button></p>
@@ -10,7 +10,7 @@
   </section></Transition>
 </template>
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EchoMark from './EchoMark.vue'
 import '@/assets/css/assistant-theme.css'
 import { useRoute, useRouter } from 'vue-router'
@@ -27,6 +27,41 @@ const visible = computed(() => allowedPage.value && (fullPage.value || assistant
 const accountKey = computed(() => String(users.user.userId || '') + ':' + String(users.user.token || ''))
 const pageVideo = computed(() => String(route.params.videoId || (fullPage.value ? route.query.videoId || '' : '')))
 const pageMetadata = computed(() => assistant.page?.videoId === pageVideo.value ? assistant.page : {})
+const panel = ref(null), drawerStyle = ref({})
+let playerObserver, pageObserver, geometryFrame
+function measureDrawer() {
+  if (!visible.value || fullPage.value) return
+  cancelAnimationFrame(geometryFrame)
+  geometryFrame = requestAnimationFrame(() => {
+    const player = document.querySelector('.videoDetail .player-viewport')
+    const available = player ? document.documentElement.clientWidth - player.getBoundingClientRect().right - 16 : 0
+    drawerStyle.value = player && available >= 520 && window.innerWidth >= 1000
+      ? { width: `${Math.floor(available)}px`, '--assistant-history-width': available < 680 ? '176px' : '208px' }
+      : {}
+    if (player && !playerObserver) {
+      pageObserver?.disconnect()
+      playerObserver = new ResizeObserver(measureDrawer)
+      playerObserver.observe(player)
+    }
+  })
+}
+function observePage() {
+  playerObserver?.disconnect(); playerObserver = null
+  pageObserver?.disconnect()
+  if (!visible.value || fullPage.value) return
+  measureDrawer()
+  if (pageVideo.value) {
+    pageObserver = new MutationObserver(measureDrawer)
+    pageObserver.observe(document.getElementById('app'), { childList: true, subtree: true })
+  }
+}
+function outside(event) {
+  if (visible.value && !fullPage.value && !panel.value?.contains(event.target)
+      && !event.target.closest('.assistant-launcher,.el-overlay,.el-popper')) assistant.open = false
+}
+onMounted(() => { document.addEventListener('pointerdown', outside); window.addEventListener('resize', measureDrawer) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', measureDrawer); playerObserver?.disconnect(); pageObserver?.disconnect(); cancelAnimationFrame(geometryFrame) })
+watch([visible, pageVideo], () => nextTick(observePage), { immediate: true })
 let ticket = 0
 async function refreshCapabilities() {
   const current = ++ticket
@@ -52,10 +87,11 @@ watch(() => route.query.assistant, value => { if (value === '1') assistant.show(
 .assistant-access-note {margin:0;padding:8px 16px;font-size:12px;background:var(--workbench-soft);color:var(--workbench-ink)}
 .assistant-host :deep(.agent-workspace) {flex:1;min-height:0;height:auto;width:100%}
 .assistant-host :deep(.workspace-main) {min-width:0;min-height:0}
-.assistant-drawer {right:0;bottom:0;width:clamp(380px,32vw,480px);height:100dvh;border-radius:18px 0 0 18px}
+.assistant-drawer {right:0;bottom:0;width:min(960px,60vw);height:100dvh;border-radius:18px 0 0 18px}
 .assistant-full {inset:0;width:100%;height:100dvh;border:0;border-radius:0}
 .assistant-login {padding:30px}.assistant-login button {margin:12px 12px 0 0}
 @media(max-width:600px){.assistant-host {inset:8px;width:auto;height:calc(100dvh - 16px)}.assistant-full{inset:0;height:100dvh}.assistant-launcher{right:16px;bottom:16px}}
+@media(min-width:601px) and (max-width:999px){.assistant-drawer{width:min(720px,92vw);}}
 .assistant-launcher:hover {background:var(--workbench-accent)}
 .assistant-panel-enter-active,.assistant-panel-leave-active {transition:transform 250ms var(--workbench-ease),opacity 250ms var(--workbench-ease)}
 .assistant-panel-enter-from,.assistant-panel-leave-to {transform:translateX(24px);opacity:0}

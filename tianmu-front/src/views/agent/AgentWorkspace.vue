@@ -1,6 +1,6 @@
 <template>
   <div class="agent-workspace" :class="{ embedded, 'history-open': navigationOpen, 'is-empty': !conversationTurns.length }" @keydown.esc="closeNavigation" @keydown.tab="cycleNavigation">
-    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航" :inert="embedded && !navigationOpen || undefined">
+    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航" :inert="embedded && !persistentHistory && !navigationOpen || undefined">
       <button class="history-close" type="button" aria-label="关闭会话历史" @click="hideNavigation">×</button>
       <a class="workspace-brand" href="/">EchoFrame<span>个人助手</span></a>
       <button class="new-analysis" :disabled="busy" @click="newAnalysis">＋ 开启新对话</button>
@@ -101,7 +101,6 @@
                     >{{ isPaused(turn) ? '已暂停' : statusLabel(turn.snapshot?.status) }}</span
                   >
                 </div>
-                <small v-if="turn.modelLabel">{{ turn.modelLabel }}</small>
                 <p v-if="turn.streamingText && !isTerminal(turn.snapshot?.status)" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
 
                 <div
@@ -251,6 +250,7 @@ import EchoMark from '@/components/agent/EchoMark.vue';
 import TraceIcon from '@/components/trace/TraceIcon.vue';
 import ModelPicker from '@/components/agent/ModelPicker.vue';
 import { useConversationViewport } from '@/composables/useConversationViewport';
+import { themeReportHtml } from '@/agent/report-theme.mjs';
 import VideoContentIndex from '@/components/agent/VideoContentIndex.vue';
 import { getAssistantModels } from '@/api/agent';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -293,6 +293,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'expand']);
 const compositionGuard = createCompositionGuard();
+const persistentHistory = ref(window.matchMedia('(min-width:1000px)').matches);
 const navigationOpen = ref(false), historyToggle = ref(null), historyNavigation = ref(null);
 function toggleNavigation() { navigationOpen.value = !navigationOpen.value; if (navigationOpen.value) nextTick(() => historyNavigation.value?.querySelector('button')?.focus()); }
 function cycleNavigation(event) {
@@ -312,9 +313,12 @@ function resizeComposer() {
   const max = parseFloat(style.maxHeight) || 200, min = parseFloat(style.minHeight) || 56;
   input.style.height = Math.min(max, Math.max(min, input.scrollHeight)) + 'px';
 }
-let composerObserver, navigationMedia;
+let composerObserver, navigationMedia, historyMedia;
+function updateHistoryLayout(event) { persistentHistory.value = event.matches; if (event.matches) navigationOpen.value = false; }
 function resetWideNavigation(event) { if (!event.matches) navigationOpen.value = false; }
 onMounted(() => {
+  historyMedia = window.matchMedia('(min-width:1000px)');
+  historyMedia.addEventListener('change', updateHistoryLayout);
   navigationMedia = window.matchMedia('(max-width: 760px)');
   navigationMedia.addEventListener('change', resetWideNavigation);
   resizeComposer();
@@ -689,7 +693,7 @@ async function cancel() {
   }
 }
 function reportDocument(turn) {
-  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><base href="${window.location.origin}/">${turn.reportHtml}`;
+  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><base href="${window.location.origin}/">${themeReportHtml(turn.reportHtml)}`;
 }
 function downloadReport(turn) {
   const url = URL.createObjectURL(new Blob([reportDocument(turn)], { type: 'text/html;charset=utf-8' }));
@@ -738,6 +742,7 @@ watch(focus, () => nextTick(resizeComposer));
 onBeforeUnmount(() => {
   composerObserver?.disconnect();
   navigationMedia?.removeEventListener('change', resetWideNavigation);
+  historyMedia?.removeEventListener('change', updateHistoryLayout);
   historyController?.abort();
   stopMonitoring();
   submitController?.abort();
@@ -1567,6 +1572,7 @@ onBeforeUnmount(() => {
 @media(max-width:760px){.workspace-intro h1,.embedded .workspace-intro h1 {font-size:28px;line-height:1.45;}}
 /* Shared geometry for the drawer and full assistant. */
 .workspace-main { min-height:0; }
+.workspace-main {container-type:inline-size;}
 .workspace-header {height:58px;min-height:58px;padding:0 16px;gap:8px;}
 .assistant-identity {gap:8px;min-width:0;}
 .assistant-identity .brand-symbol {display:grid;width:22px;height:24px;font-size:24px;}
@@ -1631,4 +1637,17 @@ onBeforeUnmount(() => {
  .composer-hint>span {font-size:11px!important;}
 }
 @media(pointer:coarse){.header-action,.workspace-header .history-toggle{width:44px;height:44px;}.send-button{width:44px;height:44px;}.chat-composer textarea{font-size:16px;}.composer-controls .model-select{min-height:44px;}}
+@media(min-width:1000px){
+ .embedded .workspace-sidebar,.embedded.history-open .workspace-sidebar {display:flex!important;position:relative;inset:auto;flex:0 0 var(--assistant-history-width,208px);width:var(--assistant-history-width,208px);min-width:0;padding:28px 14px 18px;box-shadow:none;border-right:1px solid var(--workbench-border);z-index:auto;}
+ .embedded .history-close,.embedded .history-scrim,.embedded .workspace-header .history-toggle {display:none!important;}
+ .embedded .workspace-brand {font-size:24px;}
+ .embedded .workspace-brand span {letter-spacing:1px;}
+ .embedded .new-analysis {font-size:12px;padding:10px 8px;}
+ .embedded .history-heading {padding:0 6px;}
+ .embedded .history-list {min-height:0;overflow:auto;scrollbar-width:thin;}
+ .embedded .history-list button {padding:12px 8px;}
+ .embedded .history-meta {font-size:11px!important;gap:8px;}
+ .embedded .workspace-sidebar .sidebar-footer {font-size:11px!important;}
+}
+@container(max-width:440px){.workspace-footnote>span{display:none;}.workspace-intro h1,.embedded .workspace-intro h1{font-size:24px;}.suggestion-grid{gap:8px;}}
 </style>

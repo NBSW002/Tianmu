@@ -107,7 +107,7 @@ button,input,textarea,select {font-family:inherit;}
 #app :is(.refresh-feed:hover,.home-tools button:hover) {background:var(--workbench-sidebar);color:var(--text1);}
 #app .feed-load-error {color:var(--text2);}
 #app :is(.feed-load-error button,.feed-empty a) {background:var(--workbench-soft);color:var(--workbench-accent);border-radius:8px;}
-#app .recommended-swipe {grid-column:auto;grid-row:auto;min-height:0;aspect-ratio:16/9;height:auto;border-radius:12px;background:var(--workbench-sidebar);}
+#app .recommended-swipe {grid-column:span 2;grid-row:span 2;min-height:280px;aspect-ratio:auto;height:100%;border-radius:12px;background:var(--workbench-sidebar);}
 #app .featured-carousel {height:100%;}
 #app .carousel-empty {background:var(--workbench-sidebar);color:var(--text2);font-size:14px;}
 #app .carousel-footer {padding:32px 14px 26px;}
