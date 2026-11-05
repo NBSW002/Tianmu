@@ -18,7 +18,8 @@ public final class FeedbackAnalysis {
         }
     }
     public record Request(DanmakuTypes.Query query, Set<Source> sources, Grounding grounding,
-                          Long videoStartMs, Long videoEndMs, String rulesVersion) {
+                          Long videoStartMs, Long videoEndMs, String rulesVersion,boolean forceReanalysis) {
+        public Request(DanmakuTypes.Query q,Set<Source> s,Grounding g,Long start,Long end,String v){this(q,s,g,start,end,v,false);}
         public Request {
             sources = Set.copyOf(sources);
             Objects.requireNonNull(query); Objects.requireNonNull(grounding);

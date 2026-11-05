@@ -15,7 +15,11 @@ public final class FeedbackAnalysisService {
     private final FeedbackJobStore store;private final FeedbackObjects objects;private final FeedbackSnapshotPort source;
     private final FeedbackModels models;private final FeedbackPolicy policy;private final FeedbackPlanner planner;
     private final FeedbackTopicDirectory directory;
-    private final Map<UUID,CancellationToken> running=new ConcurrentHashMap<>();
+    private FeedbackResultCache resultCache;
+    public void resultCache(FeedbackResultCache cache){this.resultCache=Objects.requireNonNull(cache);}
+    private final Map<UUID,Set<CancellationToken>> running=new ConcurrentHashMap<>();
+    public int parallelism(){return policy.readParallelism();}
+    public int dispatchSlots(FeedbackJobStore.Job job){return pipeline(job.request()) && job.phase()==Phase.ANALYZING && policy.readParallelism()>1 && store.completedRange(job.id(),0,0,1).size()==1?policy.readParallelism():1;}
     private record CacheKey(String tenant,String user,Request request,String snapshot,String model,String policy,VideoContent.Facts video){}
     private final com.github.benmanes.caffeine.cache.Cache<CacheKey,List<ResultNode>> completed=com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
             .maximumSize(16).expireAfterWrite(Duration.ofHours(1)).build();
@@ -60,15 +64,16 @@ public final class FeedbackAnalysisService {
     private static boolean pipeline(Request r){return FeedbackPreparationService.VERSION.equals(r.rulesVersion());}
     private String policyHash(Request r){return pipeline(r)?models.pipelinePolicyHash():models.policyHash();}
     public List<FeedbackJobStore.Job> active(){return store.active(32);}
-    public void cancel(UUID id){var token=running.get(id);if(token!=null)token.cancel(StopReason.USER_CANCELLED);store.cancel(id);directory.invalidate(id);}
+    public void cancel(UUID id){var active=running.get(id);if(active!=null)active.forEach(token->token.cancel(StopReason.USER_CANCELLED));store.cancel(id);directory.invalidate(id);}
     public void resume(UUID id,AccessScope caller){owned(id,caller);if(!store.reauthorize(id,caller))throw new AgentException("ANALYSIS_NOT_PAUSED","Analysis is not waiting for authorization");}
     public void advance(UUID id) {advance(id,null);}
     public void advance(UUID id,CancellationToken parent) { advance(id,parent,()->{}); }
     public Optional<AgentException> advance(UUID id,CancellationToken parent,Runnable accountAttempt) {
-        var token=new CancellationToken();if(running.putIfAbsent(id,token)!=null)return Optional.empty();
+        var token=new CancellationToken();var entered=new java.util.concurrent.atomic.AtomicBoolean();
+        running.compute(id,(key,active)->{if(active==null)active=ConcurrentHashMap.newKeySet();if(active.size()<policy.readParallelism()){active.add(token);entered.set(true);}return active;});if(!entered.get())return Optional.empty();
         // The callback only propagates the fast signal; durable cancellation stays on this worker.
         var registration=parent==null?null:parent.onCancel(()->token.cancel(parent.reason()));
-        FeedbackJobStore.Work work=null;Input input=null;
+        FeedbackJobStore.Work work=null;Input input=null;FeedbackResultCache.Lease reuseLease=null;
         try {
             token.checkpoint();
             var j=store.get(id);if(j==null || !MemoryFeedbackJobStore.active(j.phase()))return Optional.empty();
@@ -91,15 +96,25 @@ public final class FeedbackAnalysisService {
                 }
                 return Optional.empty();
             }
-            work=store.claim(id,Instant.now(),Duration.ofSeconds(policy.modelTimeout().toSeconds()+30));
+            work=store.claim(id,Instant.now(),Duration.ofSeconds(policy.modelTimeout().toSeconds()+30),pipeline(j.request())?policy.readParallelism():1);
             if(work!=null) {
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),
                         "analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));
                 Input stored=objects.get(work.input(),Input.class);
                 input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
-                        work.kind()==WorkKind.CLASSIFY?directory.before(work,token):List.of());
+                        work.kind()==WorkKind.CLASSIFY?(pipeline(j.request()) && policy.readParallelism()>1?directory.seeded(work,token):directory.before(work,token)):List.of());
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),accountAttempt);
-                List<Proposal> proposals;
+                List<Proposal> proposals=null;boolean cacheHit=false;
+                String reuseKey=pipeline(j.request()) && resultCache!=null?resultCache.key(j,input):null;
+                if(reuseKey!=null && !j.request().forceReanalysis() && input.correction()==null){
+                    reuseLease=resultCache.awaitOrLead(reuseKey,j,control);var cached=reuseLease.entry();
+                    if(cached!=null)try{
+                        var restored=FeedbackResultCache.restore(input,cached);planner.validate(work.id().toString(),input,restored);FeedbackNarrativePolicy.validate(input,restored);
+                        proposals=restored;cacheHit=true;
+                    }catch(AgentException rejected){resultCache.invalidate(reuseKey,j);throw new AgentException("INVALID_ANALYSIS","Cached analysis failed current evidence validation");}
+                }
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.cache_hit",cacheHit,"analysis.force_reanalysis",j.request().forceReanalysis()));
+                if(!cacheHit){
                 if(input.kind()==WorkKind.MERGE && pipeline(j.request()) && input.children().size()==1){
                     var child=input.children().get(0);
                     proposals=List.of(new Proposal("T1",child.title(),child.observation(),child.recommendation(),List.of(child.id())));
@@ -111,9 +126,11 @@ public final class FeedbackAnalysisService {
                     proposals=combine(leaves).stream().map(t->new Proposal(t.id(),t.title(),t.observation(),t.recommendation(),t.members())).toList();
                 }
                 else { var modelInput=input; proposals=com.tianmu.agent.harness.trace.TraceModelCall.call("feedback.model",Map.of("analysis.job_id",id.toString(),"analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),"analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)),()->pipeline(j.request())?models.analyzePipeline(modelInput,control):models.analyze(modelInput,control)); }
-                token.checkpoint();var result=planner.validate(work.id().toString(),input,proposals);
+                }
+                token.checkpoint();source.authorize(j.owner(),j.request().query().videoId());var result=planner.validate(work.id().toString(),input,proposals);
                 if(pipeline(j.request()))FeedbackNarrativePolicy.validate(input,proposals);
                 boolean accepted=store.complete(work,objects.put(id,result));
+                if(accepted && !cacheHit && reuseKey!=null)resultCache.put(reuseKey,j,input,proposals,reuseLease);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return Optional.empty();
             }
             finishLevel(store.get(id));
@@ -133,7 +150,7 @@ public final class FeedbackAnalysisService {
             else store.fail(id,e.code());
             return Optional.of(e);
         } catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(getClass()).warn("feedback_work_failed job={} type={} location={}",id,e.getClass().getSimpleName(),Arrays.stream(e.getStackTrace()).filter(f->f.getClassName().startsWith("com.tianmu.")).limit(5).toList());store.fail(id,"ANALYSIS_FAILED");return Optional.of(new AgentException("ANALYSIS_FAILED","Analysis work failed"));}
-        finally {if(registration!=null)registration.close();running.remove(id,token);}
+        finally {if(reuseLease!=null)reuseLease.close();if(registration!=null)registration.close();running.computeIfPresent(id,(key,active)->{active.remove(token);return active.isEmpty()?null:active;});}
         return Optional.empty();
     }
     private void finishLevel(FeedbackJobStore.Job job) {

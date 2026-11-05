@@ -10,7 +10,7 @@ import org.springframework.context.annotation.*;
 import java.nio.file.Path;
 
 @Configuration(proxyBeanMethods=false)
-@EnableConfigurationProperties(FeedbackPolicy.class)
+@EnableConfigurationProperties({FeedbackPolicy.class,FeedbackReusePolicy.class})
 public class FeedbackConfiguration {
     @Bean @ConditionalOnProperty(name="agent.storage.mode",havingValue="mysql")
     FeedbackPreparationStore mysqlFeedbackPreparation(com.zaxxer.hikari.HikariDataSource source,org.flywaydb.core.Flyway migrations,ObjectMapper json,com.tianmu.agent.runtime.store.RunRepository runs){return new com.tianmu.agent.adapters.storage.MysqlFeedbackPreparationStore(source,json,runs::verifyReady);}
@@ -28,10 +28,11 @@ public class FeedbackConfiguration {
         return new FeedbackObjects(objects.getIfAvailable(()->new com.tianmu.agent.adapters.storage.FileObjectStore(Path.of("./var/feedback-demo"))),json,index.getIfAvailable(()->FeedbackObjectIndex.NONE));
     }
     @Bean @Profile("!deepseek") FeedbackModels demoFeedbackModels(){return new DemoFeedbackModels();}
-    @Bean FeedbackAnalysisService feedbackAnalysisService(FeedbackJobStore store,FeedbackObjects objects,FeedbackModels models,FeedbackPolicy policy,ObjectProvider<FeedbackSnapshotPort> sources){
-        return new FeedbackAnalysisService(store,objects,sources.getIfAvailable(()->new FeedbackSnapshotPort(){
+    @Bean FeedbackResultCache feedbackResultCache(ObjectMapper json,FeedbackReusePolicy policy,ObjectProvider<javax.sql.DataSource> source){return new FeedbackResultCache(json,policy,source.getIfAvailable());}
+    @Bean FeedbackAnalysisService feedbackAnalysisService(FeedbackJobStore store,FeedbackObjects objects,FeedbackModels models,FeedbackPolicy policy,ObjectProvider<FeedbackSnapshotPort> sources,FeedbackResultCache cache){
+        var service=new FeedbackAnalysisService(store,objects,sources.getIfAvailable(()->new FeedbackSnapshotPort(){
             public Receipt export(com.tianmu.agent.core.FeedbackAnalysis.Request r,com.tianmu.agent.core.AgentTypes.AccessScope o,com.tianmu.agent.runtime.control.CallControl c,java.util.function.Consumer<java.util.List<com.tianmu.agent.core.FeedbackAnalysis.Unit>> sink){throw new com.tianmu.agent.core.AgentException("FEEDBACK_SOURCE_UNAVAILABLE","No streaming snapshot source is configured");}
             public void authorize(com.tianmu.agent.core.AgentTypes.AccessScope o,long id){if(!o.videoIds().contains(id))throw new com.tianmu.agent.core.AgentException("FORBIDDEN","Video outside scope");}
-        }),models,policy);
+        }),models,policy);service.resultCache(cache);return service;
     }
 }

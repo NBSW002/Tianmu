@@ -11,6 +11,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class VideoContentCacheTest {
+    @Test void durableAssetHasNoTimeExpiryByDefaultAndCapacityIsBounded()throws Exception {
+        var db=mock(JdbcTemplate.class);when(db.queryForObject(anyString(),eq(Long.class))).thenReturn(3L);
+        var mapper=new ObjectMapper().findAndRegisterModules();var cache=new VideoContentCache(db,mapper,new VideoCachePolicy(java.time.Duration.ofHours(1),java.time.Duration.ZERO,2));
+        var facts=new VideoContent.Facts("video-content-v1",1001,"version",0,3000,"画面事实",List.of(),"","SAMPLED_FRAMES",List.of(1000L),"vision",Instant.now().minus(java.time.Duration.ofDays(3)));
+        cache.put("key",facts);verify(db).update(startsWith("INSERT INTO agent_video_content_cache"),eq("key"),anyString(),isNull());
+        verify(db).update("DELETE FROM agent_video_content_cache ORDER BY updated_at LIMIT ?",1L);
+        when(db.queryForList(anyString(),eq(String.class),eq("key"))).thenReturn(List.of(mapper.writeValueAsString(facts)));
+        assertEquals(facts,cache.get("key"));
+        var expiring=new VideoContentCache(db,mapper,new VideoCachePolicy(java.time.Duration.ofHours(1),java.time.Duration.ofDays(1),2));assertNull(expiring.get("key"));
+    }
     @Test void slowDatabaseReadDoesNotSerializeOtherKeys() throws Exception {
         var db = mock(JdbcTemplate.class); var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
         when(db.queryForList(anyString(), eq(String.class), eq("slow"))).thenAnswer(call -> {

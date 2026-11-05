@@ -19,10 +19,10 @@ public final class FeedbackOperationCoordinator {
     private final TaskAssembler assembler;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.runtime.store.ReportStore reportStore;
     private final ThreadPoolExecutor workers;
-    private final Set<UUID> submitted=ConcurrentHashMap.newKeySet();private final Map<UUID,Long> progress=new ConcurrentHashMap<>();
+    private final Set<String> submitted=ConcurrentHashMap.newKeySet();private final Map<UUID,Long> progress=new ConcurrentHashMap<>();
     public FeedbackOperationCoordinator(FeedbackAnalysisService service,RunService runs,com.tianmu.agent.harness.RuntimeHarness harness,TaskAssembler assembler){
         this.service=service;this.runs=runs;this.harness=harness;this.assembler=assembler;
-        workers=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(2),r->{var t=new Thread(r,"feedback-worker");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
+        workers=new ThreadPoolExecutor(Math.max(2,service.parallelism()),Math.max(2,service.parallelism()),30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(Math.max(2,service.parallelism()*2)),r->{var t=new Thread(r,"feedback-worker");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
     }
     @Scheduled(scheduler="maintenanceScheduler", fixedDelay=500)
     public void tick(){
@@ -34,30 +34,33 @@ public final class FeedbackOperationCoordinator {
                     var job=service.forRun(run.id);if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
                     run.backgroundModelCalls(job.modelCalls());
                     if(job.phase()==Phase.READY){
-                        if(submitted.add(job.id())){
+                        if(submitted.add(job.id()+":DELIVER")){
                             try{workers.execute(()->{
                                 try{harness.execute(run,()->harness.stage(run,"feedback.deliver",null,null,Map.of("analysis.job_id",job.id().toString()),()->{
                                     deliver(run,op,job);return true;
                                 }));}
                                 catch(AgentException failure){if(!Set.of("STORAGE_UNAVAILABLE","OBJECT_STORE_UNAVAILABLE","AUTH_CONTEXT_EXPIRED","UNAUTHORIZED").contains(failure.code()))run.fail(failure.code());}
                                 catch(RuntimeException failure){run.fail("REPORT_DELIVERY_FAILED");}
-                                finally{submitted.remove(job.id());}
-                            });}catch(RejectedExecutionException full){submitted.remove(job.id());}
+                                finally{submitted.remove(job.id()+":DELIVER");}
+                            });}catch(RejectedExecutionException full){submitted.remove(job.id()+":DELIVER");}
                         }
                         continue;
                     }
                     if(job.phase()==Phase.FAILED){run.fail(job.errorCode()==null?"ANALYSIS_FAILED":job.errorCode());continue;}
                     if(job.phase()==Phase.CANCELLED){run.cancel();continue;}
                     Long old=progress.put(run.id,job.version());if(old==null || old!=job.version())run.emit("PROGRESS",Map.of("stage",job.phase()==Phase.WAITING_AUTH?"analysis_waiting_auth":"feedback_analysis","phase",job.phase().name(),"completed_work",job.completedWork(),"model_calls",job.modelCalls(),"charged_tokens",job.chargedTokens()));
-                    if(MemoryFeedbackJobStore.active(job.phase()) && submitted.add(job.id())){
+                    for(int slot=0;slot<service.dispatchSlots(job);slot++){
+                    String workKey=job.id()+":WORK:"+slot;
+                    if(MemoryFeedbackJobStore.active(job.phase()) && submitted.add(workKey)){
                         long enqueued=System.nanoTime();
                         try{workers.execute(()->{try{harness.execute(run,()->harness.stage(run,"feedback.work",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",job.phase().name(),"execution.queue_ms",Math.max(0,(System.nanoTime()-enqueued)/1_000_000)),()->{
                             var failure=service.advance(job.id(),run.cancellation(),()->run.backgroundModelCalls(service.forRun(run.id).modelCalls()));
                             var current=service.forRun(run.id);run.backgroundModelCalls(current.modelCalls());
                             if(failure.isPresent())throw failure.get();
                             return Map.of("phase",current.phase().name(),"completed_work",current.completedWork(),"model_calls",current.modelCalls(),"charged_tokens",current.chargedTokens());
-                        }));}catch(AgentException failure){/* Work already persisted its retry/pause/failure; Harness records this attempt. */}finally{submitted.remove(job.id());}});}
-                        catch(RejectedExecutionException full){submitted.remove(job.id());}
+                        }));}catch(AgentException failure){/* Work already persisted its retry/pause/failure; Harness records this attempt. */}finally{submitted.remove(workKey);}});}
+                        catch(RejectedExecutionException full){submitted.remove(workKey);}
+                    }
                     }
                 }catch(AgentException e){
                     if(Set.of("AUTH_CONTEXT_EXPIRED","UNAUTHORIZED").contains(e.code()))run.emit("PROGRESS",Map.of("stage","analysis_waiting_auth"));
@@ -68,7 +71,7 @@ public final class FeedbackOperationCoordinator {
                 }
             }
             // A crash or cancellation between job creation and run suspension must not leave paid work orphaned.
-            for(var job:service.active())if(!submitted.contains(job.id())){
+            for(var job:service.active())if(submitted.stream().noneMatch(key->key.startsWith(job.id()+":"))){
                 try{var run=runs.owned(job.runId(),job.owner());if(AgentTypes.terminal(run.snapshot().status()))service.cancel(job.id());}
                 catch(AgentException e){if(Set.of("RUN_NOT_FOUND","SESSION_NOT_FOUND","FORBIDDEN").contains(e.code()))service.cancel(job.id());}
             }

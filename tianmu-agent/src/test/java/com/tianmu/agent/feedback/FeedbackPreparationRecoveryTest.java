@@ -23,7 +23,7 @@ class FeedbackPreparationRecoveryTest {
     final Request request=new Request(new DanmakuTypes.Query(1001,LocalDateTime.of(2026,11,1,0,0),LocalDateTime.of(2026,11,2,0,0)),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.VIDEO_GROUNDED,0L,10000L,FeedbackPreparationService.VERSION);
     final VideoContent.Facts video=new VideoContent.Facts("video-content-v1",1001,"v1",0,10000,"采样观察",List.of(new VideoContent.Moment(1000,"画面有商品")),"","SAMPLED_FRAMES",List.of(1000L),"fixture",Instant.now());
     final AtomicInteger readFailures=new AtomicInteger();final AtomicReference<String> readCode=new AtomicReference<>("OBJECT_STORE_UNAVAILABLE");
-    final AtomicInteger exports=new AtomicInteger();final AtomicBoolean authorized=new AtomicBoolean(true);final List<Input> inputs=new ArrayList<>();
+    final AtomicInteger exports=new AtomicInteger();final AtomicBoolean authorized=new AtomicBoolean(true);final List<Input> inputs=Collections.synchronizedList(new ArrayList<>());
     final FeedbackSnapshotPort source=new FeedbackSnapshotPort(){
         public void authorize(AccessScope caller,long id){if(!authorized.get())throw new AgentException("AUTH_CONTEXT_EXPIRED","fixture");}
         public Receipt export(Request r,AccessScope caller,CallControl control,java.util.function.Consumer<List<Unit>> sink){
@@ -50,6 +50,56 @@ class FeedbackPreparationRecoveryTest {
     FeedbackPreparationService preparation(FeedbackAnalysisService analysis){return new FeedbackPreparationService(analysis,work,objects(),FeedbackPolicy.defaults(),new FeedbackClusters(null,null));}
     CallControl control(){return new CallControl(Instant.now().plusSeconds(30),new CancellationToken());}
 
+    @Test void seededParallelReadsOverlapWithoutEarlyMergeOrMissingEvidence()throws Exception {
+        var entered=new java.util.concurrent.CountDownLatch(2);var release=new java.util.concurrent.CountDownLatch(1);
+        var seen=new java.util.concurrent.CopyOnWriteArrayList<List<KnownTopic>>();
+        FeedbackModels concurrent=new FeedbackModels(){
+            public String modelName(){return models.modelName();}public String policyHash(){return models.policyHash();}
+            public List<Proposal> analyze(Input input,CallControl control){
+                if(input.kind()==WorkKind.CLASSIFY && !input.knownTopics().isEmpty()){
+                    seen.add(input.knownTopics());entered.countDown();
+                    try{assertTrue(release.await(5,java.util.concurrent.TimeUnit.SECONDS));}catch(InterruptedException e){throw new AssertionError(e);}
+                }
+                return models.analyze(input,control);
+            }
+        };
+        var policy=new FeedbackPolicy(5000,67108864,24000,1,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30),2);
+        var service=new FeedbackAnalysisService(jobs,objects(),source,concurrent,policy);
+        var prep=new FeedbackPreparationService(service,work,objects(),policy,new FeedbackClusters(null,null));var run=UUID.randomUUID();
+        var job=prep.request(run,owner,request,video,control().deadline(),Source.COMMENT);prep.request(run,owner,request,video,job.deadline(),Source.DANMAKU);
+        for(var step:FeedbackPreparationStore.Step.values())prep.advance(job.id(),step,new CancellationToken());prep.startReport(job.id(),owner,control());
+        assertEquals(1,service.dispatchSlots(jobs.get(job.id())));service.advance(job.id());assertEquals(2,service.dispatchSlots(jobs.get(job.id())));
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try{
+            var a=pool.submit(()->service.advance(job.id()));var b=pool.submit(()->service.advance(job.id()));
+            assertTrue(entered.await(3,java.util.concurrent.TimeUnit.SECONDS));assertFalse(jobs.hasLevel(job.id(),1));
+            assertEquals(seen.get(0),seen.get(1));assertEquals(1,seen.get(0).size());
+            release.countDown();a.get(3,java.util.concurrent.TimeUnit.SECONDS);b.get(3,java.util.concurrent.TimeUnit.SECONDS);
+            for(int i=0;i<20 && jobs.get(job.id()).phase()!=Phase.READY;i++)service.advance(job.id());
+            assertEquals(Phase.READY,jobs.get(job.id()).phase());assertEquals(4,jobs.completedLevel(job.id(),0).size());
+            assertEquals(5,jobs.get(job.id()).modelCalls());assertEquals(25,jobs.get(job.id()).chargedTokens());
+            assertEquals(4,service.topics(service.asset(job.id(),owner,request)).stream().mapToLong(Topic::messages).sum());
+        }finally{release.countDown();pool.shutdownNow();}
+    }
+
+    @Test void repeatedPipelineReusesValidatedProposalsAcrossJobsAndDifferentNowBoundsWithoutOldBlobs()throws Exception {
+        var cache=new FeedbackResultCache(new ObjectMapper().findAndRegisterModules(),FeedbackReusePolicy.defaults(),null);
+        UUID previous=null;int firstCalls=0;
+        for(int round=0;round<3;round++){
+            var service=analysis();service.resultCache(cache);var prep=preparation(service);UUID run=UUID.randomUUID();
+            var req=new Request(new DanmakuTypes.Query(1001,request.query().start(),request.query().end().plusHours(round)),request.sources(),request.grounding(),request.videoStartMs(),request.videoEndMs(),request.rulesVersion(),round==2);
+            var job=prep.request(run,owner,req,video,control().deadline(),Source.COMMENT);prep.request(run,owner,req,video,job.deadline(),Source.DANMAKU);
+            for(var step:FeedbackPreparationStore.Step.values())prep.advance(job.id(),step,new CancellationToken());prep.startReport(job.id(),owner,control());
+            for(int i=0;i<20 && jobs.get(job.id()).phase()!=Phase.READY;i++)assertTrue(service.advance(job.id(),null,()->{}).isEmpty());
+            assertEquals(Phase.READY,jobs.get(job.id()).phase());var asset=service.asset(job.id(),owner,req);assertEquals(run,asset.producerRun());
+            assertEquals(4,service.topics(asset).stream().mapToLong(Topic::messages).sum());assertTrue(new String(service.report(asset),java.nio.charset.StandardCharsets.UTF_8).contains("短句"));
+            if(round==0){firstCalls=inputs.size();assertEquals(3,firstCalls);previous=job.id();}
+            else if(round==1){assertEquals(firstCalls,inputs.size());assertEquals(0,jobs.get(job.id()).modelCalls());assertEquals(0,jobs.get(job.id()).chargedTokens());assertNotEquals(previous,job.id());}
+            else {assertEquals(firstCalls*2,inputs.size());assertEquals(3,jobs.get(job.id()).modelCalls());}
+            // A cached proposal must survive collection of the original producer's snapshot/work blobs.
+            try(var files=java.nio.file.Files.list(directory)){for(var file:files.filter(java.nio.file.Files::isRegularFile).toList())java.nio.file.Files.delete(file);}
+        }
+    }
     @Test void restartKeepsCompletedSourceAndSharedBudgetAndOnlyDanmakuReceivesVideo(){
         UUID run=UUID.randomUUID();var analysis=analysis();var first=preparation(analysis);
         var job=first.request(run,owner,request,video,control().deadline(),Source.COMMENT);

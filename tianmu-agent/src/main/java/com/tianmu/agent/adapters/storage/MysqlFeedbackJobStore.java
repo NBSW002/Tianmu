@@ -78,12 +78,18 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
             return db.update("UPDATE agent_feedback_job SET phase='ANALYZING',job_json=CAST(? AS JSON),version=version+1 WHERE job_id=? AND version=?",encode(saved),id.toString(),version)==1;
         });
     }
-    public Work claim(UUID id,Instant now,Duration lease) {
+    public Work claim(UUID id,Instant now,Duration lease) {return claim(id,now,lease,1);}
+    public Work claim(UUID id,Instant now,Duration lease,int parallelism) {
+        if(parallelism<1 || parallelism>4)throw new IllegalArgumentException("Invalid read parallelism");
         return write(()->{
             Job j=locked(id);if(!running(j) || db.queryForObject("SELECT deadline>UTC_TIMESTAMP(6) FROM agent_feedback_job WHERE job_id=?",Integer.class,id.toString())!=1)return null;
             var rows=db.queryForList("SELECT *,((state='PENDING' AND available_at<=UTC_TIMESTAMP(6)) OR (state='RUNNING' AND lease_until<=UTC_TIMESTAMP(6))) claimable FROM agent_feedback_work WHERE job_id=? AND state<>'COMPLETE' ORDER BY level_no,ordinal_no LIMIT 1 FOR UPDATE",id.toString());
             if(rows.isEmpty())return null;Work w=work(rows.get(0));
-            if(((Number)rows.get(0).get("claimable")).intValue()!=1)return null;
+            boolean seeded=parallelism>1 && w.kind()==WorkKind.CLASSIFY && db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND level_no=0 AND ordinal_no=0 AND state='COMPLETE'",Long.class,id.toString())==1;
+            if(seeded){
+                if(db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND kind='CLASSIFY' AND state='RUNNING' AND lease_until>UTC_TIMESTAMP(6)",Long.class,id.toString())>=parallelism)return null;
+                rows=db.queryForList("SELECT * FROM agent_feedback_work WHERE job_id=? AND kind='CLASSIFY' AND ((state='PENDING' AND available_at<=UTC_TIMESTAMP(6)) OR (state='RUNNING' AND lease_until<=UTC_TIMESTAMP(6))) ORDER BY ordinal_no LIMIT 1 FOR UPDATE",id.toString());if(rows.isEmpty())return null;w=work(rows.get(0));
+            }else if(((Number)rows.get(0).get("claimable")).intValue()!=1)return null;
             db.update("UPDATE agent_feedback_work SET state='RUNNING',fence=fence+1,attempts=attempts+1,lease_until=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL ? MICROSECOND) WHERE work_id=?",Math.multiplyExact(lease.toMillis(),1000),w.id().toString());
             return work(db.queryForMap("SELECT * FROM agent_feedback_work WHERE work_id=?",w.id().toString()));
         });

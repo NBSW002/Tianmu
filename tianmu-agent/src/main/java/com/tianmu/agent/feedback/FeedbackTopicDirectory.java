@@ -49,6 +49,12 @@ final class FeedbackTopicDirectory {
         prefixes.put(claim.jobId(),accepted);return accepted.topics();
     }
 
+    List<KnownTopic> seeded(FeedbackJobStore.Work claim,CancellationToken token){
+        if(claim.ordinal()==0)return List.of();token.checkpoint();var first=store.completedRange(claim.jobId(),0,0,1);
+        if(first.size()!=1 || first.get(0).result()==null)throw corrupt();var row=first.get(0);var result=objects.get(row.result(),ResultNode.class);
+        if(!result.workId().equals(row.id().toString()) || result.kind()!=WorkKind.CLASSIFY)throw corrupt();
+        return result.topics().stream().map(t->{String prefix=row.id()+":";if(!t.id().startsWith(prefix))throw corrupt();return new KnownTopic(t.id().substring(prefix.length()),t.title(),t.messages());}).toList();
+    }
     void invalidate(UUID job){prefixes.invalidate(job);}
     private static AgentException corrupt(){return new AgentException("STORAGE_CORRUPT","Classification prefix is incomplete or inconsistent");}
 }

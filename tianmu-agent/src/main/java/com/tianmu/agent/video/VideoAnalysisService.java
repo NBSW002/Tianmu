@@ -62,11 +62,11 @@ public final class VideoAnalysisService {
         String key = hash(String.join("|", List.of(scope.tenantId(), scope.userId(), Long.toString(videoId), source.sourceVersion(),
                 Long.toString(from), Long.toString(to), config.baseUrl().toString(), config.provider(), config.model(),
                 config.transcriptionModel(), "video-facts-v4:sampled12:generic-v1",FACT_FOCUS).stream().map(VideoAnalysisService::hash).toList()));
-        VideoContent.Facts prior = cache.get(key);
+        VideoContent.Facts prior = cached(key,source,from,to);
         TraceAttributes.apply(Span.current(),Map.of("video.cache_hit",prior != null));
         if (prior != null) { VideoAnalysisFlights.checkpoint(control); return prior; }
         VideoContent.Facts result = flights.run(key, control, () -> {
-            VideoContent.Facts cached = cache.get(key);
+            VideoContent.Facts cached = cached(key,source,from,to);
             if (cached != null) return cached;
             return analyzeUncached(videoId, from, to, FACT_FOCUS, scope, source, port, key, control);
         });
@@ -75,6 +75,11 @@ public final class VideoAnalysisService {
         if (!source.equals(current)) throw new AgentException("INVALID_EVIDENCE", "Video source changed during analysis");
         VideoAnalysisFlights.checkpoint(control);
         return result;
+    }
+    private VideoContent.Facts cached(String key,VideoContent.Source source,long from,long to){
+        var facts=cache.get(key);if(facts==null)return null;
+        if(facts.videoId()!=source.videoId() || !facts.sourceVersion().equals(source.sourceVersion()) || facts.startMs()!=from || facts.endMs()!=to){cache.invalidate(key);return null;}
+        return facts;
     }
     private VideoContent.Facts analyzeUncached(long videoId, long from, long to, String focus, AccessScope scope,
                                                VideoContent.Source source, VideoContentPort port, String key, CallControl control) {

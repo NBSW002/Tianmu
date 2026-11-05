@@ -28,7 +28,17 @@ management:
         readiness:
           include: readinessState,agentStorage
 agent:
+  video:
+    cache:
+      memory-ttl: ${VIDEO_CACHE_MEMORY_TTL:1h}
+      retention: ${VIDEO_CACHE_RETENTION:0s}
+      max-entries: ${VIDEO_CACHE_MAX_ENTRIES:1024}
   feedback:
+    read-parallelism: ${FEEDBACK_READ_PARALLELISM:1}
+    reuse:
+      enabled: ${FEEDBACK_RESULT_REUSE_ENABLED:true}
+      window: ${FEEDBACK_RESULT_REUSE_WINDOW:10m}
+      max-entries: ${FEEDBACK_RESULT_REUSE_MAX_ENTRIES:1024}
     embedding:
       enabled: ${AGENT_FEEDBACK_EMBEDDING_ENABLED:false}
       endpoint: ${AGENT_FEEDBACK_EMBEDDING_ENDPOINT:https://maas.qianwenaiapi.com/compatible-mode/v1/embeddings}

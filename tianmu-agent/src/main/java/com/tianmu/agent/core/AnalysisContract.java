@@ -3,7 +3,8 @@ package com.tianmu.agent.core;
 import java.util.*;
 
 /** Frozen reading/coverage requirements; source selection never grants access to another video. */
-public record AnalysisContract(Set<Source> sources, boolean reportRequired, Long videoStartMs, Long videoEndMs) {
+public record AnalysisContract(Set<Source> sources, boolean reportRequired, Long videoStartMs, Long videoEndMs, boolean forceReanalysis) {
+    public AnalysisContract(Set<Source> sources,boolean reportRequired,Long start,Long end){this(sources,reportRequired,start,end,false);}
     public AnalysisContract(Set<Source> sources, boolean reportRequired) { this(sources,reportRequired,null,null); }
     public enum Source { VIDEO, COMMENT, DANMAKU }
     public AnalysisContract {

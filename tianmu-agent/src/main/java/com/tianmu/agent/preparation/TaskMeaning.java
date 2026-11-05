@@ -26,8 +26,14 @@ public class TaskMeaning {
         Specification spec = matches.get(0);
         var baseline = com.tianmu.agent.core.AnalysisContract.legacy(spec.type());
         var reading = "creator.draft".equals(spec.type()) ? spec.analysis()==null?baseline:spec.analysis() : AnalysisSourceSelection.select(text, baseline);
-        reading = playback(text, spec, reading);
+        reading = refresh(text,playback(text, spec, reading));
         return selected(spec,reading,date,requestedAt);
+    }
+    private com.tianmu.agent.core.AnalysisContract refresh(String text,com.tianmu.agent.core.AnalysisContract reading){
+        if(reading==null)return null;
+        boolean force=text.matches("(?s).*(?:重新分析|重做分析|绕过分析缓存|强制刷新分析).*")
+                && !text.matches("(?s).*(?:不要|不用|无需|不必|别)(?:再)?重新分析.*");
+        return new com.tianmu.agent.core.AnalysisContract(reading.sources(),reading.reportRequired(),reading.videoStartMs(),reading.videoEndMs(),force);
     }
     private com.tianmu.agent.core.AnalysisContract playback(String text, Specification spec, com.tianmu.agent.core.AnalysisContract reading) {
         if(reading==null || !reading.includes(com.tianmu.agent.core.AnalysisContract.Source.VIDEO) || "creator.draft".equals(spec.type()))return reading;
@@ -81,7 +87,7 @@ public class TaskMeaning {
             }
             if(base.reading()!=null) {
                 var reading=AnalysisSourceSelection.select(text,base.reading());
-                reading=playback(text,base,reading);
+                reading=refresh(text,playback(text,base,reading));
                 return selected(base,reading,date,at);
             }
         }

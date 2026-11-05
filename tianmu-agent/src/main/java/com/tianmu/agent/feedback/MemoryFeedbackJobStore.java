@@ -30,11 +30,19 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
     public synchronized boolean initialize(UUID id,long version,Snapshot snapshot,com.tianmu.agent.core.VideoContent.Facts video,List<Blob> batches) {
         if(!matches(id,version))return false;var j=get(id);add(id,0,batches);jobs.put(id,changed(j,Phase.ANALYZING,null,snapshot,video,null,0,j.chargedTokens(),j.modelCalls()));return true;
     }
-    public synchronized Work claim(UUID id,Instant now,Duration lease) {
+    public synchronized Work claim(UUID id,Instant now,Duration lease) {return claim(id,now,lease,1);}
+    public synchronized Work claim(UUID id,Instant now,Duration lease,int parallelism) {
+        if(parallelism<1 || parallelism>4)throw new IllegalArgumentException("Invalid read parallelism");
         var job=get(id);if(job==null || !active(job.phase()) || !now.isBefore(job.deadline()))return null;
         var found=work.values().stream().filter(w->w.jobId().equals(id) && !w.state().equals("COMPLETE"))
                 .min(Comparator.comparingInt(Work::level).thenComparingInt(Work::ordinal));
         if(found.isEmpty())return null;var w=found.get();
+        boolean seeded=parallelism>1 && w.kind()==WorkKind.CLASSIFY && completedRange(id,0,0,1).size()==1;
+        if(seeded){
+            if(work.values().stream().filter(row->row.jobId().equals(id) && row.kind()==WorkKind.CLASSIFY && row.state().equals("RUNNING") && now.isBefore(row.leaseUntil())).count()>=parallelism)return null;
+            var eligible=work.values().stream().filter(row->row.jobId().equals(id) && row.kind()==WorkKind.CLASSIFY && (row.state().equals("PENDING") && !now.isBefore(available.getOrDefault(row.id(),Instant.MIN)) || row.state().equals("RUNNING") && !now.isBefore(row.leaseUntil()))).min(Comparator.comparingInt(Work::ordinal));
+            if(eligible.isEmpty())return null;w=eligible.get();
+        }
         if(w.state().equals("PENDING") && now.isBefore(available.getOrDefault(w.id(),Instant.MIN)) || w.state().equals("RUNNING") && now.isBefore(w.leaseUntil()))return null;
         var claimed=new Work(w.id(),id,w.kind(),w.level(),w.ordinal(),w.input(),w.result(),"RUNNING",w.fence()+1,w.attempts()+1,now.plus(lease));work.put(w.id(),claimed);return claimed;
     }

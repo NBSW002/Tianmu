@@ -20,6 +20,7 @@ public interface FeedbackJobStore {
     List<Job> active(int limit);
     boolean initialize(UUID id, long version, Snapshot snapshot, VideoContent.Facts video, List<Blob> batches);
     Work claim(UUID job, Instant now, Duration lease);
+    default Work claim(UUID job,Instant now,Duration lease,int readParallelism){return claim(job,now,lease);}
     Work work(UUID id);
     boolean complete(Work claim, Blob result);
     default boolean retry(Work claim,String error,Instant availableAt,int maximumAttempts){return retry(claim,error,availableAt,maximumAttempts,null);}

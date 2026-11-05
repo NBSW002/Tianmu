@@ -16,9 +16,9 @@ public final class FeedbackTaskPolicy {
         else throw new AgentException("TASK_CONSTRAINT_VIOLATION","Task has no frozen feedback interval");
         var sources=EnumSet.noneOf(Source.class);for(var s:task.reading().textSources())sources.add(Source.valueOf(s.name()));
         var grounding=task.reading().includes(AnalysisContract.Source.VIDEO)?Grounding.VIDEO_GROUNDED:Grounding.FEEDBACK_ONLY;
-        return new Request(query,sources,grounding,grounding==Grounding.VIDEO_GROUNDED?start:null,grounding==Grounding.VIDEO_GROUNDED?end:null,"feedback-analysis-v1");
+        return new Request(query,sources,grounding,grounding==Grounding.VIDEO_GROUNDED?start:null,grounding==Grounding.VIDEO_GROUNDED?end:null,"feedback-analysis-v1",task.reading().forceReanalysis());
     }
-    public static Request pipelineRequest(Specification task){var r=request(task);return new Request(r.query(),r.sources(),r.grounding(),r.videoStartMs(),r.videoEndMs(),com.tianmu.agent.feedback.FeedbackPreparationService.VERSION);}
+    public static Request pipelineRequest(Specification task){var r=request(task);return new Request(r.query(),r.sources(),r.grounding(),r.videoStartMs(),r.videoEndMs(),com.tianmu.agent.feedback.FeedbackPreparationService.VERSION,r.forceReanalysis());}
     public static void require(Specification task,Request supplied){
         if(!request(task).equals(supplied) && !pipelineRequest(task).equals(supplied))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Analysis differs from prepared task");
     }

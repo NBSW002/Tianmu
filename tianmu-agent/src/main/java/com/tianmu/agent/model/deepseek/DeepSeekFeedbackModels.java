@@ -16,7 +16,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     private final String instruction,hash,pipelineInstruction,pipelineHash;
     public DeepSeekFeedbackModels(DeepSeekClient client,DeepSeekProperties config,ObjectMapper json,PromptCatalog prompts){
         this.client=client;this.config=config;this.json=json;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha(instruction.getBytes(StandardCharsets.UTF_8));
-        pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha((pipelineInstruction+"\n"+FeedbackSynthesis.VERSION).getBytes(StandardCharsets.UTF_8));
+        pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha((pipelineInstruction+"\n"+FeedbackSynthesis.VERSION+"\n"+config.baseUrl()+"\n"+config.analysisModel()).getBytes(StandardCharsets.UTF_8));
     }
     public String modelName(){return config.analysisModel();}
     public String policyHash(){return hash;}
