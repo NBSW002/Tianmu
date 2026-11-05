@@ -363,9 +363,16 @@ class DeepSeekAdapterTest {
     }
     @Test void oversizedAndDuplicateKeyResponsesAreRejected() {
         answer = request -> "x".repeat(140000);
-        assertThrows(IllegalStateException.class, () -> client.complete(properties.harnessModel(), List.of(Map.of("role", "user", "content", "JSON")), 128, control()));
+        assertThrows(AgentException.class, () -> client.complete(properties.harnessModel(), List.of(Map.of("role", "user", "content", "JSON")), 128, control()));
         answer = request -> "{\"query\":\"a\",\"query\":\"b\"}";
-        assertThrows(IllegalStateException.class, () -> client.complete(properties.harnessModel(), List.of(Map.of("role", "user", "content", "JSON")), 128, control()));
+        assertEquals("MODEL_ERROR",assertThrows(AgentException.class, () -> client.complete(properties.harnessModel(), List.of(Map.of("role", "user", "content", "JSON")), 128, control())).code());
+    }
+    @Test void transientAndMalformedResponsesExposeRetryableCodesWithoutClientSideRetry(){
+        status=429;
+        assertEquals("MODEL_UNAVAILABLE",assertThrows(AgentException.class,()->client.complete(properties.harnessModel(),List.of(Map.of("role","user","content","JSON")),128,control())).code());
+        status=200;answer=request->"{\"topics\":[],\"assignments\":{},\"}";
+        assertEquals("MODEL_ERROR",assertThrows(AgentException.class,()->client.complete(properties.harnessModel(),List.of(Map.of("role","user","content","JSON")),128,control())).code());
+        assertEquals(2,requests.size(),"Only the durable worker owns retry and backoff");
     }
     @Test void cancellationCancelsActiveHttpRequest() throws Exception {
         entered = new CountDownLatch(1); release = new CountDownLatch(1);

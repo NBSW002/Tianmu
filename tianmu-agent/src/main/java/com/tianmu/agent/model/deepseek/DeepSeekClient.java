@@ -134,6 +134,9 @@ public final class DeepSeekClient {
             if (result == null || !result.isObject()) throw unavailable();
             return result;
         } catch (AgentException e) { throw e; }
+        catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            control.checkpoint();throw new AgentException("MODEL_ERROR","Model returned invalid structured JSON");
+        }
         catch (Exception e) { control.checkpoint(); throw unavailable(); }
     }
     private JsonNode responseObject(String content) throws com.fasterxml.jackson.core.JsonProcessingException {
@@ -181,5 +184,5 @@ public final class DeepSeekClient {
         catch (Exception e) { control.checkpoint(); throw unavailable(); }
         finally{TraceAttributes.apply(Span.current(),Map.of("model.response_ms",Math.max(0,(System.nanoTime()-requestStarted)/1_000_000)));}
     }
-    private IllegalStateException unavailable() { return new IllegalStateException("Model response unavailable"); }
+    private AgentException unavailable() { return new AgentException("MODEL_UNAVAILABLE","Model response unavailable"); }
 }
