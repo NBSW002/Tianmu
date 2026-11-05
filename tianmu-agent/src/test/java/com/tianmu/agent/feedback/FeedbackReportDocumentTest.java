@@ -26,7 +26,7 @@ class FeedbackReportDocumentTest {
         assertTrue(card.quotes().stream().noneMatch(FeedbackReportDocument.Quote::author));assertEquals(Set.of(first.text(),opposite.text()),new HashSet<>(card.quotes().stream().map(FeedbackReportDocument.Quote::text).toList()));
         assertEquals(1500,card.moments().get(0).atMs());
         String html=new String(FeedbackReportRenderer.render(doc),java.nio.charset.StandardCharsets.UTF_8);
-        assertTrue(html.contains("先看结论"));assertTrue(html.contains("观众在讨论什么"));assertTrue(html.contains("原话与来源"));assertTrue(html.contains("可以怎么做"));
+        assertTrue(html.contains("这条视频，观众怎么说"));assertTrue(html.contains("讨论最多的 1 个话题"));assertTrue(html.contains("原话与来源"));assertTrue(html.contains("可以怎么做"));
         assertTrue(html.contains("/video/1001?t=1.0"));assertTrue(html.contains("target=\"_blank\" rel=\"noopener noreferrer\""));assertTrue(html.contains("不证明反馈中的声音"));assertFalse(html.contains("root:T1"));assertFalse(html.contains("层级"));
     }
     @Test void commentOnlyEvidenceNeverManufacturesPlaybackOrTopicFrameAssociation(){
@@ -79,6 +79,15 @@ class FeedbackReportDocumentTest {
         var noPositions=FeedbackPlaybackTrend.build(a,List.of(new Group("G1",Source.DANMAKU,"反馈","",false,null,3,List.of("D:1","D:2","D:3"))));
         assertTrue(noPositions.counts().isEmpty());assertEquals(3,noPositions.omitted());
         assertThrows(AgentException.class,()->FeedbackPlaybackTrend.build(a,List.of(first)));
+    }
+    @Test void compactActionsKeepCompleteConditionsAndFullEvidenceRemainsInsideClosedDetails(){
+        String advice="只有在能够确认现场原声收音清晰的前提下，才建议另做一个轻配乐版本；如果无法确认收音条件，不应直接把噪声放大，并且应保留观众提出纯原声版本的相反偏好。";
+        var leaf=new Topic("leaf:T1","声音偏好","观众同时提出原声与轻配乐偏好。",advice,List.of("G1","G2","G3"),4,1);
+        var doc=FeedbackReportDocument.build(asset(true),List.of(leaf),Map.of(leaf.id(),leaf),Map.of(leaf.id(),List.of(first,opposite,author)),Map.of());
+        String html=new String(FeedbackReportRenderer.render(doc),java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(html.contains("只有在能够确认现场原声收音清晰的前提下，才建议另做一个轻配乐版本；"));assertTrue(html.contains(advice));
+        assertTrue(html.contains("<details class=\"topic-detail\"><summary>观众原话与完整建议</summary>"));assertFalse(html.contains("<details class=\"topic-detail\" open"));
+        assertTrue(html.contains("查看话题占比"));assertTrue(html.contains("这段视频的内容与画面依据"));assertFalse(html.contains("先看结论"));
     }
     @Test void structuredReplyChainsShowSourceTextWithoutTransportIdsOrJson(){
         String raw="[{\"id\":\"7520745728063299600\",\"author\":false,\"text\":\"绒毛很可爱，但不要随便摸\"},{\"id\":\"7520745728063299601\",\"author\":true,\"text\":\"这里是作者说明\"}]";
