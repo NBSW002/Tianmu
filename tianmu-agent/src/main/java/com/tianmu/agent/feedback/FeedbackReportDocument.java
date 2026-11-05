@@ -43,7 +43,7 @@ public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> no
                         .thenComparing(Comparator.comparingLong(Group::messages).reversed()).thenComparingInt(g->g.text().length()));
                 var g=remaining.remove(0);String key=normalize(g.text());
                 if(key.isEmpty() || shown.stream().anyMatch(old->similar(old,key)))continue;
-                shown.add(key);covered.addAll(grams(key));quotes.add(new Quote(g.text(),g.source(),g.author(),g.playbackMs(),g.replyContext()));
+                shown.add(key);covered.addAll(grams(key));quotes.add(new Quote(g.text(),g.source(),g.author(),g.playbackMs(),replyContext(g.replyContext())));
             }
             // A nearby sampled frame provides context, not verification of the feedback's claim.
             var moments=new LinkedHashMap<Long,VideoContent.Moment>();
@@ -60,6 +60,20 @@ public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> no
                 || cards.stream().mapToLong(c->c.topic().authorMessages()).sum()!=asset.snapshot().counts().authorComments()+asset.snapshot().counts().authorDanmaku())throw corrupt();
         var notes=graph.values().stream().filter(t->leaves.containsKey(t.id())).toList();
         return new FeedbackReportDocument(asset,cards,notes,daily);
+    }
+    static String replyContext(String raw){
+        if(raw.isBlank())return "";
+        if(!raw.stripLeading().startsWith("[") && !raw.stripLeading().startsWith("{"))
+            return raw.replaceAll("(?m)^评论 [1-9][0-9]{0,18} · ","上文 · ");
+        try{
+            var chain=new com.fasterxml.jackson.databind.ObjectMapper().readTree(raw);if(!chain.isArray())return "回复上文保存在授权证据中。";
+            var lines=new ArrayList<String>();
+            for(var entry:chain){
+                if(!entry.isObject() || !entry.path("text").isTextual() || !entry.path("author").isBoolean())return "回复上文保存在授权证据中。";
+                lines.add((entry.path("author").asBoolean()?"作者：":"上文：")+entry.path("text").asText());
+            }
+            return String.join("\n",lines);
+        }catch(java.io.IOException malformed){return "回复上文暂不可展示，完整材料保存在授权证据中。";}
     }
     private static AgentException corrupt(){return new AgentException("STORAGE_CORRUPT","Report topics do not match accepted source membership");}
     private static String normalize(String s){return Normalizer.normalize(s,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\p{Z}\\s]+","");}

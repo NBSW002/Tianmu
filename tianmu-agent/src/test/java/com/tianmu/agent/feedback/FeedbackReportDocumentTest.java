@@ -42,6 +42,12 @@ class FeedbackReportDocumentTest {
         var doc=FeedbackReportDocument.build(asset(false,new Counts(1,2,0,0,3)),List.of(a,b),Map.of(a.id(),a,b.id(),b),Map.of(a.id(),List.of(first),b.id(),List.of(duplicate)),Map.of());
         assertEquals(2,doc.cards().get(0).topic().messages());assertEquals(1,doc.cards().get(1).topic().messages());assertEquals(1,doc.cards().stream().mapToInt(c->c.quotes().size()).sum());
     }
+    @Test void structuredReplyChainsShowSourceTextWithoutTransportIdsOrJson(){
+        String raw="[{\"id\":\"7520745728063299600\",\"author\":false,\"text\":\"绒毛很可爱，但不要随便摸\"},{\"id\":\"7520745728063299601\",\"author\":true,\"text\":\"这里是作者说明\"}]";
+        String shown=FeedbackReportDocument.replyContext(raw);assertEquals("上文：绒毛很可爱，但不要随便摸\n作者：这里是作者说明",shown);assertFalse(shown.contains("752074"));
+        assertEquals("",FeedbackReportDocument.replyContext(""));assertEquals("上文 · 观众：保留原话",FeedbackReportDocument.replyContext("评论 123 · 观众：保留原话"));
+        assertFalse(FeedbackReportDocument.replyContext("[{broken-json]").contains("broken-json"));
+    }
     @Test void missingOrRepeatedDescendantsCannotProduceACompleteLookingReport(){
         var root=topic("root:T1",List.of("missing:T1"),1,0);
         assertEquals("STORAGE_CORRUPT",assertThrows(AgentException.class,()->FeedbackReportDocument.build(asset(false),List.of(root),Map.of(),Map.of(),Map.of())).code());
