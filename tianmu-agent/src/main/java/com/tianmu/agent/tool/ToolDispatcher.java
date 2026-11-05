@@ -52,6 +52,9 @@ public class ToolDispatcher {
     public List<ToolDefinition> definitions(Set<String> activeSkills) { return registry.definitions(activeSkills); }
     public List<ToolDefinition> definitions(RunState run) {
         return registry.definitions(run.execution().activeSkills(), snapshotTools(run)).stream()
+                .filter(d -> !d.name().equals("analyze_feedback") || preparation==null || run.task()==null
+                        || !run.task().specification().reading().reportRequired()
+                        || run.execution().exchanges().stream().anyMatch(e->e.call().name().equals("analyze_feedback")))
                 .filter(t -> permitted(t.name(), run)).toList();
     }
     private boolean permitted(String name, RunState run) {

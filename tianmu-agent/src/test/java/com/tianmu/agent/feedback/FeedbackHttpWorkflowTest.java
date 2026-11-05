@@ -37,7 +37,7 @@ class FeedbackHttpWorkflowTest {
             java.util.function.Consumer<List<Unit>> sink=inv.getArgument(3);var units=new ArrayList<Unit>();
             Request request=inv.getArgument(0);
             if(empty.get())return new FeedbackSnapshotPort.Receipt(Instant.now(),new Counts(0,0,0,0,0));
-            for(int i=1;i<=100;i++){var s=i%2==0?Source.COMMENT:Source.DANMAKU;if(request.sources().contains(s))units.add(new Unit((i%2==0?"C:":"D:")+i,s,""+i,"观众问题"+i,"",false,i%2==0?null:1000L,""+i));}
+            for(int i=1;i<=100;i++){var s=i%2==0?Source.COMMENT:Source.DANMAKU;if(request.sources().contains(s))units.add(new Unit((i%2==0?"C:":"D:")+i,s,""+i,"观众问题"+i,"",false,i%2==0?null:1000L,""+i,request.query().end().minusSeconds(1).atZone(DanmakuTypes.ZONE).toInstant()));}
             sink.accept(units);return new FeedbackSnapshotPort.Receipt(Instant.now(),new Counts(request.sources().contains(Source.COMMENT)?50:0,request.sources().contains(Source.DANMAKU)?50:0,0,0,units.size()));
         });
         doAnswer(inv->{
@@ -45,6 +45,17 @@ class FeedbackHttpWorkflowTest {
             if(!c.activeSkills().contains("audience-report"))return Decision.tool("read_skill",Map.of("name","audience-report"));
             var visual=c.observations().stream().filter(r->r.tool().equals("analyze_video_content")).findFirst();
             if(c.task().specification().reading().includes(AnalysisContract.Source.VIDEO) && visual.isEmpty())return Decision.tool("analyze_video_content",Map.of("video_id",1001));
+            if(c.task().specification().reading().reportRequired()){
+                var pending=new ArrayList<ToolCall>();var args=new HashMap<String,Object>();
+                for(var selected:c.task().specification().reading().textSources()){
+                    String tool=selected==AnalysisContract.Source.COMMENT?"analyze_comments":"analyze_danmaku";
+                    var ready=c.observations().stream().filter(r->r.tool().equals(tool)).findFirst();
+                    if(ready.isEmpty())pending.add(new ToolCall(tool,tool.equals("analyze_danmaku") && visual.isPresent()?Map.of("video_evidence_id",visual.get().evidenceId()):Map.of()));
+                    else {assertNull(ready.get().pending());args.put(selected==AnalysisContract.Source.COMMENT?"comment_evidence_id":"danmaku_evidence_id",ready.get().evidenceId());}
+                }
+                if(!pending.isEmpty())return new Decision(Kind.TOOL,pending.get(0),null,null,pending.subList(1,pending.size()));
+                return Decision.tool("create_feedback_report",args);
+            }
             var result=c.observations().stream().filter(r->r.tool().equals("analyze_feedback")).findFirst();
             if(result.isEmpty())return Decision.tool("analyze_feedback",visual.isPresent()?Map.of("video_evidence_id",visual.get().evidenceId()):Map.of());
             assertNull(result.get().pending(),"No model is polled while an operation is pending");

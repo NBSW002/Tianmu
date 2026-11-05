@@ -49,6 +49,7 @@ class FeedbackPipelineHttpTest {
             ModelContext c=inv.getArgument(0);
             assertTrue(c.observations().stream().noneMatch(r->r.pending()!=null),"The model must never poll a pending child");
             if(!c.activeSkills().contains("audience-report"))return Decision.tool("read_skill",Map.of("name","audience-report"));
+            assertTrue(c.availableTools().stream().noneMatch(t->t.name().equals("analyze_feedback")),"New reports must discover the source pipeline; legacy continuations remain compatible");
             var comments=c.observations().stream().filter(r->r.tool().equals("analyze_comments")).findFirst();
             var danmaku=c.observations().stream().filter(r->r.tool().equals("analyze_danmaku")).findFirst();
             if(comments.isEmpty() && danmaku.isEmpty())return new Decision(Kind.TOOL,new ToolCall("analyze_comments",Map.of()),null,null,List.of(new ToolCall("analyze_danmaku",Map.of())));
