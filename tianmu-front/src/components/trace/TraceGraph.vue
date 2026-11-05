@@ -18,14 +18,10 @@ const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
   style: { stroke: edge.relation === 'call' ? '#bd85a6' : '#d8d1df', strokeWidth: 1.3, strokeDasharray: edge.relation === 'call' ? undefined : '4 4' },
 })))
 const nodeIcon = (node) => node.kind === 'MODEL' ? 'model' : node.kind === 'TOOL' ? 'tool' : 'stage'
-const phaseNodes = computed(() => nodes.value.filter(n => n.id.startsWith('phase:') || n.id.startsWith('job:')))
-function locate(node) {
-  instance.value?.setViewport({ x: 28 - node.position.x, y: 32 - node.position.y, zoom: 1 }, { duration: 0 })
-}
 const fit = () => instance.value?.fitView({ padding: 0.16, maxZoom: 1.2, duration: 0 })
 // A readable starting scale, even for thousands of spans. Resizing panes must
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
-const resetView = () => instance.value?.setViewport({ x: 28, y: 32, zoom: 1 }, { duration: 0 })
+const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })
 function ready(flow) { instance.value = flow; resetView() }
 function choose(node) { emit('select', node.data.id) }
 watch(() => props.selectedId, async () => {
@@ -36,8 +32,8 @@ watch(() => props.selectedId, async () => {
   const viewport = flow.getViewport()
   const x = node.position.x * viewport.zoom + viewport.x
   const y = node.position.y * viewport.zoom + viewport.y
-  if (x < 0 || x + 304 * viewport.zoom > panel.value.clientWidth || y < 0 || y + 124 * viewport.zoom > panel.value.clientHeight) {
-    flow.setViewport({ ...viewport, x: 28 - node.position.x * viewport.zoom, y: 32 - node.position.y * viewport.zoom }, { duration: 0 })
+  if (x < 0 || x + 248 * viewport.zoom > panel.value.clientWidth || y < 48 || y + 124 * viewport.zoom > panel.value.clientHeight) {
+    flow.setViewport({ ...viewport, x: 36 - node.position.x * viewport.zoom, y: 48 - node.position.y * viewport.zoom }, { duration: 0 })
   }
 })
 </script>
@@ -45,10 +41,9 @@ watch(() => props.selectedId, async () => {
 <template>
   <section ref="panel" class="trace-graph-panel">
     <div v-if="mode === 'graph'" class="graph-titlebar">
-      <span class="time-direction">阶段流程 →</span>
-      <div class="graph-legend"><span><i class="model-dot" />模型</span><span><i class="tool-dot" />工具</span></div>
+      <span class="time-direction" title="从左到右按开始时间排列；上下分支表示时间重叠，展开的下层表示内部步骤。虚线为顺序，实线为已记录的模型调用工具。">时间 →<small>上下分叉 · 并行执行</small></span>
+      <div class="graph-legend"><span><i class="model-dot" />模型</span><span><i class="tool-dot" />工具</span><span><i class="stage-dot" />判断 / 任务</span></div>
     </div>
-    <nav v-if="mode === 'graph'" class="phase-navigation" aria-label="定位执行阶段"><button v-for="(node, index) in phaseNodes" :key="node.id" type="button" :class="{ active: node.selected }" @click="locate(node); emit('select', node.id)"><small>{{ String(index + 1).padStart(2, '0') }}</small>{{ cardTitle(node.data) }}<TraceIcon name="arrow" :size="12" /></button></nav>
     <div v-if="mode === 'graph'" class="graph-canvas">
       <VueFlow
         :key="trace.id" :nodes="nodes" :edges="edges" :min-zoom="0.15" :max-zoom="1.8"
@@ -57,21 +52,12 @@ watch(() => props.selectedId, async () => {
         @pane-ready="ready" @node-click="({ node }) => choose(node)"
       >
         <template #node-trace="{ data, selected }">
-          <div v-if="data.cardKind === 'phase'" class="phase-card" :class="{ 'is-selected': selected }">
-            <Handle type="target" :position="Position.Left" :connectable="false" />
-            <header><strong>{{ cardTitle(data) }}</strong><span>{{ formatDuration(data.durationMs) }}</span></header>
-            <div class="phase-caption"><span>内部步骤 · 按开始时间 ↓</span><span>{{ data.children.length }} 项</span></div>
-            <div class="phase-step-list nodrag nopan nowheel" @wheel.stop><button v-for="(step, index) in data.children" :key="step.id" type="button" class="phase-step nodrag nopan" :class="[{ active: selectedId === step.id, failed: step.failureIds?.length || ['FAILED','TIMED_OUT'].includes(step.status) }, `step-${step.cardKind}`]" @click.stop="emit('select', step.id)">
-              <span class="step-number">{{ index + 1 }}</span><span class="step-content"><span class="step-title"><TraceIcon :name="cardIcon(step)" :size="14" />{{ cardTitle(step) }}<small v-if="step.turn > 0">第 {{ step.turn }} 轮</small></span><span class="step-result" :title="step.summary">{{ step.summary }}</span></span><span class="step-duration">{{ step.summaryOnly ? '汇总' : formatDuration(step.durationMs) }}</span>
-            </button></div>
-            <Handle type="source" :position="Position.Right" :connectable="false" />
-          </div>
-          <div v-else class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) || data.failureIds?.length }, `kind-${data.cardKind}`]" :data-testid="`trace-node-${data.id}`">
+          <div class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) || data.failureIds?.length }, `kind-${data.cardKind}`]" :data-testid="`trace-node-${data.id}`">
             <Handle type="target" :position="Position.Left" :connectable="false" />
             <div class="node-top"><span class="node-icon"><TraceIcon :name="cardIcon(data)" :size="16" /></span><span class="node-name">{{ cardTitle(data) }}</span><i class="node-status" :class="data.status.toLowerCase()" :title="statusLabel(data.status)" /></div>
             <div class="node-summary">{{ data.summary }}</div>
-            <div class="node-bottom"><span>{{ data.model || (data.turn > 0 ? `第 ${data.turn} 轮` : data.summaryOnly ? '阶段汇总' : '') }}</span><b>{{ formatDuration(data.durationMs) }}</b></div>
-            <button v-if="data.children?.length" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="expanded.has(data.id)" :aria-label="`${expanded.has(data.id) ? '收起' : '展开'} ${cardTitle(data)}`" @click.stop="emit('toggle', data.id)">{{ expanded.has(data.id) ? '收起' : `${data.repeatCount} 步 · 展开` }}</button>
+            <div class="node-bottom"><span>{{ data.model || (data.turn > 0 ? `第 ${data.turn} 轮` : data.summaryOnly ? '阶段汇总' : data.tool || '') }}</span><b>{{ formatDuration(data.durationMs) }}</b></div>
+            <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${expanded.has(data.id) ? '收起' : '展开'} ${cardTitle(data)}`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '收起' : `${data.repeatCount} 步 · 展开` }}</button>
             <span class="node-time">{{ data.offsetMs == null ? '时间未知' : `+${formatDuration(data.offsetMs)}` }}</span>
             <Handle type="source" :position="Position.Right" :connectable="false" />
           </div>
@@ -103,37 +89,13 @@ watch(() => props.selectedId, async () => {
 .graph-legend span { display: flex; align-items: center; gap: 5px; }
 .graph-legend i { width: 5px; height: 5px; border-radius: 50%; }
 .model-dot { background: #c48fb1; }.tool-dot { background: #8db6a6; }.stage-dot { background: #b6adbf; }
-.phase-navigation { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; flex-shrink: 0; background: #faf8fb; border-bottom: 1px solid #eee9f1; }
-.phase-navigation button { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; border: 1px solid #e8e0eb; border-radius: 6px; background: white; color: #776680; padding: 6px 9px; font-size: 11px; cursor: pointer; }
-.phase-navigation button.active { border-color: #c995b1; background: #fcf3f8; }
-.phase-navigation small { color: #b2a1b7; font: 10px var(--trace-mono); }
-.phase-navigation button:focus-visible, .phase-step:focus-visible { outline: 2px solid #bb739a; outline-offset: 2px; }
-.phase-card { width: 304px; border: 1px solid #e4dce9; border-radius: 12px; background: #fff; padding: 16px 14px 10px; box-shadow: 0 3px 12px #49314f07; }
-.phase-card.is-selected { border-color: #c78aab; }
-.phase-step-list { max-height: 312px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #dfd3e3 transparent; padding: 2px; }
-.phase-card :deep(.vue-flow__handle) { top: 29px; }
-.phase-card header { display: flex; align-items: center; justify-content: space-between; color: #58455f; }
-.phase-card header strong { font-size: 15px; font-weight: 600; }
-.phase-card header>span { font: 11px var(--trace-mono); color: #95859c; }
-.phase-caption { display: flex; justify-content: space-between; color: #a092a7; font-size: 10px; margin: 8px 0 14px; }
-.phase-step { position: relative; display: flex; align-items: center; width: 100%; height: 68px; margin: 0 0 10px; gap: 9px; padding: 9px; border: 1px solid #ece7ef; border-radius: 7px; background: #fcfbfd; color: #716079; text-align: left; cursor: pointer; }
-.phase-step.active { border-color: #bf85a6; box-shadow: 0 0 0 2px #f5e6ef; }
-.phase-step.failed { border-color: #d994a3; }
-.step-number { align-self: flex-start; color: #b2a3b8; font: 9px/18px var(--trace-mono); }
-.step-content { flex: 1; min-width: 0; }
-.step-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
-.step-title small { font-weight: 400; font-size: 9px; color: #a18fa8; }
-.step-result { display: block; margin-top: 5px; font-size: 11px; color: #928299; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.step-duration { color: #a08ca8; font: 9px var(--trace-mono); white-space: nowrap; }
-.step-model { background: #fdf8fc; border-color: #eadbe7; }.step-model svg { color: #b379a0; }
-.step-tool { background: #f7fbf9; border-color: #deebe3; }.step-tool svg { color: #78a18c; }
 .graph-canvas { position: relative; flex: 1; min-height: 300px; background: radial-gradient(#e6e0eb .6px, transparent .6px) 0 0 / 20px 20px, #fdfcfe; }
 .graph-canvas :deep(.vue-flow) { position: absolute; inset: 0; }
-.trace-node { position: relative; width: 304px; height: 118px; background: #fff; border: 1px solid #e4dfe9; border-radius: 10px; padding: 12px; color: #62566e; cursor: pointer; box-shadow: 0 2px 7px #30203904; }
+.trace-node { position: relative; width: 248px; height: 116px; background: #fff; border: 1px solid #e4dfe9; border-radius: 10px; padding: 12px; color: #62566e; cursor: pointer; box-shadow: 0 2px 7px #30203904; }
 .trace-node.is-stack { box-shadow: 3px 4px 0 -1px #f8f3f8, 3px 4px 0 0 #e4d8e5, 6px 8px 0 -1px #fbf7fb, 6px 8px 0 0 #e9dfea; }
 .cluster-toggle { position: absolute; right: 6px; top: -13px; border: 1px solid #dfcbdc; background: #fbf4f9; color: #a4658b; border-radius: 6px; padding: 2px 7px; font-size: 10px; cursor: pointer; }
 .cluster-toggle:focus-visible { outline: 2px solid #c48bab; outline-offset: 2px; }
-.node-time { position: absolute; left: 0; top: 130px; color: #a197ab; font: 10px var(--trace-mono); white-space: nowrap; }
+.node-time { position: absolute; left: 0; top: 128px; color: #a197ab; font: 10px var(--trace-mono); white-space: nowrap; }
 .node-top { display: flex; align-items: center; gap: 7px; }
 .node-icon { display: flex; color: #9b8ca7; }
 .node-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
