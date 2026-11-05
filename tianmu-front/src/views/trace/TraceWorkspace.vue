@@ -51,10 +51,10 @@ const trace = computed(() => traces.value.find((item) => item.id === activeId.va
 const expanded = ref(new Set())
 const presentation = computed(() => buildTracePresentation(trace.value.nodes))
 const graph = computed(() => layoutPresentation(presentation.value, expanded.value))
-const selected = computed(() => graph.value.nodes.find(n => n.id === selectedId.value)?.data || (presentation.value.rawById.has(selectedId.value) ? presentNode(presentation.value.rawById.get(selectedId.value)) : null))
+const selected = computed(() => presentation.value.allCards.get(selectedId.value) || (presentation.value.rawById.has(selectedId.value) ? presentNode(presentation.value.rawById.get(selectedId.value)) : null))
 const selectedSource = computed(() => presentation.value.rawById.get(selected.value?.sourceId))
 const selectedMembers = computed(() => (selected.value?.memberIds || []).filter(id => id !== selected.value.sourceId).map(id => presentation.value.rawById.get(id)).filter(Boolean))
-const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
+const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.flatMap(n => n.data.cardKind === 'phase' ? n.data.children : [n.data]) : trace.value.nodes)
 function toggleGroup(id) {
   const next = new Set(expanded.value)
   if (next.has(id)) { next.delete(id); selectedId.value = id } else next.add(id)

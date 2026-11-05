@@ -134,33 +134,61 @@ export function buildTracePresentation(raw) {
   if (!cards.some(n => n.cardKind === 'emotion')) notices.push('情绪识别：未执行或未记录')
   if (!cards.some(n => n.cardKind === 'clarification')) notices.push('澄清判断：无独立记录')
   if (!cards.length) notices.push('暂无业务节点，请查看原始节点')
-  return { cards, groups, notices, rawById: byId }
+  const phases = []
+  let current = null
+  for (const card of cards) {
+    if (card.cardKind === 'background') { phases.push(card); current = null; continue }
+    const preparation = ['faq', 'intent', 'emotion', 'clarification'].includes(card.cardKind) || card.type === 'query_understanding'
+    const category = preparation ? 'prepare' : 'execute'
+    const run = card.attributes?.['run.id'] || ancestors(byId.get(card.sourceId) || card).find(n => n.name === 'agent.run')?.id || ''
+    if (!current || current.category !== category || current.run !== run) {
+      current = { id: `phase:${card.id}`, category, run, cardKind: 'phase', cardTitle: preparation ? '请求判断' : phases.some(n => n.cardKind === 'background') ? '恢复执行' : 'Agent 执行',
+        kind: 'STAGE', synthetic: true, sourceId: null, attributes: {}, children: [], memberIds: [], failureIds: [], status: 'UNKNOWN' }
+      phases.push(current)
+    }
+    current.children.push(card)
+  }
+  for (const phase of phases.filter(n => n.cardKind === 'phase')) {
+    const children = phase.children
+    const starts = children.map(time).filter(Number.isFinite), stops = children.map(n => n.summaryOnly ? time(n) : end(n)).filter(Number.isFinite)
+    phase.offsetMs = starts.length ? Math.min(...starts) : null
+    phase.durationMs = starts.length && stops.length === children.length ? Math.max(...stops) - phase.offsetMs : null
+    phase.startMs = children[0].startMs
+    phase.memberIds = [...new Set(children.flatMap(n => n.memberIds))]
+    phase.failureIds = [...new Set(children.flatMap(n => n.failureIds || []))]
+    phase.status = statusOrder.find(s => children.some(n => n.status === s)) || 'UNKNOWN'
+    phase.summary = `${children.length} 个步骤${phase.failureIds.length ? ` · ${phase.failureIds.length} 条异常` : ''}`
+  }
+  const allCards = new Map()
+  const index = list => list.forEach(n => { allCards.set(n.id, n); if (n.children?.length) index(n.children) })
+  index(phases)
+  return { cards, phases, allCards, groups, notices, rawById: byId }
 }
 
 // Presentation edges describe chronological order, not causal dependencies.
 // Only an explicit loop decision + selected tool establishes a call edge.
 export function layoutPresentation(presentation, expanded = new Set()) {
   const visible = [], edges = []
-  const addEdge = (a, b, relation = 'order') => edges.push({ id: `${relation}:${a.id}:${b.id}`, source: a.id, target: b.id, relation,
-    label: relation === 'call' ? '调用' : a.cardKind === 'faq' ? (a.attributes?.['faq.hit'] === false ? '未命中' : '') : a.cardKind === 'clarification' ? (a.summary.startsWith('条件完整') ? '无需澄清' : '') : '' })
+  const addEdge = (a, b, relation = 'order') => edges.push({ id: `${relation}:${a.id}:${b.id}`, source: a.id, target: b.id, relation })
   const measure = cards => {
     const lanes = [], items = []
     let right = 0, lastX = 0, lastTime = null
     for (const card of [...cards].sort(compare)) {
-      const child = expanded.has(card.id) && card.children?.length ? measure(card.children) : null
+      const child = card.cardKind !== 'phase' && expanded.has(card.id) && card.children?.length ? measure(card.children) : null
       // Summaries are point annotations, not infinitely long parallel work.
       const stop = card.summaryOnly ? time(card) : end(card)
       let lane = lanes.findIndex(l => Number.isFinite(l.end) && l.end <= time(card))
       if (lane < 0) { lane = lanes.length; lanes.push({ end: 0, height: 156 }) }
       const prior = items.filter(i => Number.isFinite(i.end) && i.end <= time(card))
-      const x = Math.max(0, ...prior.map(i => i.x + i.width), lastTime !== null && time(card) > lastTime ? lastX + 252 : lastX)
+      const x = Math.max(0, ...prior.map(i => i.x + i.width), lastTime !== null && time(card) > lastTime ? lastX + 352 : lastX)
       const previous = lanes[lane].previous
       if (previous) {
         const sameLoop = previous.parentId && previous.parentId === card.parentId && previous.turn === card.turn
         addEdge(previous, card, sameLoop && previous.cardKind === 'model' && card.cardKind === 'tool' && previous.attributes?.['model.selected_tool'] === card.tool ? 'call' : 'order')
       }
-      const item = { card, lane, x, end: stop, width: Math.max(252, child?.width || 0), child }
-      lanes[lane] = { end: stop, previous: card, height: Math.max(lanes[lane].height, 156 + (child?.height || 0)) }
+      const height = card.cardKind === 'phase' ? 88 + Math.min(card.children.length * 78, 316) : 156
+      const item = { card, lane, x, end: stop, width: Math.max(352, child?.width || 0), child, height }
+      lanes[lane] = { end: stop, previous: card, height: Math.max(lanes[lane].height, height + (child?.height || 0)) }
       items.push(item); right = Math.max(right, x + item.width); lastX = x; lastTime = time(card)
     }
     const offsets = lanes.map((_, i) => lanes.slice(0, i).reduce((sum, lane) => sum + lane.height, 0))
@@ -170,9 +198,9 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     for (const item of block.items) {
       const x = baseX + item.x, y = baseY + block.offsets[item.lane]
       visible.push({ id: item.card.id, type: 'trace', position: { x, y }, data: item.card })
-      if (item.child) { place(item.child, x, y + 156); addEdge(item.card, item.child.items[0].card, 'contains') }
+      if (item.child) { place(item.child, x, y + item.height); addEdge(item.card, item.child.items[0].card, 'contains') }
     }
   }
-  place(measure(presentation.cards))
+  place(measure(presentation.phases || presentation.cards))
   return { nodes: visible, edges }
 }
