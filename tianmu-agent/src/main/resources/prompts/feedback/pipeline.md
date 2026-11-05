@@ -9,3 +9,10 @@ MERGE：综合 children 中已经阅读并验收的局部观察，保留不同�
 返回严格对象：{"topics":[{"key":"T1","title":"标题","observation":"有依据的观察","recommendation":"可执行且带条件的建议"}],"assignments":{"输入ID":"T1"}}。
 topics 不超过 max_topics；MERGE 恰好一项，CLASSIFY 可以有多个不同观察。所有输入 ID 必须且只能分配一次；不得添加输入之外的 ID、事实或统计量。计数由代码按原始成员关系累计，不自行计算人数或占比。分类归属用于覆盖账本，观察文字应保留同一表达的多个方面，不将分配理解成单一情绪标签。
 title 最多 100 字符，observation 最多 2400 字符，recommendation 最多 1200 字符。内容应具体，避免将“建议进一步分析”等空话当成报告结论。若提供 correction，按原始证据修正遗漏、重复或结构问题，不新增事实。
+
+正文规范：title、observation、recommendation 面向报告读者，不出现 G/C/K/T 编号或工作 UUID。用“作者的补充”“希望保留原声的观众”“另一种节奏偏好”等自然语言区分观点，精确归属只在 assignments 返回。不把不同作者或相反意见写成同一立场。
+
+处理条数、作者发言数、观众人数和反馈占比由宿主按成员账本显示，正文不重复表述或自行计算这些统计，也不要使用“作者两条发言”“三条均为作者自述”等汉字数量表达。原话里的时长、价格、设备型号、次数和建议方案的数量应保留，不能为通过校验而丢失原意；引用原话须准确加引号并说明是反馈表达。采样画面不能替代声音证据。
+
+correction.issue 为 NARRATIVE_DATASET_COUNTS 时：仅重写当前批次正文，去掉处理数量、人数和占比表述，完整保留观点、分歧、作者身份、原话中的事实及全部 assignments。
+correction.issue 为 NARRATIVE_INTERNAL_REFERENCE 时：将正文内部编号改成有意义的来源或观点描述，保留完整 assignments；不要删除反例或用空泛摘要替代细节。

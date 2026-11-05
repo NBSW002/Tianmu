@@ -109,10 +109,13 @@ public final class FeedbackAnalysisService {
                 }
                 else { var modelInput=input; proposals=com.tianmu.agent.harness.trace.TraceModelCall.call("feedback.model",Map.of("analysis.job_id",id.toString(),"analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),"analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)),()->pipeline(j.request())?models.analyzePipeline(modelInput,control):models.analyze(modelInput,control)); }
                 token.checkpoint();var result=planner.validate(work.id().toString(),input,proposals);
-                store.complete(work,objects.put(id,result));return;
+                if(pipeline(j.request()))FeedbackNarrativePolicy.validate(input,proposals);
+                boolean accepted=store.complete(work,objects.put(id,result));
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return;
             }
             finishLevel(store.get(id));
         } catch(FeedbackCorrectionException e) {
+            com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",false,"analysis.validation_issue",e.correction().issue()));
             if(token.cancelled())store.cancel(id);
             else if(work!=null && input!=null)store.retry(work,e.code(),retryAt(work),3,
                     objects.put(id,new Input(input.kind(),input.groups(),input.children(),null,e.correction())));

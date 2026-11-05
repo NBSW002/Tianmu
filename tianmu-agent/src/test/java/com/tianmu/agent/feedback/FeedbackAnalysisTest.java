@@ -101,6 +101,19 @@ class FeedbackAnalysisTest {
         org.mockito.Mockito.doReturn(List.of()).when(pagedStore).completedRange(job.id(),0,4,2);
         assertEquals("STORAGE_CORRUPT",assertThrows(AgentException.class,()->restarted.notes(asset,9,3)).code());
     }
+    @Test void historicalReportsRemainReadableAfterModelAndPolicyUpgradeWithoutReanalysis(){
+        var f=new Fixture();var job=f.start(4);assertEquals(Phase.READY,f.finish(job.id()).phase());int calls=f.calls.get();
+        var upgraded=new FeedbackModels(){
+            public String modelName(){return "fixture-v2";}public String policyHash(){return "policy-v2";}
+            public List<Proposal> analyze(Input input,CallControl control){throw new AssertionError("Historical reads must not invoke a model");}
+        };
+        var reader=new FeedbackAnalysisService(f.store,f.objects,f.source,upgraded,policy());
+        var old=reader.historicalAsset(job.id(),owner);assertEquals("fixture",old.model());assertEquals("fixture-v1",old.policyHash());
+        assertEquals(4,old.snapshot().counts().total());assertFalse(reader.topics(old).isEmpty());
+        assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->reader.asset(job.id(),owner,request)).code());
+        assertEquals(calls,f.calls.get());assertEquals(1,f.exports.get());
+        assertThrows(AgentException.class,()->reader.historicalAsset(job.id(),new AccessScope("tenant","other",Set.of(1001L))));
+    }
     @Test void mergedChildrenReadOnlyTheRequestedMembersAndOutOfRangePagesReadNoChildren(){
         var f=new Fixture();var job=f.start(240);assertEquals(Phase.READY,f.finish(job.id()).phase());
         var asset=f.service.asset(job.id(),owner,request);var root=f.service.topics(asset).get(0);
