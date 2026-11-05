@@ -10,15 +10,16 @@ import java.time.*;
 import java.util.*;
 import static com.tianmu.agent.model.deepseek.StructuredModelOutput.*;
 
-final class DeepSeekHarnessModel implements ModelPort {
+public final class DeepSeekHarnessModel implements ModelPort {
     private final DeepSeekClient client;
     private final DeepSeekProperties config;
     private final ObjectMapper mapper;
     private final String systemPrompt, focusPrompt;
-    DeepSeekHarnessModel(DeepSeekClient client, DeepSeekProperties config, ObjectMapper mapper, PromptCatalog prompts) {
+    public DeepSeekHarnessModel(DeepSeekClient client, DeepSeekProperties config, ObjectMapper mapper, PromptCatalog prompts) {
         this.client = client; this.config = config; this.mapper = mapper;
         focusPrompt = prompts.text("common.current-focus-boundary"); systemPrompt = prompts.text("harness.system");
     }
+    public boolean streamsText(){return true;}
     public String modelName() { return config.harnessModel(); }
     public Decision decide(ModelContext context) {
         return decide(context, new CallControl(Instant.now().plusSeconds(30), new CancellationToken()));

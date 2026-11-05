@@ -1,11 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { hasAuthToken } from '@/lib/auth'
-import { checkCreatorAccess } from '@/api/agent'
+
 
 const routes = [
   { path: '/trace', name: 'TraceWorkspace', component: () => import('@/views/trace/TraceWorkspace.vue'), meta: { requestAuth: false } },
-  { path: '/agent', name: 'AgentWorkspace', component: () => import('@/views/agent/AgentWorkspace.vue'), meta: { requestAuth: true } },
+  { path: '/agent', name: 'AgentWorkspace', component: () => import('@/views/agent/AssistantPage.vue'), meta: { requestAuth: true } },
   { path: '/', redirect: '' },
   { path: '', name: 'Index', component: () => import('@/views/IndexVue.vue'), meta: { requestAuth: false } },
   { path: '/category/:categoryId', name: 'Category', component: () => import('@/views/category/CategoryVideo.vue'), meta: { requestAuth: false } },
@@ -61,14 +61,6 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.requestAuth && !hasAuthToken()) {
     ElMessage.warning("请先登录");
     return next("/");
-  }
-  if (to.name === 'AgentWorkspace') {
-    try {
-      await checkCreatorAccess(to.query.videoId)
-    } catch {
-      ElMessage.warning('运营助手仅供作者在本人视频中使用')
-      return next('/')
-    }
   }
   return next();
 });

@@ -7,14 +7,14 @@ public interface IdentityPort {
     AccessScope authenticate(String credential);
     /** Reattach process-local credentials after a caller has reauthenticated and the saved scope was authorized. */
     default void renew(AccessScope saved,AccessScope authenticated){
-        if(!saved.tenantId().equals(authenticated.tenantId()) || !saved.userId().equals(authenticated.userId()) || !authenticated.videoIds().containsAll(saved.videoIds()))
+        if(!saved.tenantId().equals(authenticated.tenantId()) || !saved.userId().equals(authenticated.userId()) || !authenticated.covers(saved))
             throw new com.tianmu.agent.core.AgentException("FORBIDDEN","Cannot renew a different authorization scope");
     }
     default AccessScope forCreate(String credential, String message, java.util.UUID replyToRunId) { return authenticate(credential); }
     default AccessScope forCreate(String credential, String message, java.util.UUID replyToRunId,
                                  com.tianmu.agent.core.RequestContext page, java.util.UUID sessionId) {
         AccessScope scope = forCreate(credential, message, replyToRunId);
-        if (page != null && !scope.videoIds().contains(Long.parseLong(page.videoId())))
+        if (page != null && !scope.readableVideoIds().contains(Long.parseLong(page.videoId())))
             throw new com.tianmu.agent.core.AgentException("FORBIDDEN", "Current video outside scope");
         return scope;
     }

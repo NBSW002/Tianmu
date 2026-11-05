@@ -142,6 +142,10 @@ export default {
           container: this.$refs.artRef,
         }));
 
+        this.instance.on("video:timeupdate", () => {
+          const milliseconds = Math.round(this.instance.currentTime * 1000);
+          if (Number.isSafeInteger(milliseconds) && milliseconds >= 0) this.$emit('playback-position', milliseconds);
+        });
         this.instance.on("video:loadstart", () => {
           this.loading = true;
           this.playbackError = "";

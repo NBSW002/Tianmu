@@ -8,7 +8,7 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Resolves only owned database references, never model-supplied media URLs. */
+/** Resolves published or owned database references, never model-supplied media URLs. */
 public final class BusinessVideoContent {
     public record Source(long videoId, String sourceVersion, long durationMs) {}
     public record Frame(long atMs, String jpegBase64) {}
@@ -23,7 +23,7 @@ public final class BusinessVideoContent {
     }
     public Source source(BusinessAuthentication.Principal principal, long videoId) { return resolve(principal, videoId).source(); }
     private Resolved resolve(BusinessAuthentication.Principal principal, long videoId) {
-        var rows = db.queryForList("SELECT file_url,duration FROM video WHERE video_id=? AND user_id=? AND is_delete=0", videoId, Long.parseLong(principal.userId()));
+        var rows = db.queryForList("SELECT file_url,duration FROM video WHERE video_id=? AND (status=2 OR user_id=?) AND is_delete=0", videoId, Long.parseLong(principal.userId()));
         if (rows.size() != 1) throw new BridgeException("FORBIDDEN", 403);
         if (minio == null) throw new BridgeException("VIDEO_STORAGE_UNAVAILABLE", 503);
         try {

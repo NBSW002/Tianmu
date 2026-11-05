@@ -70,6 +70,16 @@ class VideoAnalysisServiceTest {
             verifyNoInteractions(http);
         }
     }
+    @Test void publicReadGrantCanUseVideoUnderstandingButMissingReadGrantStopsBeforeModel() {
+        var beans=new StaticListableBeanFactory();var authorizations=new AtomicInteger();beans.addBean("video",port(authorizations));
+        var vision=mock(VisionModelPort.class);
+        when(vision.understand(any(),eq(VideoAnalysisService.FACT_FOCUS),anyString(),any())).thenReturn(JSON.createObjectNode().put("summary","公开视频画面").set("moments",JSON.createArrayNode().add(JSON.createObjectNode().put("atMs",500).put("observation","场景"))));
+        var service=new VideoAnalysisService(new VideoModelProperties(true,"compatible",URI.create("https://vision.example"),"key","vision",""),beans.getBeanProvider(VideoContentPort.class),new VideoContentCache(beans.getBeanProvider(javax.sql.DataSource.class),JSON),OpenTelemetry.noop().getTracer("test"),vision,mock(TranscriptionPort.class),new VideoAnalysisFlights());
+        var viewer=new AccessScope("tenant","viewer",Set.of(),"auth",Set.of(7L));
+        assertEquals("公开视频画面",service.analyze(7,null,null,"",viewer,control()).summary());
+        assertThrows(AgentException.class,()->service.analyze(7,null,null,"",new AccessScope("tenant","viewer",Set.of()),control()));
+        verify(vision,times(1)).understand(any(),eq(VideoAnalysisService.FACT_FOCUS),anyString(),any());
+    }
     @Test void differentlyWordedQuestionsReuseGenericFactsAndStillReauthorize() {
         var beans=new StaticListableBeanFactory();var authorizations=new AtomicInteger();beans.addBean("video",port(authorizations));
         var vision=mock(VisionModelPort.class);

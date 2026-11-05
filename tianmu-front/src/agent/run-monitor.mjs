@@ -49,6 +49,9 @@ function start(turn) {
           if (!Number.isSafeInteger(seq) || seq <= sequence) return;
           sequence = seq;
           const data = payload.data || {};
+          if (event.type === 'TEXT_START' || event.type === 'TEXT_END') turn.streamingText = '';
+          if (event.type === 'TEXT_DELTA' && typeof data.text === 'string') turn.streamingText = (turn.streamingText || '') + data.text;
+          if (event.type === 'MODEL_SELECTED') turn.modelLabel = data.label || data.model;
           if (event.type === 'PROGRESS') {
             turn.events.push({
               sequence: seq,

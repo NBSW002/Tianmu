@@ -43,9 +43,9 @@ function key(event) {
 </template>
 
 <style scoped>
-.trace-divider { width: 8px; flex: 0 0 8px; position: relative; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; background: #faf8fc; z-index: 5; }
-.trace-divider span { width: 2px; height: 28px; border-radius: 2px; background: #dcd3e2; }
-.trace-divider:hover, .trace-divider.dragging, .trace-divider:focus-visible { background: #f4e6ef; outline: none; }
-.trace-divider:hover span, .trace-divider.dragging span, .trace-divider:focus-visible span { background: #c082a7; }
+.trace-divider { width: 8px; flex: 0 0 8px; position: relative; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; background: var(--workbench-paper); z-index: 5; }
+.trace-divider span { width: 2px; height: 28px; border-radius: 2px; background: var(--workbench-border); }
+.trace-divider:hover, .trace-divider.dragging, .trace-divider:focus-visible { background: var(--workbench-border); outline: none; }
+.trace-divider:hover span, .trace-divider.dragging span, .trace-divider:focus-visible span { background: var(--workbench-accent); }
 @media(max-width:1100px) { .trace-divider { display: none; } }
 </style>

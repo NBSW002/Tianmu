@@ -46,7 +46,7 @@ public final class VideoAnalysisService {
     }
     public VideoContent.Facts analyze(long videoId, Long start, Long end, String focus, AccessScope scope, CallControl control) {
         VideoAnalysisFlights.checkpoint(control);
-        if (!scope.videoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Video outside prepared scope");
+        if (!scope.readableVideoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Video outside prepared scope");
         if (!config.enabled()) throw new AgentException("VIDEO_CONTENT_UNAVAILABLE", "Video understanding is not configured; do not claim to have watched the video");
         VideoContentPort port = ports.getIfAvailable();
         if (port == null) throw new AgentException("VIDEO_CONTENT_UNAVAILABLE", "No authorized video content adapter");

@@ -3,7 +3,9 @@ package com.tianmu.agent.runtime.control;
 import java.time.Instant;
 
 /** Do not serialize into prompts. Adapters should apply this deadline and register request cancellation. */
-public record CallControl(Instant deadline, CancellationToken cancellation, ModelBudget budget, Runnable externalCallStarted) {
+public record CallControl(Instant deadline, CancellationToken cancellation, ModelBudget budget, Runnable externalCallStarted, java.util.function.Consumer<String> textOutput) {
+    public CallControl(Instant deadline,CancellationToken cancellation,ModelBudget budget,Runnable started){this(deadline,cancellation,budget,started,null);}
+    public CallControl withTextOutput(java.util.function.Consumer<String> sink){return new CallControl(deadline,cancellation,budget,externalCallStarted,sink);}
     public CallControl {
         java.util.Objects.requireNonNull(deadline); java.util.Objects.requireNonNull(cancellation);
         java.util.Objects.requireNonNull(budget); java.util.Objects.requireNonNull(externalCallStarted);
@@ -12,6 +14,6 @@ public record CallControl(Instant deadline, CancellationToken cancellation, Mode
     public CallControl(Instant deadline, CancellationToken cancellation) {
         this(deadline, cancellation, new ModelBudget(0, 8192), () -> {});
     }
-    public CallControl withBudget(ModelBudget value) { return new CallControl(deadline, cancellation, value, externalCallStarted); }
+    public CallControl withBudget(ModelBudget value) { return new CallControl(deadline, cancellation, value, externalCallStarted,textOutput); }
     public void checkpoint() { cancellation.checkpoint(); }
 }

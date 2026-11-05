@@ -12,6 +12,9 @@ import com.tianmu.agent.core.StopReason;
 
 @Service
 public class RunService {
+    private com.tianmu.agent.model.RuntimeModelCatalog modelCatalog;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void modelCatalog(com.tianmu.agent.model.RuntimeModelCatalog catalog){this.modelCatalog=catalog;}
     private final Map<UUID, RunState> runs = new ConcurrentHashMap<>();
     private final org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor;
     private final boolean ownsExecutor;
@@ -51,7 +54,10 @@ public class RunService {
     }
     public RunState create(String message, AccessScope owner) { return create(message, owner, null, null, null); }
     public RunState create(String message, AccessScope owner, UUID session, String key, UUID reply) { return create(message, owner, session, key, reply, null); }
-    public synchronized RunState create(String message, AccessScope owner, UUID session, String key, UUID reply, com.tianmu.agent.core.RequestContext context) {
+    public synchronized RunState create(String message, AccessScope owner, UUID session, String key, UUID reply, com.tianmu.agent.core.RequestContext context) {return create(message,owner,session,key,reply,context,null);}
+    public synchronized RunState create(String message, AccessScope owner, UUID session, String key, UUID reply, com.tianmu.agent.core.RequestContext context,String modelId) {
+        if(modelCatalog==null && modelId!=null && !modelId.isBlank())throw new AgentException("MODEL_NOT_AVAILABLE","Model selection requires a configured catalog");
+        var selection=modelCatalog==null?null:modelCatalog.select(modelId);
         if (key != null && !key.matches("[A-Za-z0-9_.:-]{1,128}")) throw new AgentException("INVALID_REQUEST", "Invalid Idempotency-Key");
         // Demo retention is lazy and process-local; production must use a persistent RunRepository.
         runs.values().removeIf(run -> {
@@ -61,9 +67,10 @@ public class RunService {
             return expired;
         });
         if (runs.values().stream().filter(r -> !com.tianmu.agent.core.AgentTypes.terminal(r.snapshot().status())).count() >= 200) throw new AgentException("CAPACITY_EXCEEDED", "Demo run capacity reached");
-        var created = repository.create(message, owner, session, key, reply, context);
+        var created = selection==null ? repository.create(message,owner,session,key,reply,context) : repository.create(message, owner, session, key, reply, context,selection.choice());
         if (!created.fresh()) return created.run();
         RunState run = created.run();
+        run.selectModel(selection);
         runs.put(run.id, run);
         try {
             submit(run);
@@ -80,6 +87,10 @@ public class RunService {
         if (com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status())) executor.getThreadPoolExecutor().remove(work);
     }
     private void track(RunState run){
+        if(run.modelChoice()!=null && !run.modelBound()){
+            if(modelCatalog==null)throw new AgentException("MODEL_REVISION_UNAVAILABLE","Pinned model catalog unavailable");
+            run.selectModel(modelCatalog.restore(run.modelChoice()));
+        }
         harness.start(run);
         run.onTerminal(snapshot->completionListeners.forEach(listener->{
             try{listener.completed(run,snapshot);}
@@ -100,7 +111,7 @@ public class RunService {
         if (run == null || !run.owner.tenantId().equals(caller.tenantId())
                 || !run.owner.userId().equals(caller.userId()))
             throw new AgentException("RUN_NOT_FOUND", "Run not found");
-        if (!caller.videoIds().containsAll(run.owner.videoIds()))
+        if (!caller.covers(run.owner))
             throw new AgentException("FORBIDDEN", "Access scope changed; old results cannot be read");
         // HTTP cancellation must stop the actual worker, not a newly materialized storage projection.
         RunState local = runs.get(id);
@@ -150,7 +161,7 @@ public class RunService {
                     }
                 });
         try {
-            for(RunState run:repository.recoverWaiting())if(runs.putIfAbsent(run.id,run)==null)track(run);
+            for(RunState run:repository.recoverWaiting())if(runs.putIfAbsent(run.id,run)==null){try{track(run);}catch(AgentException e){run.fail(e.code());}}
             for (RunState run : repository.recoverQueued()) if (runs.putIfAbsent(run.id, run) == null) {
                 try { submit(run); }
                 catch (AgentException e) { run.fail(e.code()); }

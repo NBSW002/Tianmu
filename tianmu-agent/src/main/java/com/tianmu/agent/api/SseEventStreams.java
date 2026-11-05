@@ -77,7 +77,7 @@ public class SseEventStreams implements AutoCloseable {
                     for (var event : batch.events()) {
                         if (stopped.get()) return;
                         emitter.send(SseEmitter.event().id(Long.toString(event.sequence())).name(event.type()).data(event));
-                        if (Set.of("ANSWER", "CLARIFICATION", "ERROR").contains(event.type()) && firstContent.compareAndSet(false, true))
+                        if (Set.of("TEXT_DELTA", "ANSWER", "CLARIFICATION", "ERROR").contains(event.type()) && firstContent.compareAndSet(false, true))
                             TraceAttributes.apply(span, Map.of("delivery.first_content_ms",
                                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - subscribedAt),
                                     "delivery.e2e_ms", Math.max(0, java.time.Duration.between(createdAt, java.time.Instant.now()).toMillis())));

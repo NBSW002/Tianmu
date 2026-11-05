@@ -10,9 +10,21 @@ public final class AgentTypes {
     private AgentTypes() {}
     public enum Status { QUEUED, RUNNING, WAITING_OPERATION, SUCCEEDED, NEEDS_INPUT, FAILED, CANCELLED }
     public enum Kind { TOOL, ANSWER, CLARIFY }
-    public record AccessScope(String tenantId, String userId, Set<Long> videoIds, String authorizationRef) {
-        public AccessScope(String tenantId, String userId, Set<Long> videoIds) { this(tenantId, userId, videoIds, ""); }
-        public AccessScope { videoIds = Set.copyOf(videoIds); authorizationRef = authorizationRef == null ? "" : authorizationRef; }
+    /** videoIds are creator grants; readableVideoIds also includes published content. */
+    public record AccessScope(String tenantId, String userId, Set<Long> videoIds, String authorizationRef, Set<Long> readableVideoIds) {
+        public AccessScope(String tenantId, String userId, Set<Long> videoIds) { this(tenantId, userId, videoIds, "", videoIds); }
+        public AccessScope(String tenantId, String userId, Set<Long> videoIds, String authorizationRef) { this(tenantId, userId, videoIds, authorizationRef, videoIds); }
+        public AccessScope {
+            videoIds = Set.copyOf(videoIds);
+            // Old persisted scopes contained only owner grants.
+            readableVideoIds = readableVideoIds == null ? videoIds : Set.copyOf(readableVideoIds);
+            if (!readableVideoIds.containsAll(videoIds)) throw new IllegalArgumentException("Creator grants must be readable");
+            authorizationRef = authorizationRef == null ? "" : authorizationRef;
+        }
+        public boolean covers(AccessScope required) {
+            return tenantId.equals(required.tenantId) && userId.equals(required.userId)
+                    && videoIds.containsAll(required.videoIds) && readableVideoIds.containsAll(required.readableVideoIds);
+        }
     }
     public record ToolCall(String name, Map<String, Object> arguments, String providerCallId,String providerGroupId) {
         public ToolCall(String name,Map<String,Object> arguments) { this(name,arguments,null,null); }

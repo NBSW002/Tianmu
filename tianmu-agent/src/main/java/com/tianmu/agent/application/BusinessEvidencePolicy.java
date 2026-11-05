@@ -38,7 +38,7 @@ public final class BusinessEvidencePolicy {
         public void checkVideoQuery(EvidenceContext run, long videoId, Long startMs, Long endMs) {
             AnalysisExecutionPolicy.requireSource(run.task() == null ? null : run.task().specification(), com.tianmu.agent.core.AnalysisContract.Source.VIDEO);
             run.checkpoint();
-            if (!run.scope().videoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Video outside scope");
+            if (!run.scope().readableVideoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Video outside scope");
             checkPinnedVideo(run, videoId);
             if (run.task() == null) return;
             var expected = run.task().specification().typed();

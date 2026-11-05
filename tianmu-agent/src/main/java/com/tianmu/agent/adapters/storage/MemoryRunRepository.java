@@ -21,7 +21,8 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
     private final Map<UUID,FocusAt> focuses = new HashMap<>();
     private record Report(UUID runId, byte[] html,String evidenceId,Instant createdAt) {}
     private final Map<String, Report> reports = new HashMap<>();
-    public synchronized Created create(String message, AccessScope owner, UUID session, String key, UUID reply, RequestContext context) {
+    public synchronized Created create(String message, AccessScope owner, UUID session, String key, UUID reply, RequestContext context) {return create(message,owner,session,key,reply,context,null);}
+    public synchronized Created create(String message, AccessScope owner, UUID session, String key, UUID reply, RequestContext context, com.tianmu.agent.model.RuntimeModelCatalog.Choice model) {
         String query = com.tianmu.agent.application.RequestMessages.execution(message, context);
         runs.values().removeIf(r -> r.createdAt.isBefore(Instant.now().minusSeconds(3600)) && AgentTypes.terminal(r.snapshot().status()));
         keys.values().removeIf(id -> !runs.containsKey(id));
@@ -33,7 +34,7 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
         String identity = owner.tenantId() + ":" + owner.userId() + ":" + key;
         if (key != null && keys.containsKey(identity)) {
             RunState existing = load(keys.get(identity), owner);
-            if (!existing.message.equals(message) || !Objects.equals(contexts.get(existing.id), context) || !existing.query().equals(query) || session != null && !session.equals(existing.sessionId))
+            if (!Objects.equals(existing.modelChoice()==null?null:existing.modelChoice().id(),model==null?null:model.id()) || !existing.message.equals(message) || !Objects.equals(contexts.get(existing.id), context) || !existing.query().equals(query) || session != null && !session.equals(existing.sessionId))
                 throw new AgentException("IDEMPOTENCY_CONFLICT", "Idempotency key has a different request");
             return new Created(existing, false);
         }
@@ -49,7 +50,7 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
         Instant now = Instant.now();
         RunState run = new RunState(UUID.randomUUID(), session, turn, owner, message, query, now, now.plusSeconds(30),
                 RunBackend.MEMORY, new InMemoryRunEventStore(), new InMemoryEvidenceStore(), false);
-        run.pageContext(context);
+        run.pageContext(context);run.modelChoice(model);
         run.emit("PROGRESS", Map.of("stage", "queued", "run_id", run.id.toString()));
         runs.put(run.id, run); if (context != null) contexts.put(run.id, context); if (key != null) keys.put(identity, run.id);
         return new Created(run, true);
@@ -58,13 +59,21 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
         RunState run = runs.get(id);
         if (run == null || !run.owner.tenantId().equals(caller.tenantId()) || !run.owner.userId().equals(caller.userId()))
             throw new AgentException("RUN_NOT_FOUND", "Run not found");
-        return run.owner.videoIds();
+        return run.owner.readableVideoIds();
+    }
+    @Override public synchronized Set<Long> resourcesForSession(UUID session, AccessScope caller, long before) {
+        boolean exists = runs.values().stream().anyMatch(r -> r.sessionId.equals(session) && r.owner.tenantId().equals(caller.tenantId()) && r.owner.userId().equals(caller.userId()));
+        if (!exists) throw new AgentException("SESSION_NOT_FOUND", "Session not found");
+        Set<Long> result = new HashSet<>();
+        runs.values().stream().filter(r -> r.sessionId.equals(session) && r.owner.tenantId().equals(caller.tenantId()) && r.owner.userId().equals(caller.userId()) && r.turnSeq < before)
+            .sorted(Comparator.comparingLong((RunState r) -> r.turnSeq).reversed()).limit(50).forEach(r -> result.addAll(r.owner.readableVideoIds()));
+        return Set.copyOf(result);
     }
     public synchronized RunState load(UUID id, AccessScope caller) {
         RunState run = runs.get(id);
         if (run == null || !run.owner.tenantId().equals(caller.tenantId()) || !run.owner.userId().equals(caller.userId()))
             throw new AgentException("RUN_NOT_FOUND", "Run not found");
-        if (!caller.videoIds().containsAll(run.owner.videoIds())) throw new AgentException("FORBIDDEN", "Historical scope is no longer accessible");
+        if (!caller.covers(run.owner)) throw new AgentException("FORBIDDEN", "Historical scope is no longer accessible");
         return run;
     }
     private List<MemoryTypes.Message> history(UUID session, AccessScope owner, long beforeTurn) {
@@ -76,7 +85,7 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
                     result.add(new MemoryTypes.Message(UUID.nameUUIDFromBytes((r.id+":user").getBytes(java.nio.charset.StandardCharsets.UTF_8)),r.id,r.turnSeq*2-1,"user",r.message,r.createdAt));
                     String answer = snapshot.answer() != null ? snapshot.answer().text() : snapshot.clarification();
                     if (answer != null) result.add(new MemoryTypes.Message(UUID.nameUUIDFromBytes((r.id+":assistant").getBytes(java.nio.charset.StandardCharsets.UTF_8)),r.id,r.turnSeq*2,"assistant",
-                            owner.videoIds().containsAll(r.owner.videoIds()) ? answer : "[先前视频结果当前无权限，已隐藏]",r.createdAt));
+                            owner.covers(r.owner) ? answer : "[先前视频结果当前无权限，已隐藏]",r.createdAt));
                 });
         return result;
     }

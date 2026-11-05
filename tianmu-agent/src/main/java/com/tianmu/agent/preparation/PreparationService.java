@@ -76,7 +76,7 @@ public class PreparationService implements AutoCloseable {
         if (repository != null) run.memory(harness.stage(run, "agent.memory.load", null, null, Map.of(), () -> repository.memory(run)));
         var page = run.pageContext();
         if (page != null) {
-            if (!run.owner.videoIds().contains(Long.parseLong(page.videoId()))) throw new AgentException("FORBIDDEN","Current page outside scope");
+            if (!run.owner.readableVideoIds().contains(Long.parseLong(page.videoId()))) throw new AgentException("FORBIDDEN","Current page outside scope");
             var port = pages == null ? null : pages.getIfAvailable();
             if (port != null) {
                 var metadata = port.page(Long.parseLong(page.videoId()),run.owner);
@@ -93,7 +93,7 @@ public class PreparationService implements AutoCloseable {
                         new CallControl(deadline(run,policy.understandingTimeout()),run.cancellation())));
                 if(!candidates.hasMore() && candidates.items().size()==1){var match=candidates.items().get(0);
                     int end=Math.min(160,match.title().length());if(end>0 && Character.isHighSurrogate(match.title().charAt(end-1)))end--;
-                    if(run.owner.videoIds().contains(Long.parseLong(match.videoId())))page=new com.tianmu.agent.core.RequestContext(match.videoId(),match.title().substring(0,end),null);
+                    if(run.owner.readableVideoIds().contains(Long.parseLong(match.videoId())))page=new com.tianmu.agent.core.RequestContext(match.videoId(),match.title().substring(0,end),null);
                 }
             }
         }

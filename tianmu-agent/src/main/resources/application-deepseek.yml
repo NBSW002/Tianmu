@@ -7,6 +7,7 @@ agent:
     model: ${VIDEO_MODEL:deepseek-flash}
     transcription-model: ${VIDEO_TRANSCRIPTION_MODEL:}
   models:
+    catalog: ${AGENT_MODELS_CATALOG:}
     base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
     api-key: ${DEEPSEEK_API_KEY:}
     preparation-model: ${PREPARATION_MODEL:deepseek-flash}

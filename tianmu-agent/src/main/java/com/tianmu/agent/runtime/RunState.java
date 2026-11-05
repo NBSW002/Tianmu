@@ -15,6 +15,17 @@ import java.util.function.Consumer;
 
 /** Task state and terminal arbitration. Execution data, event storage and transport are separate. */
 public class RunState implements EvidenceContext {
+    private com.tianmu.agent.model.RuntimeModelCatalog.Selection selectedModel;
+    private com.tianmu.agent.model.RuntimeModelCatalog.Choice modelChoice;
+    public synchronized void modelChoice(com.tianmu.agent.model.RuntimeModelCatalog.Choice value){modelChoice=value;}
+    public synchronized com.tianmu.agent.model.RuntimeModelCatalog.Choice modelChoice(){return modelChoice;}
+    public synchronized boolean modelBound(){return selectedModel!=null;}
+    public synchronized void selectModel(com.tianmu.agent.model.RuntimeModelCatalog.Selection selection) {
+        if(selectedModel!=null)throw new IllegalStateException("Model already selected");if(modelChoice!=null && (selection==null || !modelChoice.equals(selection.choice())))throw new com.tianmu.agent.core.AgentException("MODEL_REVISION_UNAVAILABLE","Pinned model configuration is no longer available");
+        selectedModel=selection;if(selection!=null)modelChoice=selection.choice();
+        if(selection!=null)emit("MODEL_SELECTED",selection.choice());
+    }
+    public synchronized com.tianmu.agent.model.ModelPort modelOr(com.tianmu.agent.model.ModelPort fallback){if(modelChoice!=null && selectedModel==null)throw new com.tianmu.agent.core.AgentException("MODEL_REVISION_UNAVAILABLE","Pinned model must be restored before execution");return selectedModel==null?fallback:selectedModel.model();}
     public final UUID id;
     public final UUID sessionId;
     public final long turnSeq;

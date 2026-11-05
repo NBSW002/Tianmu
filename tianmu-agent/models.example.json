@@ -1,0 +1,23 @@
+{
+  "defaultModel": "fast",
+  "models": [
+    {
+      "id": "fast",
+      "label": "日常对话",
+      "baseUrl": "https://api.deepseek.com",
+      "model": "deepseek-flash",
+      "keyEnv": "DEEPSEEK_API_KEY",
+      "maxTokens": 3072,
+      "enabled": true
+    },
+    {
+      "id": "alternative",
+      "label": "备用模型（配置后启用）",
+      "baseUrl": "https://your-provider.example/v1",
+      "model": "replace-with-provider-model-id",
+      "keyEnv": "ALTERNATIVE_MODEL_API_KEY",
+      "maxTokens": 3072,
+      "enabled": false
+    }
+  ]
+}

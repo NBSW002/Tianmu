@@ -28,7 +28,7 @@
           </div>
         </div>
         <!-- 播放器组件 -->
-        <Artplayer
+        <Artplayer @playback-position="updateAssistantPlayback"
           ref="artplayerRef"
           v-if="videoDetail.fileUrl"
           :videoUrl="mediaVideoUrl(videoDetail.fileUrl)"
@@ -258,9 +258,7 @@
         </div>
       </div>
     </div>
-    <el-drawer v-model="assistantOpen" class="operations-drawer" title="EchoFrame运营助手" append-to-body size="min(1120px, 96vw)" :with-header="false" :close-on-click-modal="false" @closed="assistantClosed">
-      <AgentWorkspace v-if="assistantMounted && isVideoAuthor" embedded :video-id="String($route.params.videoId)" :video-title="videoDetail.title || ''" @close="assistantOpen = false" />
-    </el-drawer>
+
   </div>
 </template>
 
@@ -294,7 +292,8 @@ import {
   fetchTripleVideo,
   fetchDelDanmu,
 } from "@/api/video";
-import { toRaw, defineAsyncComponent } from "vue";
+import { toRaw } from "vue";
+import { useAssistantStore } from '@/store/assistant';
 import { useUserStore } from "@/store/user";
 import { mapState, mapActions } from "pinia";
 import { mediaVideoUrl } from "@/lib/media";
@@ -308,13 +307,10 @@ export default {
     VAvatar,
     DanmuBox,
     VideoSmallCard,
-    AgentWorkspace: defineAsyncComponent(() => import('@/views/agent/AgentWorkspace.vue')),
   },
   data() {
     return {
       socket: null,
-      assistantOpen: false,
-      assistantMounted: false,
       videoDetail: {}, //视频详细信息
       commentCount: 0, //评论数
       danmuList: [], //弹幕数据
@@ -401,29 +397,33 @@ export default {
     },
   },
   watch: {
+    videoDetail: {
+      deep: true,
+      handler(video) {
+        if (String(video.videoId) === String(this.$route.params.videoId)) {
+          const store = useAssistantStore();
+          store.page = { videoId: String(video.videoId), title: video.title || '', playbackMs: store.page?.videoId === String(video.videoId) ? store.page.playbackMs : null };
+        }
+      },
+    },
     isVideoAuthor: {
       immediate: true,
       handler(allowed) {
-        if (!allowed) {
-          this.assistantOpen = false;
-          this.assistantMounted = false;
-        } else if (this.$route.query.assistant === '1') this.openAssistant();
+        if (allowed && this.$route.query.assistant === '1') this.openAssistant();
       },
     },
   },
   methods: {
+    updateAssistantPlayback(milliseconds) {
+      const store = useAssistantStore();
+      if (store.page?.videoId === String(this.$route.params.videoId)) store.page.playbackMs = milliseconds;
+    },
     mediaVideoUrl,
     openAssistant() {
       if (!this.isVideoAuthor) return;
-      this.assistantMounted = true;
-      this.assistantOpen = true;
+      useAssistantStore().show();
       if (this.$route.query.assistant !== '1') {
         this.$router.replace({ query: { ...this.$route.query, assistant: '1' } });
-      }
-    },
-    assistantClosed() {
-      if (this.$route.query.assistant) {
-        this.$router.replace({ query: { ...this.$route.query, assistant: undefined } });
       }
     },
     ...mapActions(useUserStore, [

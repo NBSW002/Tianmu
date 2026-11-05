@@ -1,7 +1,8 @@
 <template>
-  <div class="agent-workspace" :class="{ embedded }">
-    <aside class="workspace-sidebar">
-      <a class="workspace-brand" href="/">EchoFrame<span>运营助手</span></a>
+  <div class="agent-workspace" :class="{ embedded, 'history-open': navigationOpen }" @keydown.esc="closeNavigation" @keydown.tab="cycleNavigation">
+    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航">
+      <button class="history-close" type="button" aria-label="关闭会话历史" @click="hideNavigation">×</button>
+      <a class="workspace-brand" href="/">EchoFrame<span>个人助手</span></a>
       <button class="new-analysis" :disabled="busy" @click="newAnalysis">＋ 开启新对话</button>
       <div class="history-heading">
         最近对话 <span>{{ history.length }}</span>
@@ -17,22 +18,25 @@
         >
           <span class="history-title">{{ item.title }}</span>
           <span class="history-meta"
-            >{{ formatDate(item.createdAt) }} · {{ statusLabel(item.status) }}</span
+            ><time>{{ formatDate(item.createdAt) }}</time><span>{{ statusLabel(item.status) }}</span></span
           >
         </button>
       </nav>
-      <div class="sidebar-footer"><span class="online-dot" /> EchoFrame AI · 和你一起做好内容</div>
+      <div class="sidebar-footer"><span class="online-dot" /> EchoFrame AI</div>
     </aside>
-    <main class="workspace-main">
+    <button v-if="navigationOpen" class="history-scrim" type="button" aria-label="关闭会话历史" @click="hideNavigation" />
+    <main class="workspace-main" :inert="navigationOpen || undefined">
       <header class="workspace-header">
         <div class="assistant-identity">
-          <span class="brand-symbol">✦</span>
-          <div><strong>EchoFrame运营助手</strong><span>内容洞察，从对话开始</span></div>
+          <button ref="historyToggle" type="button" class="history-toggle" aria-label="打开会话历史" aria-controls="assistant-conversations" :aria-expanded="navigationOpen" @click="toggleNavigation"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M7 3v14" stroke="currentColor" stroke-width="1.4"/></svg></button>
+          <span class="brand-symbol"><EchoMark /></span>
+          <div><strong>EchoFrame个人助手</strong><span>围绕你的问题，开始对话</span></div>
         </div>
+        <button v-if="embedded" class="text-button" :disabled="busy" @click="newAnalysis">新对话</button>
         <button
           v-if="embedded"
           class="close-assistant"
-          aria-label="关闭运营助手"
+          aria-label="关闭个人助手"
           @click="$emit('close')"
         >
           ×
@@ -43,11 +47,13 @@
       </header>
       <div ref="conversationElement" class="conversation-scroll">
         <div class="workspace-content">
+          <VideoContentIndex v-if="form.videoId && !contextPending" :key="form.videoId" :video-id="form.videoId" />
+          <button v-if="historyCursor" class="text-button" :disabled="loadingHistory" @click="loadOlderMessages">{{ loadingHistory ? '正在读取…' : '加载更早的消息' }}</button>
           <section v-if="!conversationTurns.length" class="workspace-intro">
-            <div class="welcome-symbol" aria-hidden="true">✦<i>✧</i></div>
-            <div class="intro-tag">你的内容运营搭档</div>
-            <h1>{{ form.videoId ? '这个视频，下一步怎么做？' : '一起，做好下一次内容。' }}</h1>
-            <p>分析观众反馈、查看互动数据，或深入一个视频片段。<br />选择下方功能，也可以直接提问。</p>
+            <div class="welcome-symbol" aria-hidden="true"><EchoMark /></div>
+            <div class="intro-tag">随时交流，继续你的思考</div>
+            <h1>{{ form.videoId ? '这个视频，下一步怎么做？' : '今天有什么想聊的？' }}</h1>
+            <p>{{ creator ? '分析自己的视频、整理观众反馈，或直接提问。' : '解释概念、整理思路，或一起制定计划。' }}</p>
             <div class="conversation-context" v-if="form.videoId">
               <span>▣ 当前视频</span><strong>{{ contextTitle || '视频 ' + form.videoId }}</strong
               ><small>#{{ form.videoId }}</small>
@@ -66,8 +72,8 @@
             </div>
             <p class="suggestion-hint">点选问题后可以修改，确认后再发送。</p>
           </section>
-          <details class="workspace-tools" @toggle="toolsOpen = $event.target.open">
-            <summary>更多工具<span>实时弹幕汇总 · 常见问答</span></summary>
+          <details v-if="creator" class="workspace-tools" @toggle="toolsOpen = $event.target.open">
+            <summary>更多工具<span>实时弹幕汇总 / 常见问答</span></summary>
             <template v-if="toolsOpen">
               <RoomAudience v-if="form.videoId" :video-id="form.videoId" />
               <QaKnowledge />
@@ -87,37 +93,32 @@
             v-if="conversationTurns.length"
             ref="resultsElement"
             class="results"
-            aria-label="运营助手对话"
+            aria-label="个人助手对话"
           >
             <article v-for="turn in conversationTurns" :key="turn.localId || turn.runId" class="analysis-turn">
               <div class="user-question">
                 <span>你</span>
-                <p>{{ turn.message }}</p>
+                <p>{{ turn.message }}<small v-if="turn.videoId" class="turn-video"> · {{ turn.videoTitle || '视频 #' + turn.videoId }}{{ turn.playbackMs != null ? ' · ' + Math.floor(turn.playbackMs / 60000) + ':' + String(Math.floor(turn.playbackMs / 1000) % 60).padStart(2, '0') : '' }}</small></p>
               </div>
               <section v-if="turn.command === 'log'" class="assistant-result" aria-label="Trace ID 回复">
-                <div class="result-heading"><span class="assistant-avatar" aria-hidden="true">✦</span><strong>EchoFrame运营助手</strong></div>
+                <div class="result-heading"><span class="assistant-avatar" aria-hidden="true"><EchoMark /></span><strong>EchoFrame个人助手</strong></div>
                 <p class="answer-text">{{ turn.text }}</p>
                 <code v-if="turn.traceId" class="trace-id-reply">{{ turn.traceId }}</code>
                 <router-link v-if="turn.href" :to="turn.href" target="_blank" rel="noopener" class="text-button">查看运行追踪 ↗</router-link>
               </section>
               <section v-else class="assistant-result">
                 <div class="result-heading">
-                  <span class="assistant-avatar" aria-hidden="true">✦</span
-                  ><strong>EchoFrame运营助手</strong
+                  <span class="assistant-avatar" aria-hidden="true"><EchoMark /></span
+                  ><strong>EchoFrame个人助手</strong
                   ><span
                     class="status-badge"
                     :class="(turn.snapshot?.status || '').toLowerCase()"
                     >{{ statusLabel(turn.snapshot?.status) }}</span
                   >
                 </div>
-                <div v-if="turn.snapshot" class="execution-summary">
-                  <span v-if="!isTerminal(turn.snapshot.status)"
-                    >已等待 {{ elapsed(turn.waitClock) }}</span
-                  ><span v-if="turn.snapshot.totalModelCalls"
-                    >模型调用合计 {{ turn.snapshot.totalModelCalls }} 次</span
-                  ><span v-if="turn.snapshot.steps">已执行 {{ turn.snapshot.steps }} 轮</span>
-                  <span v-if="turn.events.some(event => event.analysisCalls !== undefined)">后台分析模型调用 {{ Math.max(...turn.events.map(event => event.analysisCalls || 0)) }} 次</span>
-                </div>
+                <small v-if="turn.modelLabel">{{ turn.modelLabel }}</small>
+                <p v-if="turn.streamingText && !isTerminal(turn.snapshot?.status)" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
+
                 <div
                   v-if="!isTerminal(turn.snapshot?.status)"
                   class="working-message"
@@ -163,7 +164,15 @@
                   {{ cancelling ? '正在停止…' : '停止生成' }}
                 </button>
                 <details v-if="turn.events.length" class="execution-details">
-                  <summary>查看执行进度 · {{ turn.events.length }} 条记录</summary>
+                  <summary>查看执行进度 <span>{{ turn.events.length }} 条记录</span></summary>
+                <div v-if="turn.snapshot" class="execution-summary">
+                  <span v-if="!isTerminal(turn.snapshot.status)"
+                    >已等待 {{ elapsed(turn.waitClock) }}</span
+                  ><span v-if="turn.snapshot.totalModelCalls"
+                    >模型调用合计 {{ turn.snapshot.totalModelCalls }} 次</span
+                  ><span v-if="turn.snapshot.steps">已执行 {{ turn.snapshot.steps }} 轮</span>
+                  <span v-if="turn.events.some(event => event.analysisCalls !== undefined)">后台分析模型调用 {{ Math.max(...turn.events.map(event => event.analysisCalls || 0)) }} 次</span>
+                </div>
                   <ol>
                     <li v-for="event in turn.events" :key="event.sequence">
                       <span>{{ event.label }}</span
@@ -208,8 +217,8 @@
         </div>
       </div>
       <div class="composer-wrap">
-        <div v-if="turns.length && form.videoId" class="composer-context">
-          <span>▣ {{ contextTitle || '当前视频' }}</span
+        <div v-if="form.videoId" class="composer-context">
+          <button type="button" class="text-button" @click="form.videoId = ''" aria-label="移除当前视频上下文">×</button><span>▣ {{ contextTitle || '当前视频' }}</span
           ><small>#{{ form.videoId }}</small
           ><span v-if="needsInput" class="reply-hint">助手需要你补充信息</span>
         </div>
@@ -217,35 +226,43 @@
           <button v-for="item in quickSuggestions" :key="item.text" type="button" @click="useSuggestion(item)">{{ item.title }} ↗</button>
         </div>
         <form class="chat-composer" @submit.prevent="submit">
-          <label class="sr-only" for="assistant-message">给运营助手发消息</label>
+          <label class="sr-only" for="assistant-message">给个人助手发消息</label>
           <textarea
             id="assistant-message"
             ref="composerInput"
             v-model="focus"
             :disabled="submitting || loadingRun"
             :maxlength="messageLimit"
-            rows="3"
+            rows="2"
             :placeholder="
               needsInput
                 ? '补充一下信息，我们接着聊…'
-                : form.videoId ? '问问这个视频的内容、某个片段，或聊聊观众反馈…' : '聊聊运营思路、互动设计，或想写的文案…'
+                : form.videoId ? '问问这个视频的内容、某个片段，或聊聊观众反馈…' : '提问、整理想法，或一起制定计划…'
             "
+            @compositionstart="compositionGuard.start"
+            @compositionend="compositionGuard.end"
+            @blur="compositionGuard.reset"
             @keydown.enter.exact="composerEnter"
           />
           <div class="composer-actions">
-            <span><i>✦</i> {{ running ? '正在为你处理…' : '可以追问，也可以换个话题' }}</span
-            ><button
+            <span class="composer-hint"><i>✦</i><span>{{ running ? '正在为你处理…' : '可以追问，也可以换个话题' }}</span></span>
+            <div class="composer-controls">
+              <button type="button" class="model-refresh" :disabled="modelsLoading || submitting" @click="refreshModels" aria-label="刷新模型列表" title="刷新模型列表">↻</button>
+              <select v-if="modelChoices.length" class="model-select" :disabled="submitting" v-model="selectedModel" aria-label="选择模型"><option value="">默认模型</option><option v-for="item in modelChoices" :key="item.id" :value="item.id">{{ item.label }}</option></select>
+              <button
               type="submit"
               class="send-button"
               :disabled="!focus.trim() || submitting || loadingRun || (running && !isLogCommand(focus))"
               :aria-label="submitting ? '正在发送' : '发送消息'"
             >
               {{ submitting ? '…' : '↑' }}
-            </button>
+              </button>
+            </div>
           </div>
+          <p v-if="modelError" class="model-error" role="alert">{{ modelError }}</p>
         </form>
         <p class="workspace-footnote">
-          Enter 发送 · Shift + Enter 换行 <span>AI 内容供参考，请结合实际判断</span>
+          Enter 发送 / Shift + Enter 换行 <span>AI 内容供参考，请结合实际判断</span>
         </p>
       </div>
     </main>
@@ -253,10 +270,17 @@
 </template>
 <script setup>
 /* global defineProps, defineEmits */
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { mergeMessages, historicalTurns } from '@/agent/session-history.mjs';
+import { storeToRefs } from 'pinia';
+import { useAssistantStore } from '@/store/assistant';
+import EchoMark from '@/components/agent/EchoMark.vue';
+import VideoContentIndex from '@/components/agent/VideoContentIndex.vue';
+import { getAssistantModels } from '@/api/agent';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import RoomAudience from '@/components/agent/RoomAudience.vue';
 import QaKnowledge from '@/components/agent/QaKnowledge.vue';
 import CreatorDraft from '@/components/agent/CreatorDraft.vue';
+import { createCompositionGuard } from '@/agent/composer-input.mjs';
 import { isLogCommand, logReply } from '@/agent/local-commands.mjs';
 import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from '@/store/user';
@@ -264,6 +288,7 @@ import { useAgentRunMonitor } from '@/composables/useAgentRunMonitor';
 import { useAgentHistory } from '@/composables/useAgentHistory';
 import { runWaitClock, formatRunWait } from '@/agent/run-clock.mjs';
 import {
+  getSessionMessages,
   cancelAgentRun,
   createAgentRun,
   getAgentReport,
@@ -281,18 +306,58 @@ import {
 } from '@/agent/protocol.mjs';
 
 const props = defineProps({
+  managed: { type: Boolean, default: false },
+  creator: { type: Boolean, default: false },
+  contextPending: { type: Boolean, default: false },
+  playbackMs: { type: Number, default: null },
   embedded: { type: Boolean, default: false },
   videoId: { type: String, default: '' },
   videoTitle: { type: String, default: '' },
 });
 const emit = defineEmits(['close']);
+const compositionGuard = createCompositionGuard();
+const navigationOpen = ref(false), historyToggle = ref(null), historyNavigation = ref(null);
+function toggleNavigation() { navigationOpen.value = !navigationOpen.value; if (navigationOpen.value) nextTick(() => historyNavigation.value?.querySelector('button')?.focus()); }
+function cycleNavigation(event) {
+  if (!navigationOpen.value) return;
+  const items = [...historyNavigation.value.querySelectorAll('a,button:not(:disabled)')].filter(el => el.getClientRects().length);
+  const first = items[0], last = items[items.length - 1];
+  if (event.shiftKey && (document.activeElement === first || !historyNavigation.value.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && (document.activeElement === last || !historyNavigation.value.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+}
+function hideNavigation() { navigationOpen.value = false; nextTick(() => historyToggle.value?.focus()); }
+function closeNavigation(event) { if (navigationOpen.value) { event.stopPropagation(); hideNavigation(); } }
+function resizeComposer() {
+  const input = composerInput.value;
+  if (!input || CSS.supports('field-sizing', 'content')) return;
+  const style = getComputedStyle(input);
+  input.style.height = 'auto';
+  const max = parseFloat(style.maxHeight) || 200, min = parseFloat(style.minHeight) || 56;
+  input.style.height = Math.min(max, Math.max(min, input.scrollHeight)) + 'px';
+}
+let composerObserver, navigationMedia;
+function resetWideNavigation(event) { if (!event.matches) navigationOpen.value = false; }
+onMounted(() => {
+  navigationMedia = window.matchMedia('(max-width: 760px)');
+  navigationMedia.addEventListener('change', resetWideNavigation);
+  resizeComposer();
+  if (composerInput.value && !CSS.supports('field-sizing', 'content')) {
+    let previousWidth = 0;
+    composerObserver = new ResizeObserver(([entry]) => { if (entry.contentRect.width !== previousWidth) { previousWidth = entry.contentRect.width; resizeComposer(); } });
+    composerObserver.observe(composerInput.value);
+  }
+});
 const composerInput = ref(null),
   conversationElement = ref(null);
 const generalSuggestions = [
   { icon: '✧', title: '你能帮我做什么', description: '先了解助手的能力', text: '你能做什么？' },
-  { icon: '↗', title: '聊聊运营思路', description: '一起想想怎样让观众参与', text: '给我一些提升观众互动意愿的通用运营建议。' },
-  { icon: '✎', title: '写几句互动文案', description: '自然一点，少一些广告感', text: '帮我写三句自然的互动引导文案，不要太像广告。' },
-  { icon: '▷', title: '怎样分析视频', description: '了解全片概览和片段分析', text: '怎么用你分析视频画面内容和观众反馈？' },
+  { icon: '↗', title: '整理思路', description: '把想法变成清晰的步骤', text: '我想学习一项新技能，你可以怎么帮助我制定计划？' },
+  { icon: '✎', title: '解释概念', description: '用容易理解的例子说明', text: '用日常生活的例子解释什么是机器学习。' },
+  { icon: '▷', title: '制定计划', description: '按时间和目标安排步骤', text: '帮我制定每天二十分钟的摄影入门学习计划。' },
+];
+const viewerSuggestions = [
+  { icon: '▷', title: '概括视频', description: '根据可用画面了解内容', text: '概括这个视频的画面内容。' },
+  { icon: '◷', title: '解释当前片段', description: '结合当前播放位置提问', text: '解释这个视频当前播放位置附近的画面。' },
 ];
 const videoSuggestions = [
   { icon: '▤', title: '观众反馈报告', description: '结合视频画面，分析全部弹幕与评论', text: '请分析这个视频全部的弹幕和评论，结合实际视频画面生成观众反馈报告，包含主要话题、观众原话和改进建议。' },
@@ -300,37 +365,46 @@ const videoSuggestions = [
   { icon: '▷', title: '智能弹幕', description: '结合画面生成弹幕，核对内容与时间点', text: '请为这个视频生成5条智能弹幕草稿，以作者身份自然引导互动，标明播放时间点，先给我预览。' },
   { icon: '◷', title: '互动统计', description: '查看弹幕、评论数量与活跃观众', text: '请统计这个视频全部的弹幕数量和评论数量，并列出互动最活跃的观众。' },
 ];
+const modelChoices = ref([]), selectedModel = ref(''), modelError = ref(''), modelsLoading = ref(false);
+async function refreshModels() {
+  modelsLoading.value = true; modelError.value = '';
+  try { modelChoices.value = await getAssistantModels(); if (selectedModel.value && !modelChoices.value.some(item => item.id === selectedModel.value)) selectedModel.value = ''; }
+  catch (error) { modelError.value = error.message; }
+  finally { modelsLoading.value = false; }
+}
+refreshModels();
 const toolsOpen = ref(false);
 
 const router = useRouter(),
   route = useRoute(),
   userStore = useUserStore();
 const form = reactive({ videoId: '', ...yesterdayRange() });
-const suggestions = computed(() => form.videoId ? videoSuggestions : generalSuggestions);
-const quickSuggestions = computed(() => form.videoId ? videoSuggestions.slice(0, 3) : [generalSuggestions[1], generalSuggestions[2]]);
+const suggestions = computed(() => form.videoId ? (props.creator ? videoSuggestions : viewerSuggestions) : generalSuggestions);
+const quickSuggestions = computed(() => form.videoId ? (props.creator ? videoSuggestions.slice(0, 3) : viewerSuggestions) : [generalSuggestions[1], generalSuggestions[2]]);
 const contextTitle = computed(() => (props.videoId === form.videoId ? props.videoTitle : ''));
 const currentQueryRun = computed(() =>
-  props.embedded ? route.query.assistantRunId : route.query.runId
+  props.managed ? assistant.runId : props.embedded ? route.query.assistantRunId : route.query.runId
 );
 const messageLimit = 2000;
-const focus = ref(''),
-  turns = ref([]),
-  history = ref([]),
-  notice = ref('');
+const assistant = useAssistantStore();
+const { focus, turns, history, notice, commandReplies, historyMessages, historyCursor, historySession } = storeToRefs(assistant);
 const submitting = ref(false),
   cancelling = ref(false),
   loadingRun = ref(false),
   clock = ref(performance.now()),
   resultsElement = ref(null);
 const activeTurn = computed(() => turns.value[turns.value.length - 1]);
-const commandReplies = ref([]);
+
+const loadingHistory = ref(false);
+let historyController;
 const conversationTurns = computed(() => [
+  ...historicalTurns(historyMessages.value, turns.value),
   ...commandReplies.value.filter(reply => !reply.afterRunId),
   ...turns.value.flatMap(turn => [turn, ...commandReplies.value.filter(reply => reply.afterRunId === turn.runId)]),
 ]);
 const activeRunId = computed(() => activeTurn.value?.runId);
 const running = computed(() => !!activeTurn.value && !terminal(activeTurn.value.snapshot?.status));
-const busy = computed(() => submitting.value || running.value || loadingRun.value);
+const busy = computed(() => props.contextPending || submitting.value || running.value || loadingRun.value);
 const needsInput = computed(() => activeTurn.value?.snapshot?.status === 'NEEDS_INPUT');
 const ownerId = computed(() => String(userStore.user.userId || ''));
 let submitController,
@@ -451,11 +525,16 @@ function useSuggestion(item) {
   });
 }
 function composerEnter(event) {
-  if (event.isComposing || event.keyCode === 229) return;
+  if (compositionGuard.blocksEnter(event)) return;
   event.preventDefault();
   submit();
 }
 function replaceRun(id, videoId = form.videoId) {
+  if (props.managed) {
+    assistant.runId = id || '';
+    try { sessionStorage.setItem(`assistant_run_${ownerId.value}`, id || ''); } catch { /* storage is optional */ }
+    return;
+  }
   return props.embedded
     ? router.replace({ query: { ...route.query, assistant: '1', assistantRunId: id || undefined } })
     : router.replace({
@@ -477,10 +556,12 @@ async function submit() {
   let body;
   try {
     body = buildChatRequest(focus.value, form.videoId, contextTitle.value);
+    if (body.context && Number.isSafeInteger(props.playbackMs) && props.playbackMs >= 0 && props.playbackMs <= 3600000) body.context.playbackMs = props.playbackMs;
   } catch (error) {
     notice.value = error.message;
     return;
   }
+  if (selectedModel.value) body.modelId = selectedModel.value;
   if (activeTurn.value?.snapshot?.sessionId) body.sessionId = activeTurn.value.snapshot.sessionId;
   if (needsInput.value) body.replyToRunId = activeRunId.value;
   const fingerprint = JSON.stringify(body);
@@ -490,11 +571,14 @@ async function submit() {
   submitController = new AbortController();
   try {
     const snapshot = await createAgentRun(body, pendingRequest.key, submitController.signal);
+    if (submitController.signal.aborted) return;
     pendingRequest = null;
     const turn = reactive({
       runId: snapshot.runId,
-      videoId: form.videoId,
-      message: focus.value.trim(),
+      videoId: body.context?.videoId || '',
+      videoTitle: body.context?.videoTitle || '',
+      playbackMs: body.context?.playbackMs,
+      message: body.message,
       snapshot,
       events: [],
       reportPath: '',
@@ -519,7 +603,26 @@ async function submit() {
   }
 }
 
+async function loadOlderMessages(reset = false) {
+  const session = activeTurn.value?.snapshot?.sessionId;
+  if (!session || loadingHistory.value) return;
+  loadingHistory.value = true;
+  historyController = new AbortController();
+  const controller = historyController;
+  try {
+    const messages = await getSessionMessages(session, reset ? '' : historyCursor.value, controller.signal);
+    if (controller.signal.aborted || activeTurn.value?.snapshot?.sessionId !== session) return;
+    historyMessages.value = mergeMessages(reset ? [] : historyMessages.value, messages);
+    historySession.value = session;
+    historyCursor.value = messages.length ? String(Math.min(...messages.map(message => message.sequence))) : '';
+    if (historyCursor.value === '1') historyCursor.value = '';
+  } catch (error) {
+    if (error.name !== 'AbortError') { notice.value = '历史消息读取失败：' + error.message; historyCursor.value ||= '9223372036854775807'; }
+  } finally { if (historyController === controller) loadingHistory.value = false; }
+}
 async function restoreRun(id) {
+  historyController?.abort(); loadingHistory.value = false;
+  historyMessages.value = []; historyCursor.value = ''; historySession.value = '';
   commandReplies.value = [];
   stopMonitoring();
   notice.value = '';
@@ -549,14 +652,16 @@ async function restoreRun(id) {
     const originalId = snapshot.task?.originalQuery?.match(
       /(?:视频|直播间|videoId)\s*([1-9]\d{0,18})/i
     )?.[1];
-    if (saved?.videoId) form.videoId = saved.videoId;
-    else if (originalId) form.videoId = originalId;
-    else if (!form.videoId && Number.isSafeInteger(conditions?.video_id))
+    if (!props.managed && saved?.videoId) form.videoId = saved.videoId;
+    else if (!props.managed && originalId) form.videoId = originalId;
+    else if (!props.managed && !form.videoId && Number.isSafeInteger(conditions?.video_id))
       form.videoId = String(conditions.video_id);
     if (conditions?.start) form.start = conditions.start.slice(0, 16);
     if (conditions?.end) form.end = conditions.end.slice(0, 16);
-    turn.videoId = form.videoId;
+    turn.videoId = saved?.videoId || originalId || '';
     turns.value = [turn];
+    await loadOlderMessages(true);
+    if (controller.signal.aborted) return;
     applySnapshot(turn, snapshot);
     runMonitor.start(turn);
   } catch (error) {
@@ -569,16 +674,20 @@ async function restoreRun(id) {
   }
 }
 function selectHistory(item) {
+  hideNavigation();
   replaceRun(item.runId, item.videoId || '');
 }
 function newAnalysis() {
+  navigationOpen.value = false;
+  historyController?.abort(); loadingHistory.value = false;
+  historyMessages.value = []; historyCursor.value = ''; historySession.value = '';
   commandReplies.value = [];
   stopMonitoring();
   turns.value = [];
   focus.value = '';
   notice.value = '';
   pendingRequest = null;
-  form.videoId = props.videoId || form.videoId;
+  form.videoId = props.managed ? props.videoId : props.videoId || form.videoId;
   replaceRun();
 }
 function resume() {
@@ -615,10 +724,15 @@ function downloadReport(turn) {
 }
 
 readHistory();
+if (props.managed) {
+  try { assistant.runId = route.query.runId || route.query.assistantRunId || sessionStorage.getItem(`assistant_run_${ownerId.value}`) || ''; } catch { /* optional */ }
+}
+watch(() => props.videoId, id => { if (props.managed) form.videoId = id || ''; }, { immediate: true });
+watch(() => route.query.runId || route.query.assistantRunId, id => { if (props.managed && validRunId(id)) assistant.runId = id; });
 watch(
   () => [currentQueryRun.value, props.videoId || route.query.videoId],
   ([id, videoId]) => {
-    if (typeof videoId === 'string' && /^\d{1,19}$/.test(videoId)) form.videoId = videoId;
+    if (!props.managed && typeof videoId === 'string' && /^\d{1,19}$/.test(videoId)) form.videoId = videoId;
     if (validRunId(id) && id !== activeRunId.value) restoreRun(id);
     else if (id && !validRunId(id)) notice.value = '任务链接不正确，请从最近任务重新打开。';
     else if (!id && activeTurn.value) {
@@ -638,11 +752,16 @@ watch(
     stopMonitoring();
     submitController?.abort();
     turns.value = [];
+    if (props.managed) return;
     if (props.embedded) emit('close');
     else router.replace('/');
   }
 );
+watch(focus, () => nextTick(resizeComposer));
 onBeforeUnmount(() => {
+  composerObserver?.disconnect();
+  navigationMedia?.removeEventListener('change', resetWideNavigation);
+  historyController?.abort();
   stopMonitoring();
   submitController?.abort();
   clearInterval(clockTimer);
@@ -650,16 +769,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.model-select {max-width:150px;min-height:32px;border:1px solid var(--workbench-border);border-radius:8px;background:var(--workbench-raised);color:var(--workbench-ink);padding:4px 8px;}
 .trace-id-reply { display: block; overflow-wrap: anywhere; margin: 12px 0; user-select: all; }
 .agent-workspace {
-  --ink: #292b38;
-  --muted: #8c8e9c;
-  --line: #eeedf2;
-  --accent: #cc5b81;
+  --ink: var(--workbench-ink);
+  --muted: var(--workbench-muted);
+  --line: var(--workbench-border);
+  --accent: var(--workbench-error);
   display: flex;
   height: 100dvh;
   min-height: 600px;
-  background: #fbfafc;
+  background: var(--workbench-raised);
   color: var(--ink);
   font: 14px/1.6 'Harmony Font', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
@@ -684,7 +804,7 @@ onBeforeUnmount(() => {
 }
 .agent-workspace button:focus-visible,
 .agent-workspace a:focus-visible {
-  outline: 3px solid #e8b0c4;
+  outline: 3px solid var(--workbench-muted);
   outline-offset: 3px;
 }
 .workspace-sidebar {
@@ -693,7 +813,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 28px 18px 20px;
-  background: #f4f2f6;
+  background: var(--workbench-raised);
   border-right: 1px solid var(--line);
 }
 .workspace-brand {
@@ -705,25 +825,25 @@ onBeforeUnmount(() => {
 .workspace-brand span {
   display: block;
   font-size: 11px;
-  color: #9992a0;
+  color: var(--workbench-muted);
   font-weight: 400;
   letter-spacing: 4px;
   margin-top: 2px;
 }
 .new-analysis {
   margin: 28px 0;
-  background: #fff;
-  border: 1px solid #e6dce5;
+  background: var(--workbench-raised);
+  border: 1px solid var(--workbench-border);
   border-radius: 11px;
   padding: 11px;
-  color: #91647b;
-  box-shadow: 0 3px 9px #33223d04;
+  color: var(--workbench-accent);
+  box-shadow: 0 3px 9px rgba(41,39,34,0.016);
 }
 .history-heading {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: #9992a0;
+  color: var(--workbench-muted);
   padding: 0 9px;
   margin-bottom: 12px;
 }
@@ -749,7 +869,7 @@ onBeforeUnmount(() => {
 }
 .history-list button:hover,
 .history-list button.selected {
-  background: #fff;
+  background: var(--workbench-raised);
 }
 .history-title {
   display: block;
@@ -757,17 +877,17 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: #5e5869;
+  color: var(--workbench-ink);
 }
 .history-meta {
   display: block;
   font-size: 10px;
-  color: #aaa3af;
+  color: var(--workbench-muted);
   margin-top: 5px;
 }
 .sidebar-footer {
   font-size: 10px;
-  color: #aaa0ae;
+  color: var(--workbench-muted);
   padding-top: 18px;
   display: flex;
   align-items: center;
@@ -778,14 +898,14 @@ onBeforeUnmount(() => {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #70ae97;
+  background: var(--workbench-success);
 }
 .workspace-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(ellipse at 75% 0%, #fceff550, transparent 50%), #fdfcfe;
+  background: var(--workbench-paper);
 }
 .workspace-header {
   height: 78px;
@@ -794,8 +914,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
-  border-bottom: 1px solid #f1eef4;
-  background: #ffffffad;
+  border-bottom: 1px solid var(--workbench-raised);
+  background: rgba(41,39,34,0.678);
 }
 .assistant-identity {
   display: flex;
@@ -808,8 +928,8 @@ onBeforeUnmount(() => {
   width: 37px;
   height: 37px;
   border-radius: 12px;
-  color: #bd7298;
-  background: linear-gradient(135deg, #fce3ed, #ebe9fb);
+  color: var(--workbench-error);
+  background: var(--workbench-paper);
   font-size: 26px;
 }
 .assistant-identity strong {
@@ -820,22 +940,22 @@ onBeforeUnmount(() => {
 .assistant-identity div > span {
   display: block;
   font-size: 10px;
-  color: #aaa1b1;
+  color: var(--workbench-muted);
   letter-spacing: 1px;
 }
 .close-assistant {
-  border: 1px solid #ede8ef;
-  background: #fff;
+  border: 1px solid var(--workbench-border);
+  background: var(--workbench-raised);
   border-radius: 50%;
   width: 32px;
   height: 32px;
   font-size: 23px !important;
   line-height: 1;
-  color: #9b909e;
+  color: var(--workbench-muted);
 }
 .back-video {
   font-size: 12px;
-  color: #9b8b9a !important;
+  color: var(--workbench-muted) !important;
 }
 .conversation-scroll {
   flex: 1;
@@ -848,10 +968,10 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   padding: 26px 36px;
 }
-.workspace-tools { margin: 12px 0 20px; color: #756b7f; font-size: 12px; }
+.workspace-tools { margin: 12px 0 20px; color: var(--workbench-accent); font-size: 12px; }
 .workspace-tools > summary { cursor: pointer; padding: 10px 0; }
-.workspace-tools > summary span { margin-left: 12px; color: #a198a9; font-size: 11px; }
-.workspace-tools > summary:focus-visible, .suggestion-grid button:focus-visible { outline: 2px solid #cda5c3; outline-offset: 3px; }
+.workspace-tools > summary span { margin-left: 12px; color: var(--workbench-muted); font-size: 11px; }
+.workspace-tools > summary:focus-visible, .suggestion-grid button:focus-visible { outline: 2px solid var(--workbench-muted); outline-offset: 3px; }
 .workspace-intro {
   text-align: center;
   padding: 32px 0 20px;
@@ -862,13 +982,13 @@ onBeforeUnmount(() => {
   place-items: center;
   width: 76px;
   height: 76px;
-  border: 1px solid #f0dfeb;
+  border: 1px solid var(--workbench-border);
   border-radius: 24px;
   margin: 0 auto 23px;
-  background: linear-gradient(140deg, #fff0f5, #f0edfc);
-  color: #c97fa7;
+  background: var(--workbench-paper);
+  color: var(--workbench-error);
   font-size: 54px;
-  box-shadow: 0 12px 30px #bf8fba10;
+  box-shadow: 0 12px 30px rgba(41,39,34,0.063);
 }
 .welcome-symbol i {
   position: absolute;
@@ -876,11 +996,11 @@ onBeforeUnmount(() => {
   top: -10px;
   font-size: 25px;
   font-style: normal;
-  color: #ad98d1;
+  color: var(--workbench-muted);
 }
 .intro-tag {
   font-size: 11px;
-  color: #bd8da7;
+  color: var(--workbench-muted);
   letter-spacing: 3px;
 }
 .workspace-intro h1 {
@@ -892,7 +1012,7 @@ onBeforeUnmount(() => {
 .workspace-intro p {
   font-size: 12px;
   line-height: 1.9;
-  color: #9992a1;
+  color: var(--workbench-muted);
   margin: 0 0 22px;
 }
 .conversation-context {
@@ -900,14 +1020,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 9px;
   padding: 7px 11px;
-  border: 1px solid #ece8f0;
+  border: 1px solid var(--workbench-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--workbench-raised);
   max-width: 100%;
   font-size: 10px;
 }
 .conversation-context > span {
-  color: #ba94a9;
+  color: var(--workbench-muted);
   white-space: nowrap;
 }
 .conversation-context strong {
@@ -919,12 +1039,12 @@ onBeforeUnmount(() => {
   max-width: 300px;
 }
 .conversation-context small {
-  color: #b7b0bc;
+  color: var(--workbench-muted);
 }
 .quick-suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-.quick-suggestions button { padding: 7px 11px; border: 1px solid #e9e2ed; border-radius: 99px; background: #fff; color: #8e728f; font-size: 11px; cursor: pointer; }
-.quick-suggestions button:hover { border-color: #cda5c3; background: #faf5fa; }
-.suggestion-hint { margin: 12px 0 0 !important; font-size: 11px !important; color: #aaa1af !important; }
+.quick-suggestions button { padding: 7px 11px; border: 1px solid var(--workbench-border); border-radius: 99px; background: var(--workbench-raised); color: var(--workbench-accent); font-size: 11px; cursor: pointer; }
+.quick-suggestions button:hover { border-color: var(--workbench-muted); background: var(--workbench-raised); }
+.suggestion-hint { margin: 12px 0 0 !important; font-size: 11px !important; color: var(--workbench-muted) !important; }
 .suggestion-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -936,13 +1056,13 @@ onBeforeUnmount(() => {
   position: relative;
   text-align: left;
   padding: 17px 18px 17px 49px;
-  border: 1px solid #ece7f0;
-  background: #fff;
+  border: 1px solid var(--workbench-border);
+  background: var(--workbench-raised);
   border-radius: 13px;
   transition: border-color 0.2s, transform 0.2s;
 }
 .suggestion-grid button:hover {
-  border-color: #deb4cc;
+  border-color: var(--workbench-muted);
   transform: translateY(-2px);
 }
 .suggestion-grid strong {
@@ -954,21 +1074,21 @@ onBeforeUnmount(() => {
 .suggestion-grid button > span:not(.suggestion-icon) {
   font-size: 11px;
   line-height: 1.5;
-  color: #928897;
+  color: var(--workbench-muted);
 }
 .suggestion-icon {
   position: absolute;
   left: 17px;
   top: 18px;
   font-size: 19px;
-  color: #bc99b5;
+  color: var(--workbench-muted);
 }
 .suggestion-grid i {
   position: absolute;
   right: 13px;
   top: 12px;
   font-style: normal;
-  color: #d4c6d6;
+  color: var(--workbench-muted);
   font-size: 13px;
 }
 .composer-wrap {
@@ -977,19 +1097,19 @@ onBeforeUnmount(() => {
   max-width: 900px;
   align-self: center;
   padding: 12px 36px 19px;
-  background: linear-gradient(transparent, #fdfcfe 12%);
+  background: var(--workbench-paper);
 }
 .chat-composer {
-  border: 1px solid #e6dce9;
+  border: 1px solid var(--workbench-border);
   border-radius: 17px;
   padding: 13px 17px 11px;
-  background: #fff;
-  box-shadow: 0 6px 25px #50325507;
+  background: var(--workbench-raised);
+  box-shadow: 0 6px 25px rgba(41,39,34,0.027);
   transition: border-color 0.2s;
 }
 .chat-composer:focus-within {
-  border-color: #d4a2bd;
-  box-shadow: 0 0 0 3px #f9edf3;
+  border-color: var(--workbench-muted);
+  box-shadow: 0 0 0 3px var(--workbench-raised);
 }
 .chat-composer textarea {
   display: block;
@@ -1002,11 +1122,11 @@ onBeforeUnmount(() => {
   max-height: 150px;
   font-size: 13px;
   line-height: 1.8;
-  color: #484251;
+  color: var(--workbench-ink);
   padding: 0;
 }
 .chat-composer textarea::placeholder {
-  color: #b4aab9;
+  color: var(--workbench-muted);
 }
 .composer-actions {
   display: flex;
@@ -1016,12 +1136,12 @@ onBeforeUnmount(() => {
 }
 .composer-actions > span {
   font-size: 10px;
-  color: #b4a7b9;
+  color: var(--workbench-muted);
 }
 .composer-actions i {
   font-style: normal;
   font-size: 15px;
-  color: #c29bb8;
+  color: var(--workbench-muted);
   margin-right: 5px;
 }
 .send-button {
@@ -1030,19 +1150,19 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 11px;
   color: white;
-  background: #c8729b;
+  background: var(--workbench-error);
   font-size: 23px !important;
   line-height: 1;
 }
 .send-button:hover {
-  background: #b55e88;
+  background: var(--workbench-error);
 }
 .workspace-footnote {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   font-size: 9px;
-  color: #b7afbe;
+  color: var(--workbench-muted);
   margin: 9px 3px 0;
 }
 .composer-context {
@@ -1050,7 +1170,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 0 3px 9px;
-  color: #9b889c;
+  color: var(--workbench-muted);
   font-size: 10px;
 }
 .composer-context > span:first-child {
@@ -1060,11 +1180,11 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 .composer-context small {
-  color: #b5a9bb;
+  color: var(--workbench-muted);
 }
 .reply-hint {
   margin-left: auto;
-  color: #ba8b59;
+  color: var(--workbench-accent);
 }
 .sr-only {
   position: absolute;
@@ -1078,9 +1198,9 @@ onBeforeUnmount(() => {
 }
 .workspace-notice {
   padding: 12px 15px;
-  background: #fff7eb;
-  color: #9c7a49;
-  border: 1px solid #f1e4cf;
+  background: var(--workbench-raised);
+  color: var(--workbench-accent);
+  border: 1px solid var(--workbench-border);
   border-radius: 10px;
   font-size: 12px;
   margin: 12px 0;
@@ -1103,8 +1223,8 @@ onBeforeUnmount(() => {
   margin: 0 0 22px;
 }
 .user-question > span {
-  background: #f0e7f1;
-  color: #a18aa4;
+  background: var(--workbench-border);
+  color: var(--workbench-muted);
   border-radius: 11px;
   display: grid;
   place-items: center;
@@ -1115,8 +1235,8 @@ onBeforeUnmount(() => {
 }
 .user-question p {
   max-width: 85%;
-  background: #f5eef5;
-  border: 1px solid #eee4ef;
+  background: var(--workbench-raised);
+  border: 1px solid var(--workbench-border);
   border-radius: 14px 2px 14px 14px;
   padding: 11px 15px;
   margin: 0;
@@ -1126,8 +1246,8 @@ onBeforeUnmount(() => {
   line-height: 1.9;
 }
 .assistant-result {
-  background: #fff;
-  border: 1px solid #efebf2;
+  background: var(--workbench-raised);
+  border: 1px solid var(--workbench-border);
   border-radius: 14px;
   padding: 20px;
   min-width: 0;
@@ -1144,8 +1264,8 @@ onBeforeUnmount(() => {
   border-radius: 9px;
   display: grid;
   place-items: center;
-  background: #f7ecf4;
-  color: #c08daf;
+  background: var(--workbench-raised);
+  color: var(--workbench-muted);
   font-size: 20px;
 }
 .status-badge {
@@ -1153,38 +1273,38 @@ onBeforeUnmount(() => {
   margin-left: auto;
   padding: 3px 7px;
   border-radius: 20px;
-  background: #f5f3f7;
-  color: #a29aa9;
+  background: var(--workbench-raised);
+  color: var(--workbench-muted);
 }
 .status-badge.succeeded {
-  background: #eef7f1;
-  color: #73a38b;
+  background: var(--workbench-paper);
+  color: var(--workbench-success);
 }
 .status-badge.running,
 .status-badge.queued {
-  background: #f8edf4;
-  color: #bf86a6;
+  background: var(--workbench-raised);
+  color: var(--workbench-muted);
 }
 .status-badge.failed {
-  background: #fff0eb;
-  color: #ae6652;
+  background: var(--workbench-raised);
+  color: var(--workbench-error);
 }
 .status-badge.needs_input {
-  background: #fff8e9;
-  color: #b9965e;
+  background: var(--workbench-raised);
+  color: var(--workbench-accent);
 }
 .execution-summary {
   display: flex;
   gap: 14px;
   font-size: 10px;
-  color: #b0a4b5;
+  color: var(--workbench-muted);
   margin: 10px 0;
 }
 .working-message {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #bd86a6;
+  color: var(--workbench-muted);
   font-size: 12px;
   padding: 18px 0;
 }
@@ -1192,7 +1312,7 @@ onBeforeUnmount(() => {
   height: 6px;
   width: 6px;
   border-radius: 50%;
-  background: #c48fb1;
+  background: var(--workbench-muted);
   animation: pulse 1.4s infinite;
 }
 .answer-text {
@@ -1201,21 +1321,21 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 16px 0;
-  color: #62596a;
+  color: var(--workbench-ink);
 }
-.answer-data-notes { font-size: 11px; color: #a195a8; margin: 8px 0 14px; }
+.answer-data-notes { font-size: 11px; color: var(--workbench-muted); margin: 8px 0 14px; }
 .answer-data-notes summary { cursor: pointer; width: fit-content; }
-.answer-data-notes > div { margin-top: 10px; padding: 10px 12px; background: #faf8fb; border: 1px solid #f0eaf3; border-radius: 8px; line-height: 1.8; }
-.answer-data-notes div > span { font-size: 10px; color: #b1a3b9; }
+.answer-data-notes > div { margin-top: 10px; padding: 10px 12px; background: var(--workbench-raised); border: 1px solid var(--workbench-border); border-radius: 8px; line-height: 1.8; }
+.answer-data-notes div > span { font-size: 10px; color: var(--workbench-muted); }
 .answer-data-notes p { margin: 4px 0; }
-.answer-data-notes time { font-size: 10px; color: #afa0b7; }
+.answer-data-notes time { font-size: 10px; color: var(--workbench-muted); }
 .clarification {
   padding: 12px;
-  background: #fffbf1;
+  background: var(--workbench-raised);
   border-radius: 8px;
 }
 .failure-message {
-  color: #ad6958;
+  color: var(--workbench-error);
   font-size: 12px;
 }
 .muted {
@@ -1224,15 +1344,15 @@ onBeforeUnmount(() => {
 .text-button {
   border: 0;
   background: none;
-  color: #b77b9e;
+  color: var(--workbench-muted);
   font-size: 11px !important;
   padding: 4px 0;
 }
 .execution-details {
   margin-top: 15px;
   font-size: 10px;
-  color: #aaa0af;
-  border-top: 1px solid #f3eff5;
+  color: var(--workbench-muted);
+  border-top: 1px solid var(--workbench-raised);
   padding-top: 10px;
 }
 .execution-details summary {
@@ -1250,11 +1370,11 @@ onBeforeUnmount(() => {
 .execution-details time {
   float: right;
   font-size: 9px;
-  color: #bbb0c0;
+  color: var(--workbench-muted);
 }
 .report-panel {
   margin-top: 17px;
-  border: 1px solid #eee7f0;
+  border: 1px solid var(--workbench-border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -1263,7 +1383,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 13px;
-  background: #faf7fb;
+  background: var(--workbench-raised);
   gap: 8px;
 }
 .report-toolbar strong {
@@ -1272,7 +1392,7 @@ onBeforeUnmount(() => {
 }
 .report-toolbar div > span {
   display: block;
-  color: #aa9caf;
+  color: var(--workbench-muted);
   font-size: 9px;
   margin-top: 3px;
 }
@@ -1281,11 +1401,11 @@ onBeforeUnmount(() => {
   height: 650px;
   border: 0;
   display: block;
-  background: #fff;
+  background: var(--workbench-raised);
 }
 .report-state {
   padding: 15px;
-  color: #a38eaa;
+  color: var(--workbench-muted);
   font-size: 12px;
 }
 .embedded {
@@ -1314,6 +1434,12 @@ onBeforeUnmount(() => {
   }
 }
 @media (max-width: 760px) {
+  .assistant-identity {gap:6px;min-width:0;}
+  .assistant-identity .brand-symbol {display:none;}
+  .assistant-identity strong {font-size:12px;white-space:nowrap;}
+  .assistant-identity div > span {letter-spacing:0;}
+  .model-select {max-width:110px;}
+  .back-video {white-space:nowrap;}
   .workspace-sidebar {
     display: none !important;
   }
@@ -1360,4 +1486,106 @@ onBeforeUnmount(() => {
     transition: none;
   }
 }
+
+/* Paper surfaces, generous type, and a quiet conversation hierarchy. */
+.agent-workspace {--ink:var(--workbench-ink);--muted:var(--workbench-muted);--line:var(--workbench-border);--accent:var(--workbench-accent);background:var(--workbench-paper);font-family:var(--workbench-ui);}
+.workspace-main,.conversation-scroll {background:var(--workbench-paper);}
+.workspace-sidebar {background:var(--workbench-sidebar);padding-top:32px;}
+.workspace-brand {font-family:var(--workbench-display);font-weight:500;letter-spacing:-.7px;font-size:28px;}
+.workspace-brand span {font:11px/1.8 var(--workbench-ui);letter-spacing:3px;color:var(--workbench-muted);}
+.new-analysis {background:transparent;color:var(--workbench-ink);border-color:var(--workbench-border);border-radius:8px;box-shadow:none;}
+.new-analysis:hover {background:var(--workbench-raised);}
+.workspace-header {height:76px;background:var(--workbench-paper);border-color:var(--workbench-border);}
+.assistant-identity {gap:12px;}
+.assistant-identity strong {font-weight:500;}
+.assistant-identity div > span {color:var(--workbench-muted);}
+.brand-symbol,.assistant-avatar {background:transparent;color:var(--workbench-accent);border-radius:0;}
+.brand-symbol {font-size:32px;}
+.model-select {background:var(--workbench-raised);color:var(--workbench-ink);border-color:var(--workbench-border);font:12px var(--workbench-ui);}
+.workspace-intro {text-align:left;padding:40px 0 20px;}
+.welcome-symbol {display:block;width:auto;height:auto;font-size:60px;margin:0 0 24px;border:0;border-radius:0;color:var(--workbench-accent);background:none;box-shadow:none;}
+.intro-tag {font-size:11px;letter-spacing:2px;color:var(--workbench-muted);}
+.workspace-intro h1,.embedded .workspace-intro h1 {font:500 clamp(25px,3.4vw,52px)/1.4 var(--workbench-heading);letter-spacing:0;margin:12px 0 16px;}
+.workspace-intro p {color:var(--workbench-muted);font-size:14px;line-height:1.8;}
+.suggestion-grid {gap:0 24px;border-top:1px solid var(--workbench-border);margin-top:36px;}
+.suggestion-grid button {border:0;border-bottom:1px solid var(--workbench-border);border-radius:0;padding:22px 26px 22px 30px;background:transparent;transition:transform 250ms var(--workbench-ease);}
+.suggestion-grid button:hover {background:var(--workbench-raised);transform:translateY(-2px);}
+.suggestion-icon {left:0;top:21px;color:var(--workbench-accent);}
+.suggestion-grid strong {font-size:14px;color:var(--workbench-ink);font-weight:500;}
+.suggestion-grid button > span:not(.suggestion-icon) {color:var(--workbench-muted);font-size:12px;}
+.suggestion-grid i {color:var(--workbench-muted);top:24px;}
+.composer-wrap {background:var(--workbench-paper);}
+.chat-composer {background:var(--workbench-raised);border-color:var(--workbench-border);border-radius:14px;box-shadow:var(--workbench-ring-shadow);padding:16px 18px;}
+.chat-composer:focus-within {border-color:var(--workbench-focus);box-shadow:var(--workbench-focus-ring);}
+.chat-composer textarea {font-size:15px;line-height:1.75;color:var(--workbench-ink);}
+.chat-composer textarea::placeholder,.workspace-footnote,.composer-actions > span {color:var(--workbench-muted);}
+.send-button {width:40px;height:40px;background:var(--workbench-accent);color:var(--workbench-raised);border-radius:9px;}
+.send-button:hover {background:var(--workbench-accent-hover);}
+.quick-suggestions button {background:transparent;border-color:var(--workbench-border);color:var(--workbench-muted);border-radius:6px;}
+.quick-suggestions button:hover {background:var(--workbench-raised);border-color:var(--workbench-accent);}
+.user-question p {background:var(--workbench-sidebar);border:0;border-radius:10px;padding:16px 20px;font-size:15px;color:var(--workbench-ink);}
+.user-question > span {color:var(--workbench-muted);background:transparent;}
+.assistant-result {border:0;border-bottom:1px solid var(--workbench-border);border-radius:0;background:transparent;padding:12px 0 28px;}
+.answer-text {font-size:16px;line-height:1.85;color:var(--workbench-ink);max-width:65ch;}
+.result-heading {font-size:13px;}.result-heading strong {font-weight:500;}
+.status-badge {font-size:11px;color:var(--workbench-muted);background:var(--workbench-sidebar);}
+.status-badge.running,.status-badge.queued {color:var(--workbench-accent);background:var(--workbench-soft);}
+.status-badge.failed,.failure-message {color:var(--workbench-error);}
+.working-message,.text-button {color:var(--workbench-accent);}
+.analysis-turn {animation:assistant-appear 400ms var(--workbench-ease) both;}
+@keyframes assistant-appear {from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){.workspace-intro{padding-top:24px;}.suggestion-grid{column-gap:16px;margin-top:24px;}.suggestion-grid button{padding:18px 18px 18px 26px;}.suggestion-icon{left:0;top:17px;}.suggestion-grid i{right:0;top:20px;}.workspace-header{padding:0 16px;}.model-select{max-width:100px;min-height:44px;}.close-assistant{width:44px;height:44px;}.send-button{width:44px;height:44px;}.assistant-result{padding:12px 0 24px;}}
+@media(prefers-reduced-motion:reduce){.agent-workspace *{animation:none!important;transition:none!important;}.suggestion-grid button:hover{transform:none;}}
+
+
+.composer-controls {display:flex;align-items:center;gap:10px;min-width:0;margin-left:auto;}
+.composer-controls .model-select {max-width:220px;min-width:0;min-height:40px;border:0;background:transparent;border-radius:6px;padding:6px 4px;font-size:13px;text-overflow:ellipsis;cursor:pointer;}
+.model-refresh {display:grid;place-items:center;flex-shrink:0;width:32px;height:40px;border:0;border-radius:6px;background:transparent;color:var(--workbench-muted);font-size:18px!important;}
+.model-refresh:hover,.composer-controls .model-select:hover {background:var(--workbench-sidebar);}
+.composer-controls .send-button {flex-shrink:0;}
+.composer-hint {display:flex;align-items:center;gap:4px;}
+.model-error {margin:8px 0 0;font-size:12px;line-height:1.6;color:var(--workbench-error);}
+@media(max-width:760px){.composer-hint > span{display:none;}.composer-controls{gap:6px;}.composer-controls .model-select{max-width:160px;min-height:44px;}.model-refresh{width:44px;height:44px;}}
+
+/* Desktop-agent interaction details, adapted to the existing Vue assistant. */
+.agent-workspace {position:relative;min-height:0;}
+.chat-composer textarea {field-sizing:content;min-height:56px;max-height:clamp(56px,26dvh,200px);height:auto;overflow-y:auto;scrollbar-width:thin;}
+.history-toggle,.history-close {display:none;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;border:0;border-radius:6px;background:transparent;color:var(--workbench-ink);cursor:pointer;}
+.history-scrim {display:none;}
+.history-toggle:focus-visible,.history-close:focus-visible {outline:2px solid var(--workbench-focus);outline-offset:2px;}
+.history-meta {display:flex;gap:12px;font-variant-numeric:tabular-nums;}
+.workspace-brand span,.history-heading,.history-title,.history-meta,.sidebar-footer,.assistant-identity div > span,.intro-tag,.suggestion-hint,.suggestion-grid button > span:not(.suggestion-icon),.quick-suggestions button,.workspace-footnote,.composer-context,.composer-context small,.composer-actions > span,.status-badge,.execution-summary,.execution-details,.execution-details time,.answer-data-notes,.text-button,.back-video {font-size:12px!important;}
+.workspace-footnote {line-height:1.6;flex-wrap:wrap;}
+.execution-summary {flex-wrap:wrap;font-variant-numeric:tabular-nums;}
+.execution-details summary > span {margin-left:12px;}
+.workspace-intro h1 {text-wrap:balance;}
+.workspace-header,.workspace-sidebar,.suggestion-grid,.suggestion-grid button,.assistant-result,.execution-details {border-width:.5px;}
+@media(max-width:760px){
+  .history-toggle,.history-close {display:inline-flex;}
+  .history-open .workspace-sidebar {display:flex!important;position:absolute;inset:0 auto 0 0;width:min(280px,85%);z-index:4;box-shadow:var(--workbench-whisper);padding:20px;}
+  .history-close {align-self:flex-end;}
+  .history-open .history-scrim {display:block;position:absolute;inset:0;z-index:3;border:0;background:rgba(41,39,34,.22);}
+  .assistant-identity {gap:4px;min-width:0;}
+  .assistant-identity strong {font-size:12px;}
+  .assistant-identity div > span {display:none;}
+  .workspace-header {padding:0 10px;gap:4px;}
+  .composer-wrap,.embedded .composer-wrap {padding-bottom:12px;}
+  .workspace-footnote > span {display:none;}
+}
+
+
+/* User-supplied Claude system: serif content, quiet utility type, ring depth. */
+.agent-workspace button:focus-visible,.agent-workspace a:focus-visible {outline:2px solid var(--workbench-focus);outline-offset:3px;}
+.suggestion-grid {border-color:var(--workbench-border-subtle);}
+.suggestion-grid button {border-color:var(--workbench-border);border-radius:8px;}
+.suggestion-grid button:hover {box-shadow:var(--workbench-ring-shadow);transform:none;}
+.suggestion-grid strong {color:var(--workbench-ink);}
+.suggestion-icon {color:var(--workbench-muted);}
+.text-button,.back-video {color:var(--workbench-link)!important;}
+.text-button:hover,.back-video:hover {color:var(--workbench-ink)!important;}
+.workspace-footnote,.history-meta,.sidebar-footer {color:var(--workbench-tertiary);}
+.assistant-avatar,.brand-symbol,.welcome-symbol {color:var(--workbench-accent);}
+.user-question p {color:var(--workbench-charcoal);}
+.new-analysis:hover,.quick-suggestions button:hover {box-shadow:var(--workbench-ring-shadow);}
+@media(max-width:760px){.workspace-intro h1,.embedded .workspace-intro h1 {font-size:28px;line-height:1.45;}}
 </style>

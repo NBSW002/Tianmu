@@ -80,7 +80,7 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
     public synchronized void cancel(UUID id) {var j=get(id);if(j!=null && (active(j.phase()) || j.phase()==Phase.WAITING_AUTH))jobs.put(id,changed(j,Phase.CANCELLED,"CANCELLED",j.snapshot(),j.video(),null,j.completedWork(),j.chargedTokens(),j.modelCalls()));}
     public synchronized boolean reauthorize(UUID id,com.tianmu.agent.core.AgentTypes.AccessScope caller) {
         var j=get(id);if(j==null || j.phase()!=Phase.WAITING_AUTH || !j.owner().tenantId().equals(caller.tenantId()) || !j.owner().userId().equals(caller.userId()) || !caller.videoIds().contains(j.request().query().videoId()))return false;
-        jobs.put(id,new Job(j.id(),j.runId(),new com.tianmu.agent.core.AgentTypes.AccessScope(j.owner().tenantId(),j.owner().userId(),j.owner().videoIds(),caller.authorizationRef()),j.request(),j.snapshot()==null?Phase.QUEUED:Phase.ANALYZING,j.createdAt(),j.deadline(),j.tokenLimit(),j.callLimit(),j.chargedTokens(),j.modelCalls(),j.model(),j.policyHash(),null,j.snapshot(),j.video(),j.asset(),j.completedWork(),j.version()+1));return true;
+        jobs.put(id,new Job(j.id(),j.runId(),new com.tianmu.agent.core.AgentTypes.AccessScope(j.owner().tenantId(),j.owner().userId(),j.owner().videoIds(),caller.authorizationRef(),j.owner().readableVideoIds()),j.request(),j.snapshot()==null?Phase.QUEUED:Phase.ANALYZING,j.createdAt(),j.deadline(),j.tokenLimit(),j.callLimit(),j.chargedTokens(),j.modelCalls(),j.model(),j.policyHash(),null,j.snapshot(),j.video(),j.asset(),j.completedWork(),j.version()+1));return true;
     }
     public synchronized long reserve(UUID id,UUID workId,long fence,long estimate) {
         var j=get(id);var w=work.get(workId);String key=workId+":"+fence;

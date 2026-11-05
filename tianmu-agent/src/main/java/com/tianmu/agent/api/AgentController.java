@@ -17,7 +17,8 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/agent/runs")
 public class AgentController {
-    public record CreateRun(@NotBlank @Size(max = 2000) String message, UUID sessionId, UUID replyToRunId, RequestContext context) {
+    public record CreateRun(@NotBlank @Size(max = 2000) String message, UUID sessionId, UUID replyToRunId, RequestContext context, @Size(max=64) String modelId) {
+        public CreateRun(String message,UUID sessionId,UUID replyToRunId,RequestContext context){this(message,sessionId,replyToRunId,context,null);}
         public CreateRun(String message) { this(message, null, null, null); }
         public CreateRun(String message, UUID sessionId, UUID replyToRunId) { this(message, sessionId, replyToRunId, null); }
     }
@@ -39,7 +40,7 @@ public class AgentController {
                                            @RequestHeader(value = "Idempotency-Key", required = false) String key, @RequestBody @Valid CreateRun input) {
         var request = RequestMessages.normalize(input.message(), input.context());
         String execution = RequestMessages.execution(request.message(), request.context());
-        RunState run = runs.create(request.message(), identity.forCreate(credential(auth), execution, input.replyToRunId(),request.context(),input.sessionId()), input.sessionId(), key, input.replyToRunId(), request.context());
+        RunState run = runs.create(request.message(), identity.forCreate(credential(auth), execution, input.replyToRunId(),request.context(),input.sessionId()), input.sessionId(), key, input.replyToRunId(), request.context(),input.modelId());
         return ResponseEntity.accepted().location(URI.create("/api/agent/runs/" + run.id)).body(run.snapshot());
     }
     @GetMapping("/{id}")

@@ -58,8 +58,13 @@ public class RuntimeHarness implements AutoCloseable {
     }
     public <T> T modelCall(RunState run, boolean finalizing, Function<CallControl, T> operation) {
         run.modelCallStarted();
-        return loopControl.call(run, finalizing ? policy().finalizeTimeout() : policy().modelTimeout(),
-                "MODEL_CALL_TIMEOUT", "MODEL_ERROR", this::contextual, operation, timing());
+        run.emit("TEXT_START", java.util.Map.of("step",run.snapshot().steps()));
+        boolean retain=false;
+        try { T result=loopControl.call(run, finalizing ? policy().finalizeTimeout() : policy().modelTimeout(),
+                "MODEL_CALL_TIMEOUT", "MODEL_ERROR", this::contextual, control -> operation.apply(control.withTextOutput(text -> { run.checkpoint(); run.emit("TEXT_DELTA",java.util.Map.of("text",text)); })), timing());
+            retain=result instanceof com.tianmu.agent.core.AgentTypes.Decision decision && decision.kind()==com.tianmu.agent.core.AgentTypes.Kind.ANSWER;
+            return result;
+        } finally { if(!retain && !com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status()))run.emit("TEXT_END",java.util.Map.of()); }
     }
     public <T> T toolCall(RunState run, Function<CallControl, T> operation) {
         return loopControl.toolCall(run, false, policy().toolTimeout(), this::contextual, operation, timing());

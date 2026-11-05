@@ -85,15 +85,17 @@ public final class DeepSeekClient {
         if(quotaBlockedUntil!=0 && System.nanoTime()-quotaBlockedUntil<0)
             throw new AgentException("MODEL_QUOTA_EXHAUSTED","Model provider quota is unavailable; calls paused for five minutes");
         contexts.check(messages);
+        boolean streaming=nativeTools!=null && control.textOutput()!=null;
         TraceAttributes.apply(Span.current(),Map.of("model.tool_protocol",nativeTools==null?"json_structured":"native_tools"));
-        TraceAttributes.apply(Span.current(), Map.of("model.name", model, "model.provider", "deepseek", "model.max_tokens", maxTokens,
-                "model.temperature", 0, "model.streaming", false, "model.first_token_state", "NOT_APPLICABLE", "model.message_count", messages.size(), "model.reasoning_state", "DISABLED"));
+        TraceAttributes.apply(Span.current(), Map.of("model.name", model, "model.provider", config.baseUrl().getHost().endsWith("deepseek.com")?"deepseek":"compatible", "model.max_tokens", maxTokens,
+                "model.temperature", 0, "model.streaming", streaming, "model.first_token_state", streaming?"PENDING":"NOT_APPLICABLE", "model.message_count", messages.size(), "model.reasoning_state", "DISABLED"));
         long nanos = Duration.between(Instant.now(), control.deadline()).toNanos();
         if (nanos <= 0) throw unavailable();
         try {
             Map<String,Object> requestBody=new LinkedHashMap<>();
-            requestBody.put("model",model);requestBody.put("messages",messages);requestBody.put("thinking",Map.of("type","disabled"));
-            requestBody.put("temperature",0);requestBody.put("stream",false);requestBody.put("max_tokens",maxTokens);
+            requestBody.put("model",model);requestBody.put("messages",messages);if(config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek"))requestBody.put("thinking",Map.of("type","disabled"));
+            requestBody.put("temperature",0);requestBody.put("stream",streaming);
+            if(streaming)requestBody.put("stream_options",Map.of("include_usage",true));requestBody.put("max_tokens",maxTokens);
             if(nativeTools==null)requestBody.put("response_format",Map.of("type","json_object"));
             if(nativeTools!=null && !nativeTools.isEmpty()) {
                 requestBody.put("tools",nativeTools.stream().map(t->Map.of("type","function","function",Map.of("name",t.name(),"description",t.description(),"parameters",t.inputSchema()))).toList());
@@ -114,7 +116,7 @@ public final class DeepSeekClient {
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofByteArray(payload)).build();
             long reservation=(long)payload.length+maxTokens+1024;
             JsonNode body = com.tianmu.agent.runtime.control.ModelBudget.execute(control, model, external, reservation, () -> {
-                TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));return exchange(request, control);
+                TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));return streaming ? exchangeStream(request,control) : exchange(request, control);
             });
             TraceDetails.capture("provider_output", body, "MODEL_PROVIDER_RESPONSE");
             JsonNode choice = body.path("choices").path(0);
@@ -157,6 +159,38 @@ public final class DeepSeekClient {
             TraceAttributes.apply(Span.current(),Map.of("model.validation_error",original.getClass().getSimpleName()));
             throw original;
         }
+    }
+    private static final ScheduledExecutorService STREAM_DEADLINES=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"model-stream-deadlines");t.setDaemon(true);return t;});
+    private JsonNode exchangeStream(HttpRequest request,CallControl control) {
+        long started=System.nanoTime();var first=new java.util.concurrent.atomic.AtomicBoolean();
+        var future=http.sendAsync(request,HttpResponse.BodyHandlers.ofInputStream());
+        var body=new java.util.concurrent.atomic.AtomicReference<InputStream>();
+        Runnable close=()->{future.cancel(true);var stream=body.get();if(stream!=null)try{stream.close();}catch(IOException ignored){}};
+        long remaining=Math.max(1,Duration.between(Instant.now(),control.deadline()).toMillis());
+        var timeout=STREAM_DEADLINES.schedule(close,remaining,TimeUnit.MILLISECONDS);
+        try(var registration=control.cancellation().onCancel(close)){
+            var response=future.get(remaining,TimeUnit.MILLISECONDS);body.set(response.body());control.checkpoint();if(!Instant.now().isBefore(control.deadline()))throw unavailable();
+            TraceAttributes.apply(Span.current(),Map.of("model.http_status",response.statusCode()));
+            if(response.statusCode()==401||response.statusCode()==403)throw new AgentException("MODEL_AUTH_FAILED","Provider authentication failed");
+            if(response.statusCode()==402){quotaBlockedUntil=System.nanoTime()+QUOTA_COOLDOWN_NANOS;throw new AgentException("MODEL_QUOTA_EXHAUSTED","Model quota exhausted");}
+            if(response.statusCode()!=200)throw unavailable();
+            TraceAttributes.apply(Span.current(),Map.of("model.streaming",true));
+            if(!response.headers().firstValue("Content-Type").orElse("").contains("text/event-stream")) {
+                TraceAttributes.apply(Span.current(),Map.of("model.streaming",false,"model.first_token_state","NOT_APPLICABLE"));
+                byte[] bytes=response.body().readNBytes(131073);if(bytes.length>131072)throw unavailable();return mapper.readTree(bytes);
+            }
+            var parser=new NativeSseResponse(mapper,text->{if(first.compareAndSet(false,true))TraceAttributes.apply(Span.current(),Map.of("model.first_token_state","RECEIVED","model.first_token_ms",(System.nanoTime()-started)/1_000_000));control.textOutput().accept(text);});var line=new ByteArrayOutputStream();var data=new StringBuilder();int total=0,next;
+            while((next=response.body().read())!=-1){
+                if(++total>2097152||line.size()>131072)throw unavailable();control.checkpoint();
+                if(next!=10){line.write(next);continue;}
+                String text=line.toString(java.nio.charset.StandardCharsets.UTF_8).replaceFirst("\\r$","");line.reset();
+                if(text.isEmpty()){if(!data.isEmpty()){parser.accept(data.toString());data.setLength(0);if(parser.done())break;}}
+                else if(text.startsWith("data:")){if(!data.isEmpty())data.append('\n');data.append(text.substring(5).stripLeading());if(data.length()>131072)throw unavailable();}
+            }
+            if(line.size()>0){String tail=line.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing();if(tail.startsWith("data:")){if(!data.isEmpty())data.append('\n');data.append(tail.substring(5).stripLeading());}}
+            if(!data.isEmpty())parser.accept(data.toString());return parser.result();
+        }catch(AgentException e){throw e;}catch(Exception e){if(e instanceof InterruptedException)Thread.currentThread().interrupt();control.checkpoint();throw unavailable();}
+        finally{timeout.cancel(false);close.run();}
     }
     private JsonNode exchange(HttpRequest request, CallControl control) {
         long requestStarted = System.nanoTime();

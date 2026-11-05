@@ -10,7 +10,7 @@ export function agentUser() {
 function authorization() {
   const token = agentUser().token
   if (!token || typeof token !== 'string')
-    throw new Error('请先登录网站后再使用 AI 分析')
+    throw new Error('请先登录网站后再使用个人助手')
   return token.startsWith('Bearer ') ? token : `Bearer ${token}`
 }
 
@@ -26,15 +26,19 @@ async function request(path, options = {}) {
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
-    throw new Error('无法连接分析服务，请检查网络后重试')
+    throw new Error('无法连接助手服务，请检查网络后重试')
   }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     if (response.status === 401) useUserStore().logout()
     const messages = {
+      MODEL_CATALOG_INVALID: '模型配置更新无效，请联系管理员检查配置',
+      MODEL_NOT_AVAILABLE: '所选模型已停用，请刷新模型列表后重新选择',
+      MODEL_REVISION_UNAVAILABLE: '任务使用的模型版本已失效，请重新发起提问',
+      VIDEO_CONTENT_UNAVAILABLE: '视频内容服务暂不可用，请稍后重试',
       UNAUTHORIZED: '登录已失效，请重新登录',
       AUTH_CONTEXT_EXPIRED: '登录已失效，请重新登录',
-      FORBIDDEN: '你没有权限分析这个视频或直播间',
+      FORBIDDEN: '你没有权限访问这项内容或执行此操作',
       RUN_NOT_FOUND: '任务不存在或已过期',
       TRACE_NOT_FOUND: '未找到可访问的 Trace，日志可能尚未归档或已过期',
       TRACE_UNAVAILABLE: 'Trace 查询服务尚未配置或暂不可用',
@@ -171,4 +175,24 @@ export async function getAgentReport(runId, path, signal) {
   if (!response.headers.get('content-type')?.includes('text/html'))
     throw new Error('报告格式不正确')
   return response.text()
+}
+
+export async function getAssistantCapabilities(videoId, signal) {
+  const query = videoId ? `?videoId=${encodeURIComponent(videoId)}` : ''
+  return (await request(`/api/agent/capabilities${query}`, { signal })).json()
+}
+
+export async function getSessionMessages(sessionId, before, signal) {
+  if (!validRunId(sessionId)) throw new Error('无效的会话 ID')
+  const query = before ? `?before=${encodeURIComponent(before)}` : ''
+  const body = await (await request(`/api/agent/sessions/${sessionId}/messages${query}`, { signal })).json()
+  if (!Array.isArray(body)) throw new Error('会话历史格式不正确')
+  return body
+}
+
+export async function getAssistantModels(signal) { return (await request('/api/agent/models', {signal})).json() }
+
+export async function videoContentIndex(videoId, method = 'GET', signal) {
+  if (!/^[1-9][0-9]{0,18}$/.test(videoId)) throw new Error('无效的视频 ID');
+  return (await request('/api/agent/videos/' + videoId + '/index', { method, signal })).json();
 }

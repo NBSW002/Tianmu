@@ -75,7 +75,7 @@ public class AgentRuntime {
         start.put("agent.max_turns", maxTurns(run));
         start.put("agent.available_tools", available.stream().limit(32).toList());
         start.put("agent.available_tool_count", available.size());
-        if (model.modelName() != null) start.put("model.name", model.modelName());
+        if (run.modelOr(model).modelName() != null) start.put("model.name", run.modelOr(model).modelName());
         harness.marker(run, SpanType.AGENT_START, start);
         boolean returned = false;
         try { runLoopBody(run, message); returned = true; }
@@ -132,10 +132,10 @@ public class AgentRuntime {
                 Map.of("run.finalizing", context.finalizing(), "loop.step", run.snapshot().steps(),
                         "agent.available_tools", context.availableTools().stream().map(ToolDefinition::name).limit(32).toList()), () -> {
             TraceDetails.capture("input", context, "MODEL_CONTEXT");
-            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(), Map.of("model.name", model.modelName() == null ? "unspecified" : model.modelName(),
-                    "model.streaming", false, "model.first_token_state", "NOT_APPLICABLE"));
+            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(), Map.of("model.name", run.modelOr(model).modelName() == null ? "unspecified" : run.modelOr(model).modelName(),
+                    "model.streaming", run.modelOr(model).streamsText(), "model.first_token_state", run.modelOr(model).streamsText()?"PENDING":"NOT_APPLICABLE"));
             Decision raw = harness.modelCall(run, context.finalizing(), control -> context.finalizing()
-                    ? model.finalizeWithoutTools(context, control) : model.decide(context, control));
+                    ? run.modelOr(model).finalizeWithoutTools(context, control) : run.modelOr(model).decide(context, control));
             if (raw == null || raw.kind() == null) throw new AgentException("INVALID_DECISION", "Missing model decision");
             return harness.transform(run, TransformPoint.MODEL_RESULT, raw);
         });

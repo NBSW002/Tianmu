@@ -25,6 +25,31 @@ import static org.mockito.Mockito.*;
 /** Opt-in real MySQL/Redis integration. Refuses URLs outside a database ending in _it. */
 @EnabledIfEnvironmentVariable(named="AGENT_STORAGE_IT", matches="true")
 class MysqlStorageIntegrationTest {
+    @Test void pinnedModelAndStreamingEventsSurviveReload() {
+        var choice=new com.tianmu.agent.model.RuntimeModelCatalog.Choice("fast","Fast","compatible-chat","v1");
+        var created=repository.create("stream test",owner,null,"stream-model",null,null,choice);var run=created.run();sessions.add(run.sessionId);
+        assertEquals(choice,run.modelChoice());run.start();
+        run.emit("MODEL_SELECTED",choice);run.emit("TEXT_START",Map.of());run.emit("TEXT_DELTA",Map.of("text","你好"));run.emit("TEXT_END",Map.of());
+        assertEquals(choice,repository.load(run.id,owner).modelChoice());
+        var events=repository.load(run.id,owner).events().after(0).events();assertTrue(events.stream().anyMatch(e->e.type().equals("TEXT_DELTA")));
+        var changed=new com.tianmu.agent.model.RuntimeModelCatalog.Choice("fast","Fast","compatible-v2","v2");
+        assertEquals(choice,repository.create("stream test",owner,null,"stream-model",null,null,changed).run().modelChoice());
+        assertThrows(AgentException.class,()->repository.create("stream test",owner,null,"stream-model",null,null,new com.tianmu.agent.model.RuntimeModelCatalog.Choice("other","Other","other","v1")));
+        run.cancel();
+    }
+    @Test void videoIndexPersistsAndRejectsStaleWritersAcrossStoreInstances(){
+        var first=new com.tianmu.agent.video.index.MysqlVideoIndexStore(source,null,mapper);
+        var second=new com.tianmu.agent.video.index.MysqlVideoIndexStore(source,null,mapper);
+        var now=Instant.now();var job=new com.tianmu.agent.video.index.VideoIndex(UUID.randomUUID(),1001,"v1",10000,"RUNNING",0,1,List.of(),null,now,now.plusSeconds(60));
+        try{
+            assertEquals(job,first.start(owner,job));assertEquals(job,second.get(owner,1001));
+            assertNull(first.get(new AccessScope(owner.tenantId(),"other",Set.of(1001L)),1001));
+            var cancelled=job.state("CANCELLED",List.of(),null);assertTrue(second.replace(owner,job,cancelled));
+            assertFalse(first.replace(owner,job,job.state("READY",List.of(),null)));
+            var retry=new com.tianmu.agent.video.index.VideoIndex(UUID.randomUUID(),1001,"v1",10000,"QUEUED",0,1,List.of(),null,now,now.plusSeconds(60));
+            assertEquals(retry,first.start(owner,retry));assertEquals(retry,second.start(owner,job));
+        }finally{db.update("DELETE FROM agent_video_index WHERE tenant_id=? AND owner_user_id=?",owner.tenantId(),owner.userId());}
+    }
     @Test void sourcePreparationLedgerFencesRetriesAndPersistsSharedEmbeddingBudget(){
         var run=create("来源准备");var jobs=new MysqlFeedbackJobStore(source,mapper,repository::verifyReady);
         var now=Instant.now();var request=new FeedbackAnalysis.Request(new DanmakuTypes.Query(1001,LocalDate.now().minusDays(1).atStartOfDay(),LocalDate.now().atStartOfDay()),Set.of(FeedbackAnalysis.Source.COMMENT),FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,com.tianmu.agent.feedback.FeedbackPreparationService.VERSION);

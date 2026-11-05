@@ -116,7 +116,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         var rows = db.queryForList("SELECT * FROM agent_run WHERE tenant_id=? AND owner_user_id=? AND run_id=? AND data_expires_at>UTC_TIMESTAMP(6)" + (lock ? " FOR UPDATE" : ""), owner.tenantId(), owner.userId(), id.toString());
         if (rows.isEmpty()) throw new AgentException("RUN_NOT_FOUND", "Run is missing or expired");
         Map<String, Object> value = rows.get(0); AccessScope saved = decode(value.get("access_scope_json"), AccessScope.class);
-        if (checkVideos && !owner.videoIds().containsAll(saved.videoIds())) throw new AgentException("FORBIDDEN", "Historical scope is no longer accessible");
+        if (checkVideos && !owner.covers(saved)) throw new AgentException("FORBIDDEN", "Historical scope is no longer accessible");
         return value;
     }
     private Snapshot snapshot(Map<String, Object> row) { return decode(row.get("snapshot_json"), Snapshot.class); }
@@ -144,8 +144,9 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         if (!fingerprint.equals(stored.get("request_fingerprint"))) throw new AgentException("IDEMPOTENCY_CONFLICT", "Idempotency-Key has different content");
         return new Created(materialize(row(UUID.fromString(stored.get("run_id").toString()), owner, false), true), false);
     }
-    @Override public Created create(String message, AccessScope owner, UUID requestedSession, String key, UUID reply, RequestContext context) {
-        String fingerprint = hash(encode(context == null
+    @Override public Created create(String message, AccessScope owner, UUID requestedSession, String key, UUID reply, RequestContext context) {return create(message,owner,requestedSession,key,reply,context,null);}
+    @Override public Created create(String message, AccessScope owner, UUID requestedSession, String key, UUID reply, RequestContext context, com.tianmu.agent.model.RuntimeModelCatalog.Choice model) {
+        String fingerprint = hash((model==null?"":model.id()+"|")+encode(context == null
                 ? List.of(message, Objects.toString(requestedSession, ""), Objects.toString(reply, ""))
                 : List.of(message, Objects.toString(requestedSession, ""), Objects.toString(reply, ""), context)));
         try {
@@ -183,10 +184,11 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                 RunState initial = new RunState(id, sid, turn, owner, message, query, now, deadline, RunBackend.MEMORY,
                         new com.tianmu.agent.runtime.events.InMemoryRunEventStore(), new InMemoryEvidenceStore(), false);
                 initial.pageContext(executionContext);
+                Map<String,Object> requestData=new LinkedHashMap<>();requestData.put("message",message);if(executionContext!=null)requestData.put("context",executionContext);if(model!=null)requestData.put("model",model);
                 initial.bindPersistedControl(maxCalls);
                 db.update("INSERT INTO agent_run(tenant_id,owner_user_id,session_id,run_id,turn_seq,session_generation,base_history_version,history_before_turn,idempotency_key,request_fingerprint,request_json,access_scope_json,execution_query,snapshot_json,reply_to_run_id,business_date,business_timezone,deadline_at,created_at,events_expires_at,data_expires_at,lease_owner,lease_token,lease_until,last_event_seq,max_model_calls) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,1,?)",
                         owner.tenantId(), owner.userId(), sid.toString(), id.toString(), turn, generation, version, turn - 1, key, fingerprint,
-                        encode(executionContext == null ? Map.of("message", message) : Map.of("message", message, "context", executionContext)), encode(owner), query, encode(initial.snapshot()), reply == null ? null : reply.toString(),
+                        encode(requestData), encode(owner), query, encode(initial.snapshot()), reply == null ? null : reply.toString(),
                         java.sql.Date.valueOf(initial.businessDate), "Asia/Shanghai", stamp(deadline), stamp(now), stamp(now.plus(Duration.ofDays(7))), stamp(expiry), instance, stamp(deadline), maxCalls);
                 db.update("UPDATE agent_session SET generation=?,next_turn_seq=?,current_run_id=?,updated_at=?,expires_at=?,version=version+1 WHERE tenant_id=? AND session_id=?",
                         generation, turn + 1, id.toString(), stamp(now), stamp(expiry), owner.tenantId(), sid.toString());
@@ -213,6 +215,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         Meta m = meta(row);
         RunState run = new RunState(m.id(), m.session(), m.turn(), m.owner(), m.message(), m.query(), m.created(), m.deadline(), new Backend(m), new Events(m), new EvidenceRecords(m), restored);
         var request = decode(row.get("request_json"),com.fasterxml.jackson.databind.JsonNode.class);
+        if(request.hasNonNull("model"))run.modelChoice(decode(request.get("model"),com.tianmu.agent.model.RuntimeModelCatalog.Choice.class));
         if (request.hasNonNull("context")) run.pageContext(decode(request.get("context"),RequestContext.class));
         run.bindPersistedControl((int) number(row, "max_model_calls"));
         if (restored) {run.restore(snapshot(row));if(row.get("continuation_json")!=null)run.restoreContinuation(decode(row.get("continuation_json"),com.tianmu.agent.core.PendingOperation.Continuation.class));} return run;
@@ -402,7 +405,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         return read(() -> {
             var saved = row(id, owner, false, false);
             session(UUID.fromString(saved.get("session_id").toString()), owner, false);
-            return decode(saved.get("access_scope_json"), AccessScope.class).videoIds();
+            return decode(saved.get("access_scope_json"), AccessScope.class).readableVideoIds();
         });
     }
     @Override public Set<Long> resourcesForSession(UUID id, AccessScope owner, long before) {
@@ -410,7 +413,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
             session(id, owner, false);
             var rows = db.queryForList("SELECT r.access_scope_json FROM agent_message m JOIN agent_run r ON r.tenant_id=m.tenant_id AND r.run_id=m.run_id WHERE m.tenant_id=? AND m.owner_user_id=? AND m.session_id=? AND m.message_seq<? AND r.data_expires_at>UTC_TIMESTAMP(6) ORDER BY m.message_seq DESC LIMIT " + MESSAGE_PAGE_SIZE, owner.tenantId(), owner.userId(), id.toString(), before);
             Set<Long> result = new HashSet<>();
-            for (var value : rows) result.addAll(decode(value.get("access_scope_json"), AccessScope.class).videoIds());
+            for (var value : rows) result.addAll(decode(value.get("access_scope_json"), AccessScope.class).readableVideoIds());
             return Set.copyOf(result);
         });
     }

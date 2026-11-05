@@ -157,10 +157,11 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
             throw new AgentException("BUSINESS_UNAVAILABLE", "Invalid business principal");
         return new AccessScope(tenant, user, Set.of(), credentials.register(credential));
     }
-    private Set<Long> allowed(AccessScope owner, Set<Long> requested, boolean requireAll) {
+    private Set<Long> allowed(AccessScope owner, Set<Long> requested, boolean requireAll) { return allowed(owner,requested,requireAll,false); }
+    private Set<Long> allowed(AccessScope owner, Set<Long> requested, boolean requireAll, boolean readable) {
         if (requested.size() > 100) throw new AgentException("INVALID_REQUEST", "Too many target videos");
         if (requested.isEmpty()) return Set.of();
-        JsonNode answer = request("POST", "/internal/agent/authorize", credentials.token(owner.authorizationRef()), Map.of("videoIds", requested), null);
+        JsonNode answer = request("POST", readable ? "/internal/agent/authorize-readable" : "/internal/agent/authorize", credentials.token(owner.authorizationRef()), Map.of("videoIds", requested), null);
         if (!answer.path("videoIds").isArray()) throw new AgentException("BUSINESS_UNAVAILABLE", "Invalid authorization response");
         Set<Long> result = new HashSet<>();
         for (var value : answer.path("videoIds")) {
@@ -177,7 +178,9 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
         return Set.copyOf(result);
     }
     private AccessScope grant(AccessScope owner, Set<Long> resources, boolean requireAll) {
-        return new AccessScope(owner.tenantId(), owner.userId(), allowed(owner, resources, requireAll), owner.authorizationRef());
+        Set<Long> readable = allowed(owner, resources, requireAll, true);
+        Set<Long> creator = allowed(owner, readable, false);
+        return new AccessScope(owner.tenantId(), owner.userId(), creator, owner.authorizationRef(), readable);
     }
     @Override public AccessScope forCreate(String credential, String message, UUID reply) {
         AccessScope principal = authenticate(credential); Set<Long> resources = new HashSet<>();
@@ -189,18 +192,19 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
     }
     @Override public AccessScope forCreate(String credential,String message,UUID reply,com.tianmu.agent.core.RequestContext page,UUID session) {
         AccessScope current = forCreate(credential,message,reply);
-        Set<Long> required = new HashSet<>(current.videoIds());
+        Set<Long> required = new HashSet<>(current.readableVideoIds());
         if (page!=null) required.add(Long.parseLong(page.videoId()));
         if(!DanmakuTarget.matcher(message).find())com.tianmu.agent.preparation.VideoDiscovery.request(message,LocalDate.now(ZoneId.of("Asia/Shanghai")))
                 .ifPresent(q->{var matches=search(q,current,null);if(!matches.hasMore() && matches.items().size()==1)required.add(Long.parseLong(matches.items().get(0).videoId()));});
-        if(page==null && required.isEmpty() && session!=null && (com.tianmu.agent.application.ConversationFocus.continuation(message)
-                && com.tianmu.agent.preparation.AnalysisSourceSelection.mentions(message) || com.tianmu.agent.preparation.VideoDiscovery.historicalReport(message)))
-            required.addAll(allowed(current,repositories.getObject().resourcesForSession(session,current,Long.MAX_VALUE),false));
-        Set<Long> granted = new HashSet<>(allowed(current,required,true));
-        return new AccessScope(current.tenantId(),current.userId(),granted,current.authorizationRef());
+        AccessScope explicit = grant(current,required,true);
+        if (session == null) return explicit;
+        Set<Long> history = repositories.getObject().resourcesForSession(session,current,Long.MAX_VALUE);
+        Set<Long> accessible = new HashSet<>(explicit.readableVideoIds());
+        accessible.addAll(allowed(current,history,false,true));
+        return grant(current,accessible,true);
     }
     @Override public com.tianmu.agent.query.VideoPagePort.Page page(long videoId,AccessScope scope) {
-        if (!scope.videoIds().contains(videoId)) throw new AgentException("FORBIDDEN","Current page outside scope");
+        if (!scope.readableVideoIds().contains(videoId)) throw new AgentException("FORBIDDEN","Current page outside scope");
         JsonNode data = request("GET","/internal/agent/video-context?videoId="+videoId,credentials.token(scope.authorizationRef()),null,null);
         try { return json.treeToValue(data,com.tianmu.agent.query.VideoPagePort.Page.class); }
         catch (Exception e) { throw new AgentException("BUSINESS_UNAVAILABLE","Invalid page metadata"); }
@@ -220,7 +224,7 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
         }catch(Exception invalid){throw new AgentException("INVALID_EVIDENCE","Invalid owned-video search result");}
     }
     @Override public void renew(AccessScope saved,AccessScope authenticated){
-        IdentityPort.super.renew(saved,authenticated);allowed(authenticated,saved.videoIds(),true);credentials.renew(saved.authorizationRef(),authenticated.authorizationRef());
+        IdentityPort.super.renew(saved,authenticated);allowed(authenticated,saved.videoIds(),true);allowed(authenticated,saved.readableVideoIds(),true,true);credentials.renew(saved.authorizationRef(),authenticated.authorizationRef());
     }
     @Override public AccessScope forSession(String credential, UUID id, long before) {
         AccessScope principal = authenticate(credential);
@@ -253,14 +257,14 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
         catch (Exception e) { throw new AgentException("INVALID_EVIDENCE", "Analysis schema mismatch"); }
     }
     @Override public com.tianmu.agent.core.VideoContent.Source source(long videoId, AccessScope scope, CallControl control) {
-        if (!scope.videoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Video outside prepared scope");
+        if (!scope.readableVideoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Video outside prepared scope");
         JsonNode result = request("GET", "/internal/agent/video-source?videoId=" + videoId,
                 credentials.token(scope.authorizationRef()), null, control);
         try { return json.treeToValue(result, com.tianmu.agent.core.VideoContent.Source.class); }
         catch (Exception e) { throw new AgentException("INVALID_EVIDENCE", "Video metadata schema mismatch"); }
     }
     @Override public com.tianmu.agent.core.VideoContent.Media media(long videoId, String version, long startMs, long endMs, AccessScope scope, CallControl control) {
-        if (!scope.videoIds().contains(videoId) || !version.matches("[a-f0-9]{64}")) throw new AgentException("FORBIDDEN", "Video outside scope");
+        if (!scope.readableVideoIds().contains(videoId) || !version.matches("[a-f0-9]{64}")) throw new AgentException("FORBIDDEN", "Video outside scope");
         JsonNode result = request("GET", "/internal/agent/video-content-media?videoId=" + videoId + "&version=" + version + "&startMs=" + startMs + "&endMs=" + endMs,
                 credentials.token(scope.authorizationRef()), null, control, 8_000_000, 60_000);
         try { return json.treeToValue(result, com.tianmu.agent.core.VideoContent.Media.class); }

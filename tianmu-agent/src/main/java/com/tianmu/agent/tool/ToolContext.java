@@ -43,7 +43,7 @@ public interface ToolContext {
     default com.tianmu.agent.core.DanmakuTypes.ReportRef saveReport(String evidenceId, byte[] html) { throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED", "Report storage unavailable"); }
     default void checkVideoQuery(long videoId) {
         checkpoint();
-        if (!scope().videoIds().contains(videoId)) throw new com.tianmu.agent.core.AgentException("FORBIDDEN", "Video outside scope");
+        if (!scope().readableVideoIds().contains(videoId)) throw new com.tianmu.agent.core.AgentException("FORBIDDEN", "Video outside scope");
     }
     default void checkVideoQuery(long videoId, Long startMs, Long endMs) { checkVideoQuery(videoId); }
     default Evidence registerVideoEvidence(com.tianmu.agent.core.VideoContent.Facts facts) { throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED", "Video evidence unavailable"); }

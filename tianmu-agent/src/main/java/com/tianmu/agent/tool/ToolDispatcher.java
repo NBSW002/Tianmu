@@ -58,7 +58,7 @@ public class ToolDispatcher {
                 .filter(t -> permitted(t.name(), run)).toList();
     }
     private boolean permitted(String name, RunState run) {
-        return com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification());
+        return com.tianmu.agent.access.AssistantToolAccess.permits(name, run.owner) && com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification());
     }
     private static Evidence bindFeedback(RunState run,com.tianmu.agent.core.FeedbackAnalysis.Asset asset){return com.tianmu.agent.application.FeedbackEvidenceBinding.bind(run,asset);}
     private Set<String> snapshotTools(RunState run) { return run.task() == null ? registry.names() : run.task().allowedTools(); }
@@ -123,7 +123,7 @@ public class ToolDispatcher {
             return history.read(before,limit,query);
         }
         public com.tianmu.agent.core.AnalysisContract analysisContract(){return run.task()==null?null:run.task().specification().analysis();}
-        public List<Map<String, String>> listSkills() { return skills.list(); }
+        public List<Map<String, String>> listSkills() { return skills.list().stream().filter(item -> skills.read(item.get("name")).tools().stream().anyMatch(name -> com.tianmu.agent.access.AssistantToolAccess.permits(name,run.owner))).toList(); }
         public Skill activateSkill(String name) {
             if (!tool.canActivateSkills()) throw new AgentException("TOOL_CAPABILITY_DENIED", "Tool cannot activate skills");
             checkSkillRevision(name);
@@ -275,6 +275,7 @@ public class ToolDispatcher {
         public void checkVideoQuery(long videoId) { business.checkVideoQuery(run, videoId); }
         public void checkCreatorDraft(long videoId, String kind) {
             run.checkpoint();
+            if (!run.owner.videoIds().contains(videoId)) throw new AgentException("FORBIDDEN", "Creator draft requires ownership of this video");
             if (run.task() == null || !(run.task().specification().typed() instanceof com.tianmu.agent.core.TaskConditions.Interaction expected)
                     || expected.video().videoId() != videoId || !expected.kind().equals(kind))
                 throw new com.tianmu.agent.core.AgentException("TASK_CONSTRAINT_VIOLATION", "草稿对象或类型与用户请求不一致。");

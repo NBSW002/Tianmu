@@ -39,7 +39,7 @@ class BusinessAdapterTest {
             }
             if(path.endsWith("principal")) value=Map.of("tenantId","tianmu","userId","881");
             else if(path.endsWith("my-videos"))value=Map.of("items",List.of(Map.of("videoId","1001","title","小鸭日常","durationMs",31000,"publishedAt","2026-10-28T00:00:00Z")),"nextOffset",1,"hasMore",false);
-            else if(path.endsWith("authorize")) {
+            else if((path.endsWith("authorize") || path.endsWith("authorize-readable"))) {
                 JsonNode body=mapper.readTree(exchange.getRequestBody()); Set<Long> result=new HashSet<>();
                 for(var id:body.path("videoIds")) if(allowed.contains(id.longValue())) result.add(id.longValue());
                 value=Map.of("videoIds",authorizationOverride == null ? result : authorizationOverride);
@@ -109,7 +109,7 @@ class BusinessAdapterTest {
         var scope=adapter.forCreate("private-test-token","查询视频1001昨天的弹幕数",null);
         assertEquals(Set.of(1001L),scope.videoIds()); assertFalse(scope.authorizationRef().isBlank());
         assertFalse(mapper.writeValueAsString(scope).contains("private-test-token"));
-        assertEquals(List.of("Bearer private-test-token","Bearer private-test-token"),headers);
+        assertEquals(List.of("Bearer private-test-token","Bearer private-test-token","Bearer private-test-token"),headers);
     }
     @Test void forbiddenTargetStopsBeforeRunCreation(){
         assertEquals("FORBIDDEN",assertThrows(AgentException.class,()->adapter.forCreate("token","查询视频1002昨天的弹幕数",null)).code());

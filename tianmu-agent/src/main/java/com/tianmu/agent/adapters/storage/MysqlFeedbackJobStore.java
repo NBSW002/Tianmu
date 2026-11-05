@@ -133,7 +133,7 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
     public boolean reauthorize(UUID id,com.tianmu.agent.core.AgentTypes.AccessScope caller) {
         return write(()->{
             Job j=locked(id);if(j==null || j.phase()!=Phase.WAITING_AUTH || !j.owner().tenantId().equals(caller.tenantId()) || !j.owner().userId().equals(caller.userId()) || !caller.videoIds().contains(j.request().query().videoId()))return false;
-            Job saved=new Job(j.id(),j.runId(),new com.tianmu.agent.core.AgentTypes.AccessScope(j.owner().tenantId(),j.owner().userId(),j.owner().videoIds(),caller.authorizationRef()),j.request(),j.phase(),j.createdAt(),j.deadline(),j.tokenLimit(),j.callLimit(),j.chargedTokens(),j.modelCalls(),j.model(),j.policyHash(),null,j.snapshot(),j.video(),j.asset(),j.completedWork(),j.version());
+            Job saved=new Job(j.id(),j.runId(),new com.tianmu.agent.core.AgentTypes.AccessScope(j.owner().tenantId(),j.owner().userId(),j.owner().videoIds(),caller.authorizationRef(),j.owner().readableVideoIds()),j.request(),j.phase(),j.createdAt(),j.deadline(),j.tokenLimit(),j.callLimit(),j.chargedTokens(),j.modelCalls(),j.model(),j.policyHash(),null,j.snapshot(),j.video(),j.asset(),j.completedWork(),j.version());
             return db.update("UPDATE agent_feedback_job SET job_json=CAST(? AS JSON),phase=?,version=version+1 WHERE job_id=? AND version=?",encode(saved),j.snapshot()==null?"QUEUED":"ANALYZING",id.toString(),j.version())==1;
         });
     }

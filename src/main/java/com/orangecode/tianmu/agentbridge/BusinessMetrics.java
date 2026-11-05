@@ -26,7 +26,7 @@ public final class BusinessMetrics {
     }
     public record Page(String videoId,String title,long durationMs) {}
     public Page page(BusinessAuthentication.Principal principal,long videoId) {
-        var rows = db.queryForList("SELECT title,duration FROM video WHERE video_id=? AND user_id=? AND is_delete=0",videoId,Long.parseLong(principal.userId()));
+        var rows = db.queryForList("SELECT title,duration FROM video WHERE video_id=? AND (status=2 OR user_id=?) AND is_delete=0",videoId,Long.parseLong(principal.userId()));
         if (rows.size()!=1) throw new BridgeException("FORBIDDEN",403);
         var row = rows.get(0);
         long duration = row.get("duration") instanceof Number number && Double.isFinite(number.doubleValue()) ? Math.max(0,Math.round(number.doubleValue()*1000)) : 0;
@@ -41,6 +41,13 @@ public final class BusinessMetrics {
         this.db.setQueryTimeout(config.queryTimeoutSeconds()); this.config = config;
     }
 
+    public Set<Long> readable(BusinessAuthentication.Principal principal, Set<Long> requested) {
+        if (requested == null || requested.size() > 100 || requested.stream().anyMatch(v -> v == null || v <= 0)) throw new BridgeException("INVALID_RESOURCES", 400);
+        if (requested.isEmpty()) return Set.of();
+        String placeholders = String.join(",", Collections.nCopies(requested.size(), "?"));
+        List<Object> args = new ArrayList<>(); args.add(Long.parseLong(principal.userId())); args.addAll(requested);
+        return Set.copyOf(db.queryForList("SELECT video_id FROM video WHERE (status=2 OR user_id=?) AND is_delete=0 AND video_id IN (" + placeholders + ")", Long.class, args.toArray()));
+    }
     public Set<Long> allowed(BusinessAuthentication.Principal principal, Set<Long> requested) {
         if (requested == null || requested.size() > 100 || requested.stream().anyMatch(v -> v == null || v <= 0))
             throw new BridgeException("INVALID_RESOURCES", 400);

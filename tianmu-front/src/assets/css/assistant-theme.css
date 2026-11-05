@@ -1,0 +1,33 @@
+@import './workbench-tokens.css';
+
+.assistant-host {
+  color: var(--workbench-ink);
+  background: var(--workbench-paper);
+  border-color: var(--workbench-border);
+  box-shadow: var(--workbench-whisper);
+}
+.assistant-host .assistant-host-toolbar {
+  background: var(--workbench-sidebar);
+  border-bottom: 1px solid var(--workbench-border);
+  color: var(--workbench-muted);
+  padding: 10px 20px;
+  font: 12px/1.5 var(--workbench-ui);
+}
+.assistant-host .assistant-host-toolbar button {color:var(--workbench-ink);padding:4px 8px; border-radius:4px;}
+.assistant-host .assistant-host-toolbar button:hover {background:var(--workbench-raised);}
+.assistant-host .assistant-access-note {background:var(--workbench-soft);color:var(--workbench-ink);}
+.assistant-launcher.assistant-launcher {
+  width:56px;height:56px;border-radius:50%;
+  color:var(--workbench-raised);background:var(--workbench-ink);
+  border:1px solid var(--workbench-ink);
+  box-shadow:var(--workbench-ring-shadow);
+  font-size:32px;
+  transition:transform 250ms var(--workbench-ease), background 150ms;
+}
+.assistant-launcher:hover {transform:translateY(-3px) rotate(-8deg);background:var(--workbench-accent);}
+.assistant-launcher:focus-visible,.assistant-host :focus-visible {outline:2px solid var(--workbench-focus);outline-offset:4px;}
+.assistant-host .assistant-login {font-family:var(--workbench-ui);padding:40px;}
+.assistant-login h2 {font:500 32px/1.4 var(--workbench-heading);}
+.assistant-host .assistant-login button {padding:10px 20px;border:1px solid var(--workbench-border);border-radius:8px;background:var(--workbench-raised);color:var(--workbench-ink);}
+.assistant-host .assistant-login button:first-of-type {background:var(--workbench-accent);color:var(--workbench-raised);border-color:var(--workbench-accent);}
+@media(prefers-reduced-motion:reduce){.assistant-launcher.assistant-launcher{transition:none;}.assistant-launcher:hover{transform:none;}}

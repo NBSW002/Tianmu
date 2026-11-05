@@ -119,7 +119,7 @@ def main():
                         report_path = re.search(r"/api/agent/runs/[a-z0-9-]+/reports/rp_[a-z0-9-]+", run["answer"]["text"]).group()[len("/api/agent"):]
                         code, html = request(base, "GET", report_path)
                         assert code == 200 and "模拟数据" in html and "完整处理" in html
-                        assert "局部话题与原话举例" in html
+                        assert "完整批次观点记录与原话举例" in html
                         if args.artifacts:
                             args.artifacts.mkdir(parents=True, exist_ok=True)
                             (args.artifacts / "report.html").write_text(html, encoding="utf-8")

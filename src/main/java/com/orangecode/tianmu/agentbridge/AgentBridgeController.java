@@ -31,6 +31,10 @@ public final class AgentBridgeController {
             @RequestParam(defaultValue="0") int offset,@RequestParam(defaultValue="10") int limit){
         return metrics.search(authentication.authenticate(auth),query,startDate,endDate,offset,limit);
     }
+    @PostMapping("/authorize-readable")
+    public Resources authorizeReadable(@RequestHeader(value="Authorization", required=false) String auth, @RequestBody Resources input) {
+        return new Resources(metrics.readable(authentication.authenticate(auth), input.videoIds()));
+    }
     @PostMapping("/authorize")
     public Resources authorize(@RequestHeader(value="Authorization", required=false) String auth, @RequestBody Resources input) {
         var principal = authentication.authenticate(auth);

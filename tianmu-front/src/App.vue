@@ -1,9 +1,11 @@
 <template>
 
   <router-view/>
+  <AssistantHost />
 </template>
 
 <script setup>
+import AssistantHost from '@/components/agent/AssistantHost.vue'
 import { onMounted, onBeforeUnmount, watch } from 'vue'
 import { useUserStore } from '@/store/user'
 import { fetchOnlineReward } from '@/api/user'

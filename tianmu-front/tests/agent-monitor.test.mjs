@@ -56,3 +56,18 @@ test('authorization failure stops monitoring and preserves the actionable error'
   try { await monitor.start({ runId: 'run', events: [] }); assert.equal(calls, 1); assert.equal(notice.value, 'Access revoked'); assert.equal(monitor.signal.aborted, true); }
   finally { monitor.stop(); }
 });
+
+test('text deltas deduplicate replay, clear intermediate tool text, and retain pinned model label', async () => {
+  const turn = { runId: 'run', events: [] };
+  const monitor = createRunMonitor({ notice: { value: '' }, applySnapshot: (t, s) => { t.snapshot = s; },
+    getAgentRun: async () => ({ status: 'SUCCEEDED', answer: { text: 'verified' } }),
+    readAgentEvents: async (id, cursor, signal, receive) => {
+      const send = (sequence, type, data = {}) => receive({ type, id: String(sequence), payload: { sequence, data } });
+      send(1, 'MODEL_SELECTED', { label: 'Pinned model' });
+      send(2, 'TEXT_START');send(3, 'TEXT_DELTA', { text: '工具调用前的临时说明' });send(4, 'TEXT_END');assert.equal(turn.streamingText, '');
+      send(5, 'TEXT_START');send(6, 'TEXT_DELTA', { text: '你' });send(6, 'TEXT_DELTA', { text: '你' });send(7, 'TEXT_DELTA', { text: '好' });
+      assert.equal(turn.streamingText, '你好');
+    } });
+  try { await monitor.start(turn); assert.equal(turn.modelLabel, 'Pinned model'); assert.equal(turn.snapshot.answer.text, 'verified'); }
+  finally { monitor.stop(); }
+});

@@ -71,9 +71,9 @@ class ConversationFlowTest {
             assertEquals(Status.SUCCEEDED, run.snapshot().status());
             assertEquals(Route.FAQ, run.snapshot().route());
             assertEquals(0, run.snapshot().totalModelCalls());
-            assertTrue(run.snapshot().answer().text().contains("话术"));
-            assertTrue(run.snapshot().answer().text().contains("画面内容"));
-            assertTrue(run.snapshot().answer().text().contains("指定片段"));
+            assertTrue(run.snapshot().answer().text().contains("个人助手"));
+            assertTrue(run.snapshot().answer().text().contains("视频作者"));
+            assertTrue(run.snapshot().answer().text().contains("确认"));
         }
     }
 }
