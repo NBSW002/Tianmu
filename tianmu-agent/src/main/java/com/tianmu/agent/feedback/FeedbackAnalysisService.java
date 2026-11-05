@@ -100,7 +100,10 @@ public final class FeedbackAnalysisService {
                         work.kind()==WorkKind.CLASSIFY && !pipeline(j.request())?directory.before(work,token):List.of());
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),accountAttempt);
                 List<Proposal> proposals;
-                if(input.kind()==WorkKind.MERGE && !pipeline(j.request())){
+                if(input.kind()==WorkKind.MERGE && pipeline(j.request()) && input.children().size()==1){
+                    var child=input.children().get(0);
+                    proposals=List.of(new Proposal("T1",child.title(),child.observation(),child.recommendation(),List.of(child.id())));
+                }else if(input.kind()==WorkKind.MERGE && !pipeline(j.request())){
                     var leaves=new ArrayList<Topic>();
                     for(var batch:store.completedLevel(id,0))leaves.addAll(objects.get(batch.result(),ResultNode.class).topics());
                     if(!leaves.stream().map(Topic::id).toList().equals(input.children().stream().map(Topic::id).toList()))
@@ -165,16 +168,7 @@ public final class FeedbackAnalysisService {
         }
         if(level>=16)throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Report reduction exceeded bounded depth");
         var children=new ArrayList<Topic>();for(var row:rows)children.addAll(objects.get(row.result(),ResultNode.class).topics());
-        var inputs=new ArrayList<Blob>();var part=new ArrayList<Topic>();int bytes=0;
-        for(var topic:children){
-            int size=objects.bytes(topic);
-            if(!part.isEmpty() && (bytes+size>24000 || part.size()>=8)){
-                inputs.add(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),part,null)));
-                part=new ArrayList<>();bytes=0;
-            }
-            part.add(topic);bytes+=size;
-        }
-        if(!part.isEmpty())inputs.add(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),part,null)));
+        var inputs=FeedbackSynthesis.batches(children,objects::bytes).stream().map(input->objects.put(job.id(),input)).toList();
         store.planLevel(job.id(),job.version(),level+1,inputs);
     }
     private Instant retryAt(FeedbackJobStore.Work work){

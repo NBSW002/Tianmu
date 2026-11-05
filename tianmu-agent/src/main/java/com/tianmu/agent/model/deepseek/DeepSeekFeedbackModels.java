@@ -16,7 +16,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     private final String instruction,hash,pipelineInstruction,pipelineHash;
     public DeepSeekFeedbackModels(DeepSeekClient client,DeepSeekProperties config,ObjectMapper json,PromptCatalog prompts){
         this.client=client;this.config=config;this.json=json;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha(instruction.getBytes(StandardCharsets.UTF_8));
-        pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha(pipelineInstruction.getBytes(StandardCharsets.UTF_8));
+        pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha((pipelineInstruction+"\n"+FeedbackSynthesis.VERSION).getBytes(StandardCharsets.UTF_8));
     }
     public String modelName(){return config.analysisModel();}
     public String policyHash(){return hash;}
@@ -86,14 +86,8 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             row.put("reply_context",g.replyContext());row.put("author",g.author());row.put("playback_ms",g.playbackMs());row.put("count",g.messages());row.put("candidate_cluster",g.candidateCluster());return row;
         }).toList());
         else {
-            var children=new ArrayList<Map<String,Object>>();
-            for(var child:input.children()){
-                String alias="C"+(children.size()+1);childIds.put(alias,child.id());
-                // Descendant membership is a host ledger, not another assignment namespace for synthesis.
-                children.add(Map.of("id",alias,"title",child.title(),"observation",child.observation(),
-                        "recommendation",child.recommendation(),"messages",child.messages(),"author_messages",child.authorMessages()));
-            }
-            payload.put("children",children);payload.put("expected_input_ids",List.copyOf(childIds.keySet()));
+            var material=FeedbackSynthesis.material(input.children());
+            payload.putAll(material.payload());childIds.putAll(material.references());
         }
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
         if(input.correction()!=null){

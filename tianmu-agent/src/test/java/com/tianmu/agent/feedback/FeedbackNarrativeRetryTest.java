@@ -47,7 +47,7 @@ class FeedbackNarrativeRetryTest {
         prep.startReport(job.id(),owner,new CallControl(deadline,token));service.advance(job.id());
         assertEquals(0,jobs.get(job.id()).completedWork());assertNotEquals(Phase.READY,jobs.get(job.id()).phase());
         while(jobs.get(job.id()).phase()!=Phase.READY && Instant.now().isBefore(deadline)){service.advance(job.id());Thread.sleep(25);}
-        assertEquals(Phase.READY,jobs.get(job.id()).phase());assertEquals(3,calls.get());
+        assertEquals(Phase.READY,jobs.get(job.id()).phase());assertEquals(2,calls.get(),"A single accepted observation needs no synthesis model call");
         var asset=service.asset(job.id(),owner,request);var root=service.topics(asset).get(0);
         assertEquals(3,root.messages());assertEquals(1,root.authorMessages());
         String html=new String(service.report(asset),java.nio.charset.StandardCharsets.UTF_8);
