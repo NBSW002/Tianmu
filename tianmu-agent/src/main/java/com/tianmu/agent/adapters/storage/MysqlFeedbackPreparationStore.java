@@ -39,7 +39,7 @@ public final class MysqlFeedbackPreparationStore implements FeedbackPreparationS
     public Work claim(UUID job,Step step,Instant now,Duration lease){return write(()->{
         lock(job);var rows=db.queryForList("SELECT *, (lease_until IS NULL OR lease_until<=UTC_TIMESTAMP(6)) available FROM agent_feedback_preparation WHERE job_id=? AND step=? FOR UPDATE",job.toString(),step.name());
         if(rows.isEmpty())return null;var r=rows.get(0);var w=row(r);
-        if(w.state().equals("COMPLETE") || ((Number)r.get("available")).intValue()!=1)return null;
+        if(!Set.of("PENDING","RUNNING").contains(w.state()) || ((Number)r.get("available")).intValue()!=1)return null;
         if(w.attempts()>=3)throw new AgentException("PREPARATION_RETRY_EXHAUSTED","Source preparation retry limit reached");
         db.update("UPDATE agent_feedback_preparation SET state='RUNNING',fence=fence+1,attempts=attempts+1,lease_until=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL ? MICROSECOND) WHERE job_id=? AND step=?",Math.multiplyExact(lease.toMillis(),1000),job.toString(),step.name());return get(job,step);
     });}
@@ -48,6 +48,10 @@ public final class MysqlFeedbackPreparationStore implements FeedbackPreparationS
         return db.update("UPDATE agent_feedback_preparation SET state='COMPLETE',result_json=CAST(? AS JSON) WHERE job_id=? AND step=? AND state='RUNNING' AND fence=? AND lease_until>UTC_TIMESTAMP(6)",encoded,w.jobId().toString(),w.step().name(),w.fence())==1;
     });}
     public void release(Work w){write(()->{db.update("UPDATE agent_feedback_preparation SET state='PENDING',lease_until=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL ? SECOND) WHERE job_id=? AND step=? AND fence=? AND state='RUNNING'",2*w.attempts(),w.jobId().toString(),w.step().name(),w.fence());return null;});}
+    public void settle(UUID job,String state){
+        if(!Set.of("FAILED","CANCELLED").contains(state))throw new IllegalArgumentException("Expected terminal state");
+        write(()->{lock(job);db.update("UPDATE agent_feedback_preparation SET state=?,fence=fence+1,lease_until=NULL WHERE job_id=? AND state IN ('PENDING','RUNNING')",state,job.toString());return null;});
+    }
     public void reserveEmbedding(UUID job,int limit){write(()->{
         lock(job);int changed=db.update("UPDATE agent_feedback_preparation SET embedding_calls=embedding_calls+1 WHERE job_id=? AND step='SNAPSHOT' AND embedding_calls<?",job.toString(),limit);
         if(changed!=1)throw new AgentException("EMBEDDING_BUDGET_EXCEEDED","Embedding request budget exhausted");return null;

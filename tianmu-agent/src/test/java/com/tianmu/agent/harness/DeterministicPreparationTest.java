@@ -15,7 +15,7 @@ import static org.mockito.Mockito.*;
 class DeterministicPreparationTest {
     private PreparationPolicy policy() { return new PreparationPolicy(Duration.ofMillis(200), Duration.ofSeconds(1), Duration.ofMillis(200), Duration.ofSeconds(1), true, false); }
     private RunState run(String query) { return new RunState(new AccessScope("t", "u", Set.of(1001L)), query); }
-    @Test void explicitTaskSkipsRecognitionAndAssemblerReusesTheFrozenSpecification() {
+    @Test void explicitTaskUsesRuleIntentAndAssemblerReusesTheFrozenSpecification() {
         for (String query : List.of("查询视频1001昨天的弹幕数", "分析视频1001第2秒到第6秒的画面", "分析视频1001昨天的弹幕报告")) {
             try (var f = new HarnessLifecycleTest.Fixture()) {
                 var model = mock(PreparationModelPort.class);
@@ -25,7 +25,7 @@ class DeterministicPreparationTest {
                     var result = prep.prepare(run, query); run.prepared(result);
                     assertEquals(Route.HARNESS, result.route());
                     assertEquals(0, run.snapshot().preparationCalls());
-                    assertTrue(result.request().skippedStages().containsAll(Set.of("intent", "understanding", "emotion", "rewrite")));
+                    assertEquals(Set.of("understanding", "emotion", "rewrite"),result.request().skippedStages());
                     var meaning = mock(TaskMeaning.class);
                     var assembler = new TaskAssembler(new com.tianmu.agent.skill.SkillCatalog(), new com.tianmu.agent.prompt.PromptCatalog(), new com.tianmu.agent.tool.ToolCatalog(), meaning);
                     assertEquals(result.request().specification(), assembler.assemble(run).specification());

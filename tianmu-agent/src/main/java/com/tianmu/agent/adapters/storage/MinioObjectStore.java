@@ -69,12 +69,27 @@ public final class MinioObjectStore implements ObjectStore {
     @Override public byte[] get(String key, long size, String sha) {
         String object = object(key);
         if (size < 0 || size > MAX_BYTES || sha == null || !sha.matches("[a-f0-9]{64}"))
-            throw new AgentException("ARTIFACT_UNAVAILABLE", "Artifact is missing or inconsistent");
+            throw readFailure("INVALID_REFERENCE",0,false);
         try (var stream = client.getObject(GetObjectArgs.builder().bucket(bucket).object(object).build())) {
             byte[] body = stream.readNBytes((int) size + 1);
-            if (body.length != size || !FileObjectStore.hash(body).equals(sha)) throw new java.io.IOException("Integrity mismatch");
+            if (body.length != size || !FileObjectStore.hash(body).equals(sha)) throw readFailure("INTEGRITY",0,false);
             return body;
-        } catch (Exception e) { throw new AgentException("ARTIFACT_UNAVAILABLE", "Artifact is missing or inconsistent"); }
+        } catch (AgentException e) { throw e; }
+        catch (io.minio.errors.ErrorResponseException e) {
+            int status=e.response()==null?0:e.response().code();
+            String code=e.errorResponse()==null?"":e.errorResponse().code();
+            boolean retry=status==408 || status==429 || status>=500 || java.util.Set.of("RequestTimeout","SlowDown","InternalError","ServiceUnavailable").contains(code);
+            throw readFailure(retry?"SERVICE":status==404?"MISSING":status==403?"ACCESS_DENIED":"PROTOCOL",status,retry);
+        } catch (java.io.IOException e) { throw readFailure("TRANSPORT",0,true); }
+        catch (Exception e) { throw readFailure("PROTOCOL",0,false); }
+    }
+
+    private static AgentException readFailure(String kind,int status,boolean retryable) {
+        // Only bounded diagnostics; never export SDK messages, endpoints, keys or credentials.
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),
+                Map.of("storage.failure_kind",kind,"storage.http_status",status));
+        return new AgentException(retryable?"OBJECT_STORE_UNAVAILABLE":"ARTIFACT_UNAVAILABLE",
+                retryable?"Private object read temporarily unavailable":"Artifact is missing or inconsistent");
     }
 
     @Override public void delete(String key) {

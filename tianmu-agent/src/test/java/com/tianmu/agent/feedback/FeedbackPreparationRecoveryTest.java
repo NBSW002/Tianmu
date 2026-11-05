@@ -22,6 +22,7 @@ class FeedbackPreparationRecoveryTest {
     final AccessScope owner=new AccessScope("t","u",Set.of(1001L));
     final Request request=new Request(new DanmakuTypes.Query(1001,LocalDateTime.of(2026,11,1,0,0),LocalDateTime.of(2026,11,2,0,0)),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.VIDEO_GROUNDED,0L,10000L,FeedbackPreparationService.VERSION);
     final VideoContent.Facts video=new VideoContent.Facts("video-content-v1",1001,"v1",0,10000,"采样观察",List.of(new VideoContent.Moment(1000,"画面有商品")),"","SAMPLED_FRAMES",List.of(1000L),"fixture",Instant.now());
+    final AtomicInteger readFailures=new AtomicInteger();final AtomicReference<String> readCode=new AtomicReference<>("OBJECT_STORE_UNAVAILABLE");
     final AtomicInteger exports=new AtomicInteger();final AtomicBoolean authorized=new AtomicBoolean(true);final List<Input> inputs=new ArrayList<>();
     final FeedbackSnapshotPort source=new FeedbackSnapshotPort(){
         public void authorize(AccessScope caller,long id){if(!authorized.get())throw new AgentException("AUTH_CONTEXT_EXPIRED","fixture");}
@@ -38,7 +39,13 @@ class FeedbackPreparationRecoveryTest {
             return List.of(new Proposal("T1","综合观察","保留正反观点","",input.kind()==WorkKind.CLASSIFY?input.groups().stream().map(Group::id).toList():input.children().stream().map(Topic::id).toList()));
         }
     };
-    FeedbackObjects objects(){return new FeedbackObjects(new FileObjectStore(directory),new ObjectMapper().findAndRegisterModules());}
+    FeedbackObjects objects(){
+        var files=new FileObjectStore(directory);
+        return new FeedbackObjects(new com.tianmu.agent.runtime.store.ObjectStore(){
+            public void put(String k,byte[] v){files.put(k,v);}public void delete(String k){files.delete(k);}
+            public byte[] get(String k,long n,String sha){if(readFailures.getAndUpdate(v->Math.max(0,v-1))>0)throw new AgentException(readCode.get(),"fixture");return files.get(k,n,sha);}
+        },new ObjectMapper().findAndRegisterModules());
+    }
     FeedbackAnalysisService analysis(){return new FeedbackAnalysisService(jobs,objects(),source,models,FeedbackPolicy.defaults());}
     FeedbackPreparationService preparation(FeedbackAnalysisService analysis){return new FeedbackPreparationService(analysis,work,objects(),FeedbackPolicy.defaults(),new FeedbackClusters(null,null));}
     CallControl control(){return new CallControl(Instant.now().plusSeconds(30),new CancellationToken());}
@@ -101,10 +108,39 @@ class FeedbackPreparationRecoveryTest {
         assertFalse(work.complete(old,blob));assertTrue(work.complete(current,blob));assertNull(work.claim(id,FeedbackPreparationStore.Step.SNAPSHOT,Instant.now(),Duration.ofSeconds(30)));
         work.reserveEmbedding(id,1);assertEquals("EMBEDDING_BUDGET_EXCEEDED",assertThrows(AgentException.class,()->work.reserveEmbedding(id,1)).code());
     }
+    @Test void temporaryReadFailureRetriesTheSameSnapshotWithoutPaidWorkOrReexport()throws Exception {
+        var service=analysis();var prep=preparation(service);var job=prep.request(UUID.randomUUID(),owner,request,video,control().deadline(),Source.COMMENT);
+        prep.advance(job.id(),FeedbackPreparationStore.Step.SNAPSHOT,new CancellationToken());readFailures.set(1);
+        assertEquals("OBJECT_STORE_UNAVAILABLE",assertThrows(AgentException.class,()->prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken())).code());
+        assertEquals("PENDING",work.get(job.id(),FeedbackPreparationStore.Step.COMMENT).state());assertTrue(prep.pending(job.id()).isEmpty());
+        assertNotEquals(Phase.FAILED,jobs.get(job.id()).phase());assertTrue(inputs.isEmpty());Thread.sleep(2100);
+        prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken());
+        assertTrue(prep.ready(job.id(),Source.COMMENT));assertEquals(2,work.get(job.id(),FeedbackPreparationStore.Step.COMMENT).attempts());assertEquals(1,exports.get());assertTrue(inputs.isEmpty());
+    }
+    @Test void missingEvidenceFailsClosedAndFencesAllUnfinishedChildren(){
+        var service=analysis();var prep=preparation(service);var job=prep.request(UUID.randomUUID(),owner,request,video,control().deadline(),Source.COMMENT);
+        prep.request(job.runId(),owner,request,video,job.deadline(),Source.DANMAKU);prep.advance(job.id(),FeedbackPreparationStore.Step.SNAPSHOT,new CancellationToken());
+        var concurrent=work.claim(job.id(),FeedbackPreparationStore.Step.DANMAKU,Instant.now(),Duration.ofSeconds(30));
+        readCode.set("ARTIFACT_UNAVAILABLE");readFailures.set(1);
+        assertEquals("ARTIFACT_UNAVAILABLE",assertThrows(AgentException.class,()->prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken())).code());
+        assertEquals(Phase.FAILED,jobs.get(job.id()).phase());assertEquals("COMPLETE",work.get(job.id(),FeedbackPreparationStore.Step.SNAPSHOT).state());
+        assertEquals("FAILED",work.get(job.id(),FeedbackPreparationStore.Step.COMMENT).state());assertEquals("FAILED",work.get(job.id(),FeedbackPreparationStore.Step.DANMAKU).state());
+        assertFalse(work.complete(concurrent,objects().put(job.id(),Map.of("stale",true))));assertNull(work.claim(job.id(),FeedbackPreparationStore.Step.DANMAKU,Instant.now().plusSeconds(60),Duration.ofSeconds(30)));assertTrue(inputs.isEmpty());
+    }
+    @Test void repeatedReadFailuresStopAfterThreeAttemptsAndNeverStartModels(){
+        var fast=org.mockito.Mockito.spy(work);
+        org.mockito.Mockito.doAnswer(inv->work.claim(inv.getArgument(0),inv.getArgument(1),Instant.now().plusSeconds(60),inv.getArgument(3)))
+                .when(fast).claim(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any());
+        var service=analysis();var prep=new FeedbackPreparationService(service,fast,objects(),FeedbackPolicy.defaults(),new FeedbackClusters(null,null));
+        var job=prep.request(UUID.randomUUID(),owner,request,video,control().deadline(),Source.COMMENT);prep.advance(job.id(),FeedbackPreparationStore.Step.SNAPSHOT,new CancellationToken());
+        readFailures.set(3);for(int i=0;i<3;i++)assertEquals("OBJECT_STORE_UNAVAILABLE",assertThrows(AgentException.class,()->prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken())).code());
+        assertEquals("PREPARATION_RETRY_EXHAUSTED",assertThrows(AgentException.class,()->prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken())).code());
+        assertEquals(Phase.FAILED,jobs.get(job.id()).phase());assertEquals(3,work.get(job.id(),FeedbackPreparationStore.Step.COMMENT).attempts());assertEquals("FAILED",work.get(job.id(),FeedbackPreparationStore.Step.COMMENT).state());assertTrue(inputs.isEmpty());
+    }
     @Test void revokedAuthorizationPreventsSourcePublication(){
         var service=analysis();var prep=preparation(service);var job=prep.request(UUID.randomUUID(),owner,request,video,control().deadline(),Source.COMMENT);
         prep.advance(job.id(),FeedbackPreparationStore.Step.SNAPSHOT,new CancellationToken());authorized.set(false);
-        prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken());
+        assertEquals("AUTH_CONTEXT_EXPIRED",assertThrows(AgentException.class,()->prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken())).code());
         assertFalse(prep.ready(job.id(),Source.COMMENT));assertEquals(Phase.WAITING_AUTH,jobs.get(job.id()).phase());assertTrue(inputs.isEmpty());
         authorized.set(true);service.resume(job.id(),owner);prep.advance(job.id(),FeedbackPreparationStore.Step.COMMENT,new CancellationToken());assertTrue(prep.ready(job.id(),Source.COMMENT));assertEquals(1,exports.get());
     }

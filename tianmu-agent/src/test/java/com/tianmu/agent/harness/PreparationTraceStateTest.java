@@ -32,6 +32,7 @@ class PreparationTraceStateTest {
                 var run = new RunState(new AccessScope("demo", "alice", Set.of(1001L)), "查询视频1001昨天的弹幕数");
                 var result = prepare(f, prep, run);
                 assertEquals(Route.HARNESS, result.route());
+                assertFalse(result.request().skippedStages().contains("intent"));
                 assertEquals("RULE", attr(span(f,"intent"), "preparation.method"));
                 assertEquals("ROUTING", attr(span(f,"intent"), "node.type"));
                 assertEquals("VIDEO_METRIC", attr(span(f,"intent"), "preparation.intent"));

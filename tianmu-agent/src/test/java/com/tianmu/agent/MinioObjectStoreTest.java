@@ -24,6 +24,8 @@ class MinioObjectStoreTest {
     final Map<String, String> contentTypes = new ConcurrentHashMap<>();
     final AtomicInteger requests = new AtomicInteger();
     volatile boolean bucketExists, unavailable;
+    volatile int readStatus;
+    volatile boolean truncateRead;
     volatile String authorization;
     final String bucket = "tianmu-agent-artifacts", prefix = "agent-artifacts/";
 
@@ -60,10 +62,11 @@ class MinioObjectStoreTest {
             exchange.getResponseHeaders().set("ETag", "\"fixture-etag\"");
             exchange.sendResponseHeaders(200, -1);
         } else if (method.equals("GET")) {
+            if(readStatus!=0){error(exchange,readStatus,readStatus==429?"SlowDown":"InternalError");return;}
             byte[] body = objects.get(key);
             if (body == null) { error(exchange, 404, "NoSuchKey"); return; }
             exchange.getResponseHeaders().set("Content-Type", contentTypes.getOrDefault(key, "application/octet-stream"));
-            exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body);
+            exchange.sendResponseHeaders(200, body.length+(truncateRead?1:0)); exchange.getResponseBody().write(body);
         } else if (method.equals("DELETE")) {
             objects.remove(key); contentTypes.remove(key); exchange.sendResponseHeaders(204, -1);
         } else { error(exchange, 400, "InvalidRequest"); return; }
@@ -96,6 +99,19 @@ class MinioObjectStoreTest {
         assertEquals("ARTIFACT_UNAVAILABLE", assertThrows(AgentException.class, () -> store.get("ar_immutable.json", body.length, FileObjectStore.hash(body))).code());
         objects.put(prefix + "ar_immutable.json", new byte[1048577]);
         assertThrows(AgentException.class, () -> store.get("ar_immutable.json", body.length, FileObjectStore.hash(body)));
+    }
+    @Test void readFailuresDistinguishRetryableServiceAndTransportFromMissingDeniedAndCorruptObjects(){
+        byte[] body="{}".getBytes(StandardCharsets.UTF_8);String key="ar_read.json",sha=FileObjectStore.hash(body);store.put(key,body);
+        for(int status:List.of(503,429)){
+            readStatus=status;var failure=assertThrows(AgentException.class,()->store.get(key,body.length,sha));
+            assertEquals("OBJECT_STORE_UNAVAILABLE",failure.code());assertFalse(failure.toString().contains("private-internal-detail"));assertNull(failure.getCause());
+        }
+        readStatus=0;truncateRead=true;
+        assertEquals("OBJECT_STORE_UNAVAILABLE",assertThrows(AgentException.class,()->store.get(key,body.length+1,sha)).code());
+        truncateRead=false;assertArrayEquals(body,store.get(key,body.length,sha));
+        unavailable=true;assertEquals("ARTIFACT_UNAVAILABLE",assertThrows(AgentException.class,()->store.get(key,body.length,sha)).code());
+        unavailable=false;objects.remove(prefix+key);
+        assertEquals("ARTIFACT_UNAVAILABLE",assertThrows(AgentException.class,()->store.get(key,body.length,sha)).code());
     }
     @Test void unsafeKeysAndUnboundedBodiesAreRejectedBeforeNetworkRequests() {
         int before = requests.get();

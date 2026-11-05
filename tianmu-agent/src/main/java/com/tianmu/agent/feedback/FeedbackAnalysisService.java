@@ -127,7 +127,7 @@ public final class FeedbackAnalysisService {
             var j=store.get(id);
             if(token.cancelled())store.cancel(id);
             else if(j!=null && Set.of("UNAUTHORIZED","AUTH_CONTEXT_EXPIRED","AUTHORIZATION_EXPIRED").contains(e.code()))store.phase(id,j.version(),Phase.WAITING_AUTH);
-            else if(work!=null && Set.of("MODEL_UNAVAILABLE","MODEL_ERROR","MODEL_CALL_TIMEOUT","INVALID_ANALYSIS","BUSINESS_TIMEOUT","BUSINESS_UNAVAILABLE").contains(e.code()))
+            else if(work!=null && Set.of("MODEL_UNAVAILABLE","MODEL_ERROR","MODEL_CALL_TIMEOUT","INVALID_ANALYSIS","BUSINESS_TIMEOUT","BUSINESS_UNAVAILABLE","OBJECT_STORE_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(e.code()))
                 store.retry(work,e.code(),retryAt(work),3);
             else store.fail(id,e.code());
         } catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(getClass()).warn("feedback_work_failed job={} type={} location={}",id,e.getClass().getSimpleName(),Arrays.stream(e.getStackTrace()).filter(f->f.getClassName().startsWith("com.tianmu.")).limit(5).toList());store.fail(id,"ANALYSIS_FAILED");}

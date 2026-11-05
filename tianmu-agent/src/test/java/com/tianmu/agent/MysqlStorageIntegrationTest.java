@@ -41,6 +41,10 @@ class MysqlStorageIntegrationTest {
         var blob=new FeedbackAnalysis.Blob("fb_"+UUID.randomUUID().toString().replace("-","")+".json",2,"0".repeat(64));
         assertFalse(ledger.complete(first,blob));assertTrue(rebuilt.complete(second,blob));
         assertEquals(blob,ledger.get(job.id(),step).result());assertNull(ledger.claim(job.id(),step,now,Duration.ofSeconds(30)));
+        var child=com.tianmu.agent.feedback.FeedbackPreparationStore.Step.COMMENT;ledger.request(job.id(),child);
+        var stale=ledger.claim(job.id(),child,now,Duration.ofSeconds(30));rebuilt.settle(job.id(),"FAILED");
+        assertEquals("COMPLETE",ledger.get(job.id(),step).state());assertEquals("FAILED",ledger.get(job.id(),child).state());
+        assertFalse(ledger.complete(stale,blob));assertNull(ledger.claim(job.id(),child,Instant.now().plusSeconds(60),Duration.ofSeconds(30)));
         assertEquals("EMBEDDING_BUDGET_EXCEEDED",assertThrows(AgentException.class,()->rebuilt.reserveEmbedding(job.id(),1)).code());
     }
     @Test void lookupAndSavedReportProvenanceSurviveReload(){

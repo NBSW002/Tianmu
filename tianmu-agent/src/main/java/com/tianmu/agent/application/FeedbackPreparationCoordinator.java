@@ -28,7 +28,7 @@ public final class FeedbackPreparationCoordinator {
             try {
                 assembler.verify(run.task());var job=analysis.forRun(run.id);
                 if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
-                if(job.phase()==Phase.FAILED){run.fail(job.errorCode());continue;}if(job.phase()==Phase.CANCELLED){run.cancel();continue;}
+                if(job.phase()==Phase.FAILED){preparation.settle(job.id());run.fail(job.errorCode());continue;}if(job.phase()==Phase.CANCELLED){preparation.settle(job.id());run.cancel();continue;}
                 if(job.phase()==Phase.WAITING_AUTH)continue;
                 var pending=run.execution().exchanges().stream().filter(e->op.equals(e.result().pending())).toList();
                 if(pending.isEmpty())throw new AgentException("STORAGE_CORRUPT","Missing source continuation");
@@ -50,7 +50,8 @@ public final class FeedbackPreparationCoordinator {
                     try{workers.execute(()->{
                         try{harness.execute(run,()->harness.stage(run,"feedback.prepare",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",step.name()),()->{
                             preparation.advance(job.id(),step,run.cancellation());return Map.of("step",step.name());
-                        }));}finally{submitted.remove(key);}
+                        }));}catch(AgentException failure){/* advance persisted retry/pause/failure; the stage records the error. */}
+                        finally{submitted.remove(key);}
                     });}catch(RejectedExecutionException full){submitted.remove(key);}
                 }
             }catch(AgentException failure){

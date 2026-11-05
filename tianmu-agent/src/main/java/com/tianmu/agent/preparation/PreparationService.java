@@ -149,7 +149,7 @@ public class PreparationService implements AutoCloseable {
             });
             if (known != Intent.UNKNOWN) {
                 skipEmotion(run, "RULE_ROUTE");
-                skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
+                skipped.addAll(Set.of("understanding", "emotion", "rewrite"));
                 bindFocus(run,specification);
                 return new Result(Route.HARNESS, new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, skipped, known, specification), null, null);
             }

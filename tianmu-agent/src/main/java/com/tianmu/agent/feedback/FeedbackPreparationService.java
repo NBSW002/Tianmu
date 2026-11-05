@@ -24,8 +24,13 @@ public final class FeedbackPreparationService {
     public boolean ready(UUID job,Source source){var w=store.get(job,Step.valueOf(source.name()));return w!=null && w.state().equals("COMPLETE");}
     public List<Step> pending(UUID job){
         var snapshot=store.get(job,Step.SNAPSHOT);if(snapshot==null)return List.of();
-        if(!snapshot.state().equals("COMPLETE"))return List.of(Step.SNAPSHOT);
-        return Arrays.stream(Step.values()).filter(s->s!=Step.SNAPSHOT).filter(s->{var w=store.get(job,s);return w!=null && !w.state().equals("COMPLETE");}).toList();
+        if(!snapshot.state().equals("COMPLETE"))return claimable(snapshot)?List.of(Step.SNAPSHOT):List.of();
+        return Arrays.stream(Step.values()).filter(s->s!=Step.SNAPSHOT).filter(s->{var w=store.get(job,s);return w!=null && claimable(w);}).toList();
+    }
+    private static boolean claimable(FeedbackPreparationStore.Work w){return Set.of("PENDING","RUNNING").contains(w.state()) && !Instant.now().isBefore(w.leaseUntil());}
+    public void settle(UUID id){
+        var job=analysis.forJob(id);if(job==null)return;
+        if(job.phase()==Phase.FAILED || job.phase()==Phase.CANCELLED)store.settle(id,job.phase().name());
     }
     public Prepared result(UUID id,AccessScope owner,Source source,CallControl control){
         var job=analysis.owned(id,owner);var w=store.get(id,Step.valueOf(source.name()));
@@ -55,13 +60,16 @@ public final class FeedbackPreparationService {
                 result=objects.put(id,new Prepared(source,manifest.result(),planned,organized.exactExpressions(),organized.clusters(),organized.method()));
             }
             control.checkpoint();analysis.owned(id,job.owner());
-            if(Instant.now().isBefore(control.deadline()))store.complete(claim,result);
+            if(Instant.now().isBefore(control.deadline())){if(!store.complete(claim,result))throw new AgentException("PREPARATION_CLAIM_LOST","Preparation result was not accepted");}
             else throw new AgentException("DEADLINE_EXCEEDED","Preparation deadline exceeded");
         }catch(AgentException failure){
+            if(failure.code().equals("PREPARATION_CLAIM_LOST")){settle(id);throw failure;}
             if(cancellation.cancelled())analysis.cancel(id);
             else if(claim!=null && Set.of("VECTOR_STORE_UNAVAILABLE","VECTOR_RATE_LIMITED","EMBEDDING_UNAVAILABLE","EMBEDDING_RATE_LIMITED","BUSINESS_UNAVAILABLE","BUSINESS_TIMEOUT","OBJECT_STORE_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(failure.code()))store.release(claim);
             else {if(claim!=null && Set.of("UNAUTHORIZED","AUTH_CONTEXT_EXPIRED","AUTHORIZATION_EXPIRED").contains(failure.code()))store.release(claim);analysis.preparationFailed(id,failure.code());}
-        }catch(RuntimeException failure){analysis.preparationFailed(id,"PREPARATION_FAILED");}
+            settle(id);
+            throw failure;
+        }catch(RuntimeException failure){analysis.preparationFailed(id,"PREPARATION_FAILED");settle(id);throw new AgentException("PREPARATION_FAILED","Source preparation failed");}
     }
     public FeedbackJobStore.Job startReport(UUID id,AccessScope owner,CallControl control){
         var job=analysis.owned(id,owner);

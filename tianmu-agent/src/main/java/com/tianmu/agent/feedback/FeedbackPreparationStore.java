@@ -13,6 +13,8 @@ public interface FeedbackPreparationStore {
     Work claim(UUID job,Step step,Instant now,Duration lease);
     boolean complete(Work claim,Blob result);
     void release(Work claim);
+    /** Fence unfinished children when their parent terminates. Completed evidence remains immutable. */
+    void settle(UUID job,String terminalState);
     /** Persisted across retries and process restarts, shared by both source workers. */
     void reserveEmbedding(UUID job,int limit);
 }
