@@ -1,6 +1,6 @@
 {
   "name": "audience-report",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "按冻结范围协调视频、弹幕与评论证据，完整阅读并综合后保存报告。",
   "tools": [
     "analyze_video_content",

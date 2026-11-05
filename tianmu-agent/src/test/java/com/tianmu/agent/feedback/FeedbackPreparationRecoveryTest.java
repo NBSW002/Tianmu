@@ -56,11 +56,42 @@ class FeedbackPreparationRecoveryTest {
         assertEquals(Phase.READY,jobs.get(job.id()).phase());assertEquals(1,exports.get());assertEquals(3,jobs.get(job.id()).modelCalls());
         assertEquals(15,jobs.get(job.id()).chargedTokens());assertEquals(2,jobs.get(job.id()).snapshot().counts().uniqueAudience());
         for(var input:inputs)if(input.kind()==WorkKind.CLASSIFY){
-            assertTrue(input.knownTopics().isEmpty());assertNotNull(input.groups().get(0).candidateCluster());
+            assertNotNull(input.groups().get(0).candidateCluster());
+            if(inputs.indexOf(input)==0)assertTrue(input.knownTopics().isEmpty());else assertFalse(input.knownTopics().isEmpty());
             if(input.groups().get(0).source()==Source.COMMENT)assertNull(input.video());else assertEquals(video,input.video());
         }
         var asset=restartedAnalysis.asset(job.id(),owner,request);assertEquals(4,restartedAnalysis.topics(asset).stream().mapToLong(Topic::messages).sum());
         assertTrue(new String(restartedAnalysis.report(asset),java.nio.charset.StandardCharsets.UTF_8).contains("短句"));
+    }
+    @Test void multipleFinalBusinessTopicsSurviveAssetStorageRestartAndReportProjection(){
+        FeedbackModels separate=new FeedbackModels(){
+            public String modelName(){return models.modelName();}public String policyHash(){return models.policyHash();}
+            public List<Proposal> analyze(Input input,CallControl control){
+                if(input.kind()==WorkKind.CLASSIFY)return models.analyze(input,control);
+                return java.util.stream.IntStream.range(0,input.children().size()).mapToObj(i->new Proposal("T"+(i+1),
+                        i==0?"拍摄方式讨论":"内容后续讨论","保留这一方面的观点与分歧。","核对证据后决定。",List.of(input.children().get(i).id()))).toList();
+            }
+        };
+        var service=new FeedbackAnalysisService(jobs,objects(),source,separate,FeedbackPolicy.defaults());var prep=preparation(service);UUID run=UUID.randomUUID();
+        var job=prep.request(run,owner,request,video,control().deadline(),Source.COMMENT);prep.request(run,owner,request,video,job.deadline(),Source.DANMAKU);
+        for(var step:FeedbackPreparationStore.Step.values())prep.advance(job.id(),step,new CancellationToken());
+        prep.startReport(job.id(),owner,control());for(int i=0;i<20 && jobs.get(job.id()).phase()!=Phase.READY;i++)service.advance(job.id());
+        assertEquals(Phase.READY,jobs.get(job.id()).phase());
+        var restarted=new FeedbackAnalysisService(jobs,objects(),source,separate,FeedbackPolicy.defaults());var asset=restarted.asset(job.id(),owner,request);
+        assertEquals(2,restarted.topics(asset).size());assertEquals(4,restarted.topics(asset).stream().mapToLong(Topic::messages).sum());
+        String html=new String(restarted.report(asset),java.nio.charset.StandardCharsets.UTF_8);assertTrue(html.contains("拍摄方式讨论"));assertTrue(html.contains("内容后续讨论"));
+        assertTrue(html.contains("原话与来源"));assertFalse(html.contains("层级"));
+    }
+    @Test void reportTopicDirectoryIsRebuiltPerJobAndNeverReusesAnotherJobsTitles(){
+        var service=analysis();var prep=preparation(service);
+        for(int round=0;round<2;round++){
+            int before=inputs.size();UUID run=UUID.randomUUID();var job=prep.request(run,owner,request,video,control().deadline(),Source.COMMENT);
+            prep.request(run,owner,request,video,job.deadline(),Source.DANMAKU);
+            for(var step:FeedbackPreparationStore.Step.values())prep.advance(job.id(),step,new CancellationToken());
+            prep.startReport(job.id(),owner,control());for(int i=0;i<20 && jobs.get(job.id()).phase()!=Phase.READY;i++)service.advance(job.id());
+            assertEquals(Phase.READY,jobs.get(job.id()).phase());assertTrue(inputs.get(before).knownTopics().isEmpty());
+            assertFalse(inputs.get(before+1).knownTopics().isEmpty());
+        }
     }
     @Test void expiredWorkerCannotOverwriteAcceptedChildAndBudgetSurvivesRetries()throws Exception {
         UUID id=UUID.randomUUID();work.request(id,FeedbackPreparationStore.Step.SNAPSHOT);

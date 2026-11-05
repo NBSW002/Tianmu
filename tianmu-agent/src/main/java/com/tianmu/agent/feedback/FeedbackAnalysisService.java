@@ -97,7 +97,7 @@ public final class FeedbackAnalysisService {
                         "analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));
                 Input stored=objects.get(work.input(),Input.class);
                 input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
-                        work.kind()==WorkKind.CLASSIFY && !pipeline(j.request())?directory.before(work,token):List.of());
+                        work.kind()==WorkKind.CLASSIFY?directory.before(work,token):List.of());
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work),accountAttempt);
                 List<Proposal> proposals;
                 if(input.kind()==WorkKind.MERGE && pipeline(j.request()) && input.children().size()==1){
@@ -275,20 +275,34 @@ public final class FeedbackAnalysisService {
         return page("observations",topics,offset,limit,FeedbackAnalysisService::topicView);
     }
     public byte[] report(Asset asset){
-        var details=new ArrayList<FeedbackReportRenderer.Detail>();
+        var roots=topics(asset);var graph=new LinkedHashMap<String,Topic>();
+        var leaves=new LinkedHashMap<String,List<Group>>();var loaded=new HashSet<UUID>();
         var batches=store.completedLevel(asset.jobId(),0);
         if(asset.snapshot().counts().total()>0 && batches.isEmpty())throw new AgentException("STORAGE_CORRUPT","Accepted batch notes are missing");
-        // Read each immutable batch once, rather than loading a work/input/result repeatedly for every topic.
         for(var work:batches){
-            var input=objects.get(work.input(),Input.class);var result=objects.get(work.result(),ResultNode.class);
-            for(var topic:result.topics())details.add(new FeedbackReportRenderer.Detail(topic,batches.size()==1?0:1,
-                    input.groups().stream().filter(g->topic.members().contains(g.id())).limit(2).map(g->(g.author()?"作者：":"观众：")+preview(g.text(),400)+(g.text().codePointCount(0,g.text().length())>400?"（预览，完整原文可回查）":"")).toList()));
+            loaded.add(work.id());var input=objects.get(work.input(),Input.class);var result=objects.get(work.result(),ResultNode.class);
+            for(var topic:result.topics()){
+                graph.put(topic.id(),topic);
+                leaves.put(topic.id(),input.groups().stream().filter(g->topic.members().contains(g.id())).toList());
+            }
+        }
+        var pending=new ArrayDeque<Topic>(roots);var visited=new HashSet<String>();
+        while(!pending.isEmpty()){
+            var topic=pending.remove();if(!visited.add(topic.id()))throw new AgentException("STORAGE_CORRUPT","Cyclic report topic references");
+            graph.putIfAbsent(topic.id(),topic);if(leaves.containsKey(topic.id()))continue;
+            for(var id:topic.members()){
+                if(!graph.containsKey(id)){
+                    var work=topicWork(asset,id);
+                    if(loaded.add(work.id()))for(var child:objects.get(work.result(),ResultNode.class).topics())graph.put(child.id(),child);
+                }
+                var child=graph.get(id);if(child==null)throw new AgentException("STORAGE_CORRUPT","Missing report child topic");pending.add(child);
+            }
         }
         var daily=new TreeMap<String,Long>();
         for(var chunk:asset.snapshot().chunks())for(Unit unit:objects.get(chunk,Unit[].class))if(unit.createdAt()!=null)daily.merge(unit.createdAt().atZone(DanmakuTypes.ZONE).toLocalDate().toString(),1L,Long::sum);
         // All-retained ranges may span years; collapse older days into monthly buckets before rendering.
         if(daily.size()>90){var monthly=new TreeMap<String,Long>();daily.forEach((day,n)->monthly.merge(day.substring(0,7),n,Long::sum));daily=monthly;}
-        return FeedbackReportRenderer.render(asset,topics(asset),details,daily);
+        return FeedbackReportRenderer.render(FeedbackReportDocument.build(asset,roots,graph,leaves,daily));
     }
     public Map<String,Object> read(Asset asset,String section,int offset,int limit) {
         return read(asset,section,null,offset,limit);

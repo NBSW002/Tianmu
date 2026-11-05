@@ -78,7 +78,7 @@ class FeedbackHttpWorkflowTest {
         assertEquals(withVideo?Grounding.VIDEO_GROUNDED:Grounding.FEEDBACK_ONLY,evidence.feedback().request().grounding());
         var report=run.execution().observations().stream().filter(r->r.tool().equals("create_feedback_report")).findFirst().orElseThrow();
         String html=mvc.perform(get(report.data().get("url").toString()).header("Authorization","Bearer demo-alice")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
-        assertTrue(html.contains("本次没有反馈记录"));assertEquals(withVideo,html.contains("视频依据"));
+        assertTrue(html.contains("本次没有反馈记录"));assertEquals(withVideo,html.contains("这段视频的内容"));
         assertFalse(run.execution().exchanges().stream().anyMatch(e->Set.of("query_danmaku","query_audience","create_danmaku_report").contains(e.call().name())));
     }
     @Test void plainCommentAnalysisUsesBackgroundTopicsAndDoesNotCreateAnArtifact()throws Exception {

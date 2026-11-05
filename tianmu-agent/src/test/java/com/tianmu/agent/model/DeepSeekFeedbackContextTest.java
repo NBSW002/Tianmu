@@ -51,7 +51,7 @@ class DeepSeekFeedbackContextTest {
         assertEquals("analysis-only",model.modelName());
         assertEquals("analysis-only",requests.get(0).path("model").asText());
     }
-    @Test void pipelineKeepsEveryExpressionAndCandidateIdentityWithoutHistoricalTopics()throws Exception {
+    @Test void pipelineKeepsEveryExpressionAndOnlyHostJobDirectoryTitles()throws Exception {
         var groups=List.of(new Group("G1",Source.COMMENT,"没声音","",false,null,12,List.of("C:1"),"K1"),
                 new Group("G2",Source.COMMENT,"声音很好","",false,null,1,List.of("C:2"),"K1"),
                 new Group("G3",Source.COMMENT,"😀","",false,null,1,List.of("C:3"),"K2"));
@@ -59,6 +59,8 @@ class DeepSeekFeedbackContextTest {
         var model=adapter(ContextPolicy.defaults());
         model.analyzePipeline(new Input(WorkKind.CLASSIFY,groups,List.of(),null,null,List.of(new KnownTopic("T8","旧主题",40))),control());
         var sent=payload(0);assertEquals(3,sent.path("groups").size());assertFalse(sent.has("known_topics"));assertFalse(sent.has("video"));
+        assertEquals("T8",sent.path("topic_directory").get(0).path("key").asText());
+        assertEquals(Set.of("key","title"),json.convertValue(sent.path("topic_directory").get(0),Map.class).keySet());
         assertEquals("没声音",sent.path("groups").get(0).path("text").asText());
         assertEquals("声音很好",sent.path("groups").get(1).path("text").asText());
         assertEquals("😀",sent.path("groups").get(2).path("text").asText());
@@ -76,9 +78,14 @@ class DeepSeekFeedbackContextTest {
         assertEquals("声音正常",sent.path("children").get(1).path("title").asText());
         assertFalse(sent.path("children").get(0).has("members"));
         assertEquals(List.of("C1","C2"),json.convertValue(sent.path("expected_input_ids"),List.class));
-        assertEquals(1,sent.path("max_topics").asInt());
+        assertEquals(2,sent.path("max_topics").asInt());
+        extraFields=Map.of("topics",List.of(Map.of("key","T1","title","声音异常反馈","observation","有人称听不到","recommendation","检查"),
+                Map.of("key","T2","title","声音正常反馈","observation","另有人认为清楚","recommendation","保留差异")),"assignments",Map.of("C1","T1","C2","T2"));
+        var separated=model.analyzePipeline(input,control());assertEquals(2,separated.size());
+        assertEquals(List.of("batch1:T1"),separated.get(0).members());assertEquals(List.of("batch2:T1"),separated.get(1).members());
         extraFields=Map.of("topics",List.of(Map.of("key","T1","title","a","observation","a","recommendation",""),
-                Map.of("key","T2","title","b","observation","b","recommendation","")),"assignments",Map.of("batch1:T1","T1","batch2:T1","T2"));
+                Map.of("key","T2","title","b","observation","b","recommendation",""),Map.of("key","T3","title","c","observation","c","recommendation","")),
+                "assignments",Map.of("C1","T1","C2","T2"));
         assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->model.analyzePipeline(input,control())).code());
     }
     @Test void pipelineIgnoresProviderCountersAndDerivesCoverageOnlyFromAcceptedMembers(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory){

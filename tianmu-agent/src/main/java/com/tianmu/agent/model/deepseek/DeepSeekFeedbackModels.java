@@ -80,7 +80,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     public List<Proposal> analyzePipeline(Input input,CallControl control){
         var payload=new LinkedHashMap<String,Object>();payload.put("kind",input.kind());
         var childIds=new LinkedHashMap<String,String>();
-        int max=input.kind()==FeedbackAnalysis.WorkKind.MERGE?1:10;payload.put("max_topics",max);
+        int max=input.kind()==FeedbackAnalysis.WorkKind.MERGE?Math.min(FeedbackSynthesis.MAX_TOPICS,input.children().size()):10;payload.put("max_topics",max);
         if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY)payload.put("groups",input.groups().stream().map(g->{
             var row=new LinkedHashMap<String,Object>();row.put("id",g.id());row.put("source",g.source());row.put("text",g.text());
             row.put("reply_context",g.replyContext());row.put("author",g.author());row.put("playback_ms",g.playbackMs());row.put("count",g.messages());row.put("candidate_cluster",g.candidateCluster());return row;
@@ -90,12 +90,14 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             payload.putAll(material.payload());childIds.putAll(material.references());
         }
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
+        if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY && !input.knownTopics().isEmpty())
+            payload.put("topic_directory",input.knownTopics().stream().map(t->Map.of("key",t.key(),"title",t.title())).toList());
         if(input.correction()!=null){
             var aliases=new HashMap<String,String>();childIds.forEach((alias,id)->aliases.put(id,alias));
             payload.put("correction",Map.of("missing",input.correction().missing().stream().map(id->aliases.getOrDefault(id,id)).toList(),
                     "duplicates",input.correction().duplicates().stream().map(id->aliases.getOrDefault(id,id)).toList(),"unknown_count",input.correction().unknown().size(),"issue",input.correction().issue()));
         }
-        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),6144,control,true),max,true);
+        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),8192,control,true),max,true);
         if(childIds.isEmpty())return result;
         return result.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),
                 p.members().stream().map(id->childIds.getOrDefault(id,id)).toList())).toList();

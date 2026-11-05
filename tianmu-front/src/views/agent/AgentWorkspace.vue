@@ -606,7 +606,7 @@ function reportDocument(turn) {
   return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><base href="${window.location.origin}/">${turn.reportHtml}`;
 }
 function downloadReport(turn) {
-  const url = URL.createObjectURL(new Blob([turn.reportHtml], { type: 'text/html;charset=utf-8' }));
+  const url = URL.createObjectURL(new Blob([reportDocument(turn)], { type: 'text/html;charset=utf-8' }));
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = `观众反馈-${turn.runId}.html`;

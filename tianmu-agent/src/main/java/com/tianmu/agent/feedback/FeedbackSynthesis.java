@@ -10,8 +10,8 @@ import java.util.function.ToIntFunction;
 public final class FeedbackSynthesis {
     private FeedbackSynthesis() {}
     // Bump when changing packing semantics; accepted reports retain their original policy hash.
-    public static final String VERSION="synthesis-material-v2";
-    public static final int MAX_CHILDREN=32, MAX_PAYLOAD_BYTES=24000;
+    public static final String VERSION="synthesis-topics-v3";
+    public static final int MAX_CHILDREN=32, MAX_PAYLOAD_BYTES=24000, MAX_TOPICS=10;
     public record Material(Map<String,Object> payload,Map<String,String> references) {}
     public static Material material(List<Topic> topics){
         var references=new LinkedHashMap<String,String>();var children=new ArrayList<Map<String,Object>>();
@@ -22,7 +22,7 @@ public final class FeedbackSynthesis {
             row.put("messages",topic.messages());row.put("author_messages",topic.authorMessages());
             children.add(Collections.unmodifiableMap(row));
         }
-        var payload=new LinkedHashMap<String,Object>();payload.put("kind",WorkKind.MERGE);payload.put("max_topics",1);
+        var payload=new LinkedHashMap<String,Object>();payload.put("kind",WorkKind.MERGE);payload.put("max_topics",Math.min(MAX_TOPICS,topics.size()));
         payload.put("children",List.copyOf(children));payload.put("expected_input_ids",List.copyOf(references.keySet()));
         return new Material(Collections.unmodifiableMap(payload),Collections.unmodifiableMap(references));
     }
