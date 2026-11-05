@@ -89,13 +89,17 @@ class EntryArchitectureTest {
             assertTrue(run.preparedRequest().degradedStages().contains("rewrite"));
         }
     }
-    @Test void optionalBranchPolicyFailureCannotBeDegradedAway() {
+    @Test void optionalBranchPolicyFailureCannotBeDegradedAway() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
         try (var f = new HarnessLifecycleTest.Fixture(); var prep = new PreparationService((i, c) -> Optional.empty(), new PreparationFlowTest.Model() {
             public Emotion emotion(Input i, CallControl c) { throw new AgentException("FORBIDDEN", "Denied"); }
             public Understanding understand(Input i, CallControl c) { c.cancellation().onCancel(entered::countDown); waitFor(entered); c.checkpoint(); return accepted(i, i.query()); }
         }, policy(), f.harness)) {
-            RunState run = f.run(); execute(f, prep, run);
+            RunState run = f.run();
+            CountDownLatch terminal = new CountDownLatch(1);
+            run.onTerminal(snapshot -> terminal.countDown());
+            execute(f, prep, run);
+            assertTrue(terminal.await(2, TimeUnit.SECONDS), "Policy failure must publish a terminal result");
             assertEquals(Status.FAILED, run.snapshot().status()); assertEquals("FORBIDDEN", run.snapshot().errorCode());
             assertNull(run.snapshot().answer());
         }
