@@ -64,19 +64,19 @@ public final class FeedbackAnalysisService {
     public void resume(UUID id,AccessScope caller){owned(id,caller);if(!store.reauthorize(id,caller))throw new AgentException("ANALYSIS_NOT_PAUSED","Analysis is not waiting for authorization");}
     public void advance(UUID id) {advance(id,null);}
     public void advance(UUID id,CancellationToken parent) { advance(id,parent,()->{}); }
-    public void advance(UUID id,CancellationToken parent,Runnable accountAttempt) {
-        var token=new CancellationToken();if(running.putIfAbsent(id,token)!=null)return;
+    public Optional<AgentException> advance(UUID id,CancellationToken parent,Runnable accountAttempt) {
+        var token=new CancellationToken();if(running.putIfAbsent(id,token)!=null)return Optional.empty();
         // The callback only propagates the fast signal; durable cancellation stays on this worker.
         var registration=parent==null?null:parent.onCancel(()->token.cancel(parent.reason()));
         FeedbackJobStore.Work work=null;Input input=null;
         try {
             token.checkpoint();
-            var j=store.get(id);if(j==null || !MemoryFeedbackJobStore.active(j.phase()))return;
-            if(!Instant.now().isBefore(j.deadline())){store.fail(id,"DEADLINE_EXCEEDED");return;}
-            if(!j.model().equals(models.modelName()) || !j.policyHash().equals(policyHash(j.request()))){store.fail(id,"RESOURCE_VERSION_MISMATCH");return;}
+            var j=store.get(id);if(j==null || !MemoryFeedbackJobStore.active(j.phase()))return Optional.empty();
+            if(!Instant.now().isBefore(j.deadline())){throw new AgentException("DEADLINE_EXCEEDED","Analysis deadline exceeded");}
+            if(!j.model().equals(models.modelName()) || !j.policyHash().equals(policyHash(j.request()))){throw new AgentException("RESOURCE_VERSION_MISMATCH","Analysis resource version changed");}
             source.authorize(j.owner(),j.request().query().videoId());
             if(j.snapshot()==null) {
-                if(pipeline(j.request()))return; // Source tools own the shared snapshot and preparation barrier.
+                if(pipeline(j.request()))return Optional.empty(); // Source tools own the shared snapshot and preparation barrier.
                 var collector=planner.collector(id,j.request());
                 var receipt=source.export(j.request(),j.owner(),new CallControl(min(j.deadline(),Instant.now().plusSeconds(90)),token),rows->{token.checkpoint();collector.accept(rows);});
                 var planned=collector.finish(receipt);token.checkpoint();
@@ -89,7 +89,7 @@ public final class FeedbackAnalysisService {
                         var verified=planner.validate(claim.id().toString(),batch,proposals);if(!store.complete(claim,objects.put(id,verified)))break;
                     }
                 }
-                return;
+                return Optional.empty();
             }
             work=store.claim(id,Instant.now(),Duration.ofSeconds(policy.modelTimeout().toSeconds()+30));
             if(work!=null) {
@@ -114,7 +114,7 @@ public final class FeedbackAnalysisService {
                 token.checkpoint();var result=planner.validate(work.id().toString(),input,proposals);
                 if(pipeline(j.request()))FeedbackNarrativePolicy.validate(input,proposals);
                 boolean accepted=store.complete(work,objects.put(id,result));
-                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return;
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return Optional.empty();
             }
             finishLevel(store.get(id));
         } catch(FeedbackCorrectionException e) {
@@ -123,6 +123,7 @@ public final class FeedbackAnalysisService {
             else if(work!=null && input!=null)store.retry(work,e.code(),retryAt(work),3,
                     objects.put(id,new Input(input.kind(),input.groups(),input.children(),null,e.correction())));
             else store.fail(id,e.code());
+            return Optional.of(e);
         } catch(AgentException e) {
             var j=store.get(id);
             if(token.cancelled())store.cancel(id);
@@ -130,8 +131,10 @@ public final class FeedbackAnalysisService {
             else if(work!=null && Set.of("MODEL_UNAVAILABLE","MODEL_ERROR","MODEL_CALL_TIMEOUT","INVALID_ANALYSIS","BUSINESS_TIMEOUT","BUSINESS_UNAVAILABLE","OBJECT_STORE_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(e.code()))
                 store.retry(work,e.code(),retryAt(work),3);
             else store.fail(id,e.code());
-        } catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(getClass()).warn("feedback_work_failed job={} type={} location={}",id,e.getClass().getSimpleName(),Arrays.stream(e.getStackTrace()).filter(f->f.getClassName().startsWith("com.tianmu.")).limit(5).toList());store.fail(id,"ANALYSIS_FAILED");}
+            return Optional.of(e);
+        } catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(getClass()).warn("feedback_work_failed job={} type={} location={}",id,e.getClass().getSimpleName(),Arrays.stream(e.getStackTrace()).filter(f->f.getClassName().startsWith("com.tianmu.")).limit(5).toList());store.fail(id,"ANALYSIS_FAILED");return Optional.of(new AgentException("ANALYSIS_FAILED","Analysis work failed"));}
         finally {if(registration!=null)registration.close();running.remove(id,token);}
+        return Optional.empty();
     }
     private void finishLevel(FeedbackJobStore.Job job) {
         if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;

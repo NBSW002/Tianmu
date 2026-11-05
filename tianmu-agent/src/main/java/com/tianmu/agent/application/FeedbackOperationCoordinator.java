@@ -52,10 +52,11 @@ public final class FeedbackOperationCoordinator {
                     if(MemoryFeedbackJobStore.active(job.phase()) && submitted.add(job.id())){
                         long enqueued=System.nanoTime();
                         try{workers.execute(()->{try{harness.execute(run,()->harness.stage(run,"feedback.work",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",job.phase().name(),"execution.queue_ms",Math.max(0,(System.nanoTime()-enqueued)/1_000_000)),()->{
-                            service.advance(job.id(),run.cancellation(),()->run.backgroundModelCalls(service.forRun(run.id).modelCalls()));
+                            var failure=service.advance(job.id(),run.cancellation(),()->run.backgroundModelCalls(service.forRun(run.id).modelCalls()));
                             var current=service.forRun(run.id);run.backgroundModelCalls(current.modelCalls());
+                            if(failure.isPresent())throw failure.get();
                             return Map.of("phase",current.phase().name(),"completed_work",current.completedWork(),"model_calls",current.modelCalls(),"charged_tokens",current.chargedTokens());
-                        }));}finally{submitted.remove(job.id());}});}
+                        }));}catch(AgentException failure){/* Work already persisted its retry/pause/failure; Harness records this attempt. */}finally{submitted.remove(job.id());}});}
                         catch(RejectedExecutionException full){submitted.remove(job.id());}
                     }
                 }catch(AgentException e){

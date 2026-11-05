@@ -63,6 +63,14 @@ class FeedbackAnalysisTest {
         FeedbackJobStore.Job start(int count){total=count;return service.submit(UUID.randomUUID(),owner,request,null);}
         FeedbackJobStore.Job finish(UUID id){for(int i=0;i<2500;i++){var j=store.get(id);if(!MemoryFeedbackJobStore.active(j.phase()))return j;service.advance(id);}return fail("Job did not converge");}
     }
+    @Test void rejectedModelAttemptReturnsItsErrorForTracingAndCanStillRecover()throws Exception {
+        var f=new Fixture();var job=f.start(2);f.service.advance(job.id());
+        f.proposals=input->{throw new AgentException("INVALID_ANALYSIS","fixture protocol rejection");};
+        var failure=f.service.advance(job.id(),null,()->{});assertEquals("INVALID_ANALYSIS",failure.orElseThrow().code());
+        assertTrue(MemoryFeedbackJobStore.active(f.store.get(job.id()).phase()));assertEquals(0,f.store.get(job.id()).completedWork());assertEquals(1,f.store.get(job.id()).modelCalls());
+        f.proposals=null;Thread.sleep(2100);assertTrue(f.service.advance(job.id(),null,()->{}).isEmpty());
+        assertEquals(Phase.READY,f.finish(job.id()).phase());assertEquals(2,f.store.get(job.id()).modelCalls());
+    }
     @Test void observationIndexSurvivesRestartAndDeepPagesReadOnlyIntersectingBatches() throws Exception {
         var f=new Fixture();
         f.proposals=input->{
