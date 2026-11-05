@@ -32,6 +32,7 @@
           ref="artplayerRef"
           v-if="videoDetail.fileUrl"
           :videoUrl="mediaVideoUrl(videoDetail.fileUrl)"
+          :poster="mediaUrl(videoDetail.coverUrl)"
           :videoId="videoDetail.videoId"
           @sendDanmu="sendDanmu"
           :onlineUserCount="onlineUserCount"
@@ -296,7 +297,7 @@ import { toRaw } from "vue";
 import { useAssistantStore } from '@/store/assistant';
 import { useUserStore } from "@/store/user";
 import { mapState, mapActions } from "pinia";
-import { mediaVideoUrl } from "@/lib/media";
+import { mediaVideoUrl, mediaUrl } from "@/lib/media";
 export default {
   name: "VideoDetail",
   components: {
@@ -419,6 +420,7 @@ export default {
       if (store.page?.videoId === String(this.$route.params.videoId)) store.page.playbackMs = milliseconds;
     },
     mediaVideoUrl,
+    mediaUrl,
     openAssistant() {
       if (!this.isVideoAuthor) return;
       useAssistantStore().show();

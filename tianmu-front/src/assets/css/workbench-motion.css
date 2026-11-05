@@ -1,0 +1,79 @@
+/* Motion vocabulary adapted from open-claude-ui (MIT).
+   See THIRD_PARTY_NOTICES.md. Geometry remains owned by the page components. */
+:root {
+  --workbench-motion-press: 70ms;
+  --workbench-motion-fast: 120ms;
+  --workbench-motion-reveal: 180ms;
+  --workbench-motion-panel: 300ms;
+  --workbench-ease-decelerate: cubic-bezier(.165,.84,.44,1);
+  --workbench-ease-popover: cubic-bezier(.22,1.12,.36,1);
+  --workbench-hairline: 1px;
+  --workbench-popover-shadow: 0 0 0 var(--workbench-hairline) rgba(77,76,72,.14),0 8px 24px rgba(38,34,24,.08),0 2px 6px rgba(38,34,24,.035);
+  --workbench-composer-shadow: inset 0 0 0 var(--workbench-hairline) rgba(77,76,72,.16),0 4px 16px rgba(38,34,24,.035);
+}
+@media(min-resolution:2dppx){:root{--workbench-hairline:.5px;}}
+
+/* Press feedback is small and immediate; large surfaces never bounce. */
+#app :is(.header-action,.history-toggle,.send-button,.model-select,.channel-link,.refresh-feed,.upload-buttom,.channel-shortcut,.graph-controls button,.resume-analysis) {
+  transition:background-color var(--workbench-motion-fast),color var(--workbench-motion-fast),box-shadow var(--workbench-motion-reveal) var(--workbench-ease),transform var(--workbench-motion-press) ease-out;
+}
+#app :is(.header-action,.send-button,.model-select,.refresh-feed,.upload-buttom,.resume-analysis):active:not(:disabled){transform:scale(.98);}
+.assistant-launcher.assistant-launcher.assistant-launcher {transition:transform var(--workbench-motion-reveal) var(--workbench-ease),background-color var(--workbench-motion-fast),box-shadow var(--workbench-motion-reveal);}
+.assistant-launcher.assistant-launcher:hover {transform:translateY(-2px);box-shadow:var(--workbench-popover-shadow);}
+.assistant-launcher.assistant-launcher:active {transform:scale(.96);}
+#app .assistant-panel-enter-active {transition:transform var(--workbench-motion-panel) var(--workbench-ease-decelerate),opacity var(--workbench-motion-reveal) ease-out;}
+#app .assistant-panel-leave-active {transition:transform var(--workbench-motion-reveal) ease-in,opacity var(--workbench-motion-fast) ease-in;pointer-events:none;}
+#app .assistant-panel-enter-from,#app .assistant-panel-leave-to {transform:translateX(100%);opacity:0;}
+
+.workbench-popover-enter-active {transition:transform var(--workbench-motion-reveal) var(--workbench-ease-popover),opacity var(--workbench-motion-fast) ease-out;}
+.workbench-popover-leave-active {transition:transform var(--workbench-motion-fast) ease-in,opacity var(--workbench-motion-fast) ease-in;}
+.workbench-popover-enter-from,.workbench-popover-leave-to {transform:translateY(6px) scale(.97);opacity:0;}
+#app .assistant-host .chat-composer {border-color:transparent;border-radius:18px;box-shadow:var(--workbench-composer-shadow);transition:box-shadow var(--workbench-motion-reveal) var(--workbench-ease),background-color var(--workbench-motion-reveal);}
+#app .chat-composer {container-type:inline-size;}
+#app .assistant-host .chat-composer:hover {box-shadow:inset 0 0 0 1px rgba(77,76,72,.22),0 4px 16px rgba(38,34,24,.05);}
+#app .assistant-host .chat-composer:focus-within {box-shadow:inset 0 0 0 1px var(--workbench-ring-deep),0 0 0 2px rgba(56,152,236,.16),0 4px 16px rgba(38,34,24,.045);}
+#app .composer-wrap {position:relative;}
+#app .jump-to-latest {position:absolute;bottom:calc(100% + 8px);left:50%;translate:-50% 0;display:flex;align-items:center;justify-content:center;gap:6px;z-index:2;border:0;border-radius:20px;background:var(--workbench-raised);color:var(--workbench-charcoal);box-shadow:var(--workbench-popover-shadow);padding:7px 12px;font:12px/1.5 var(--workbench-ui);white-space:nowrap;cursor:pointer;}
+#app .conversation-scroll {--conversation-fade-top:0px;--conversation-fade-bottom:0px;mask-image:linear-gradient(to bottom,transparent,#0000000d calc(var(--conversation-fade-top)*.15),#00000026 calc(var(--conversation-fade-top)*.3),#0000004d calc(var(--conversation-fade-top)*.45),#00000080 calc(var(--conversation-fade-top)*.6),#000000b3 calc(var(--conversation-fade-top)*.75),#000000d9 calc(var(--conversation-fade-top)*.87),#000 var(--conversation-fade-top),#000 calc(100% - var(--conversation-fade-bottom)),#000000d9 calc(100% - var(--conversation-fade-bottom)*.87),#000000b3 calc(100% - var(--conversation-fade-bottom)*.75),#00000080 calc(100% - var(--conversation-fade-bottom)*.6),#0000004d calc(100% - var(--conversation-fade-bottom)*.45),#00000026 calc(100% - var(--conversation-fade-bottom)*.3),#0000000d calc(100% - var(--conversation-fade-bottom)*.15),transparent);}
+
+@keyframes workbench-content-enter {from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes workbench-history-enter {from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+@keyframes workbench-breathe {0%,100%{opacity:.45;transform:scale(.9)}50%{opacity:1;transform:scale(1)}}
+#app .workspace-intro {animation:workbench-content-enter 360ms var(--workbench-ease) both;}
+#app .suggestion-grid button {transition:background-color var(--workbench-motion-reveal),box-shadow var(--workbench-motion-reveal),transform var(--workbench-motion-fast) var(--workbench-ease);}
+#app .suggestion-grid button:hover {transform:translateY(-1px);box-shadow:0 0 0 var(--workbench-hairline) var(--workbench-ring);}
+#app .suggestion-grid button:active {transform:scale(.99);}
+#app .history-open .workspace-sidebar {animation:workbench-history-enter 220ms var(--workbench-ease) both;}
+#app .working-dot {animation:workbench-breathe 2.4s ease-in-out infinite;}
+#app .status-badge {transition:background-color var(--workbench-motion-reveal),color var(--workbench-motion-reveal);}
+#app .analysis-turn {animation:workbench-content-enter 260ms var(--workbench-ease) both;}
+#app .user-question p {border-radius:18px 18px 5px 18px;}
+#app .home-banner__brand,#app .feed-heading {animation:workbench-content-enter 400ms var(--workbench-ease) both;}
+#app .index .video-card {animation:workbench-content-enter 360ms var(--workbench-ease) both;animation-delay:calc(min(var(--card-order,0),5)*35ms);}
+#app .video-card__image img {transition:transform 360ms var(--workbench-ease);}
+@media(hover:hover){#app .video-card__image:hover img{transform:scale(1.025);}}
+#app .header-bar :is(.search-panel,.avatar-panel-popover) {animation:workbench-content-enter var(--workbench-motion-reveal) var(--workbench-ease);box-shadow:var(--workbench-popover-shadow);}
+#app .trace-node {transition:background-color var(--workbench-motion-reveal),box-shadow var(--workbench-motion-fast),border-color var(--workbench-motion-fast);}
+#app .trace-node:hover {box-shadow:0 0 0 1px currentColor;}
+#app .inspector-content {animation:workbench-content-enter 180ms var(--workbench-ease) both;}
+#app .view-tabs {position:relative;}
+#app .view-tabs button {transition:color var(--workbench-motion-fast),border-color var(--workbench-motion-fast);}
+#app .view-tabs button.active {border-bottom-color:transparent;}
+#app .view-tabs::after {content:'';position:absolute;bottom:0;left:var(--active-tab-left,20px);width:var(--active-tab-width,36px);height:2px;border-radius:2px;background:var(--workbench-accent);transition:left 180ms var(--workbench-ease),width 180ms var(--workbench-ease);pointer-events:none;}
+#app .trace-divider,#app .trace-divider span {transition:background-color var(--workbench-motion-fast);}
+#app .trace-studio.resizing iframe {pointer-events:none;}
+@media(max-width:600px){
+ #app .assistant-host .chat-composer:hover {box-shadow:inset 0 0 0 1px rgba(77,76,72,.22),0 4px 12px rgba(38,34,24,.05);}
+ #app .assistant-host .chat-composer:focus-within {box-shadow:inset 0 0 0 1px var(--workbench-ring-deep),0 0 0 2px rgba(56,152,236,.16),0 4px 12px rgba(38,34,24,.045);}
+}
+
+/* Native disclosure remains keyboard-accessible; unsupported browsers toggle normally. */
+@supports(interpolate-size:allow-keywords){
+ #app .assistant-host details {interpolate-size:allow-keywords;}
+ #app .assistant-host details::details-content {block-size:0;overflow:clip;transition:block-size 220ms var(--workbench-ease),content-visibility 220ms;transition-behavior:allow-discrete;}
+ #app .assistant-host details[open]::details-content {block-size:auto;}
+}
+@media(prefers-reduced-motion:reduce){
+ #app *,#app *::before,#app *::after {animation:none!important;transition:none!important;scroll-behavior:auto!important;}
+ #app .conversation-scroll {mask-image:none;}
+}

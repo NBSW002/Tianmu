@@ -1,9 +1,10 @@
 <template>
   <section class="content-index" aria-label="视频内容索引">
-    <div class="index-heading"><strong>视频内容</strong><span role="status">{{ label }}</span>
-      <button :disabled="loading" @click="refresh">刷新</button>
+    <div class="index-heading"><div class="index-context"><strong :title="videoTitle || '当前视频'">{{ videoTitle || '当前视频' }}</strong><span role="status">{{ label }}</span></div>
+      <button :disabled="loading" @click="refresh" aria-label="刷新视频内容状态" title="刷新状态">↻</button>
       <button v-if="active" :disabled="loading" @click="change('DELETE')">取消处理</button>
-      <button v-else-if="state.status !== 'READY'" :disabled="loading" @click="change('POST')">{{ state.status === 'NOT_INDEXED' ? '准备视频内容' : '重新处理' }}</button>
+      <button v-else-if="state.status !== 'READY'" :disabled="loading" @click="change('POST')">{{ state.status === 'NOT_INDEXED' ? '准备内容' : '重新处理' }}</button>
+      <button type="button" aria-label="移除当前视频上下文" @click="$emit('remove')">×</button>
     </div>
     <progress v-if="active" :max="state.total || 1" :value="state.completed || 0" />
     <p v-if="error" role="alert">{{ error }}</p>
@@ -14,14 +15,14 @@
         <details v-if="chunk.transcript"><summary>本段转写（时间范围对应整段）</summary><p>{{ chunk.transcript }}</p></details>
       </article>
     </details>
-    <small v-else>后台按时间分段处理；是否包含语音转写取决于视频音轨及服务配置。</small>
   </section>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { videoContentIndex } from '@/api/agent';
-const props = defineProps({ videoId: { type: String, required: true } });
+defineEmits(['remove']);
+const props = defineProps({ videoId: { type: String, required: true }, videoTitle: { type: String, default: '' } });
 const state = ref({ status: 'NOT_INDEXED' }), loading = ref(false), error = ref('');
 let controller, timer, generation = 0;
 const active = computed(() => ['QUEUED', 'RUNNING'].includes(state.value.status));
@@ -43,4 +44,12 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); controller?.abort(); 
 <style scoped>
 .content-index{margin:12px 0;padding:12px 16px;border:1px solid var(--workbench-border);border-radius:12px;background:var(--workbench-raised);color:var(--workbench-ink);font-size:13px}
 .index-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.index-heading span{flex:1;color:var(--workbench-muted)}.content-index button{background:var(--workbench-paper);border:1px solid var(--workbench-border);border-radius:6px;padding:5px 8px;cursor:pointer}.content-index small{display:block;color:var(--workbench-muted);margin-top:6px}.content-index progress{width:100%;margin-top:10px}.content-index article{border-top:1px solid var(--workbench-border);padding:12px 0}.content-index p{white-space:pre-wrap;line-height:1.7}.content-index summary{cursor:pointer;margin-top:8px}
+.content-index{flex-shrink:0;margin:0;padding:12px 24px;border:0;border-bottom:1px solid var(--workbench-border);border-radius:0;background:var(--workbench-paper);font-size:12px;}
+.index-heading{gap:8px;flex-wrap:nowrap;}
+.index-context{flex:1;min-width:0;}
+.index-context strong{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.index-context span{display:block;font-size:11px;}
+.content-index button{border:0;background:transparent;padding:5px 6px;white-space:nowrap;}
+.content-index>details{max-height:200px;overflow:auto;overscroll-behavior:contain;}
+@media(max-width:600px){.content-index{padding:12px 16px;}}
 </style>

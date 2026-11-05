@@ -14,6 +14,9 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 // 全局样式表
 import '@/assets/css/base.css'
+import '@/assets/css/site-theme.css'
+import '@/assets/css/workbench-motion.css'
+import '@/assets/css/media-theme.css'
 
 const app = createApp(App)
 

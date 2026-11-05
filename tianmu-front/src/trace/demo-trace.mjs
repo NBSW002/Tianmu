@@ -59,7 +59,7 @@ function example(failed = false) {
 
 // Synthetic concurrency fixture: both branches really overlap. This is not a
 // claim about the production worker's concurrency or measured performance.
-function parallelExample() {
+function parallelExample(compact = false) {
   const traceId = 'c3e75df847f14db79df00f92b1ac2403'
   const spans = [], details = {}
   const add = (n, parent, name, kind, offset, duration, extra = {}) => {
@@ -68,6 +68,16 @@ function parallelExample() {
       endTimeUnixNano: String(start + BigInt(offset + duration) * 1000000n),
       status: 'UNSET', attributes: { 'node.type': kind, 'node.status': 'SUCCEEDED', 'run.id': 'demo-parallel-batches', ...extra } })
     details[id(n)] = { input: { example: true }, output: { example: true, completed: true } }
+  }
+  if (compact) {
+    const forkTrace = 'd4e75df847f14db79df00f92b1ac2404'
+    add(60, null, 'agent.run', 'REQUEST', 0, 2780)
+    add(61, 60, 'agent.model', 'MODEL', 0, 320, { 'model.name': '演示模型' })
+    add(62, 60, 'agent.tool', 'TOOL', 390, 940, { 'tool.name': 'read_danmaku' })
+    add(63, 60, 'agent.tool', 'TOOL', 390, 1030, { 'tool.name': 'read_comments' })
+    add(64, 60, 'agent.model', 'MODEL', 1490, 1290, { 'model.name': '演示模型', 'model.decision': 'FINAL_ANSWER' })
+    spans.forEach(span => { span.traceId = forkTrace; span.attributes['run.id'] = 'demo-feedback-fork' })
+    return { demo: true, title: '视频反馈 · 分叉与汇合', spans, details }
   }
   add(20, null, 'agent.run', 'REQUEST', 0, 7000)
   add(21, 20, '准备数据', 'STAGE', 20, 300)
@@ -82,4 +92,4 @@ function parallelExample() {
   return { demo: true, title: '报告分析 · 并行与重复步骤', spans, details }
 }
 
-export const demoFiles = [example(), example(true), parallelExample()]
+export const demoFiles = [example(), example(true), parallelExample(), parallelExample(true)]

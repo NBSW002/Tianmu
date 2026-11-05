@@ -18,6 +18,15 @@ const traces = ref(examples)
 const activeId = ref(examples[0].id)
 const selectedId = ref(examples[0].nodes.find((node) => node.type === 'llm_inference').id)
 const mode = ref('graph')
+const viewTabs = ref(null)
+function positionTabIndicator() {
+  const active = viewTabs.value?.querySelector('button.active')
+  if (active) {
+    viewTabs.value.style.setProperty('--active-tab-left', `${active.offsetLeft}px`)
+    viewTabs.value.style.setProperty('--active-tab-width', `${active.offsetWidth}px`)
+  }
+}
+watch(mode, () => nextTick(positionTabIndicator))
 const traceQuery = ref('')
 const queryError = ref('')
 const querying = ref(false)
@@ -40,9 +49,11 @@ let workspaceObserver
 onMounted(() => {
   workspaceObserver = new ResizeObserver(([entry]) => {
     studioWidth.value = entry.contentRect.width
+    nextTick(positionTabIndicator)
     if (studioWidth.value > 1100) { resizeSidebar(0); resizeInspector(0) }
   })
   workspaceObserver.observe(studio.value)
+  nextTick(positionTabIndicator)
 })
 onBeforeUnmount(() => workspaceObserver?.disconnect())
 const previousTitle = document.title
@@ -197,7 +208,7 @@ function downloadExample() {
 
       <div class="workspace-panels">
         <section class="graph-column" aria-label="执行过程">
-          <div class="view-tabs">
+          <div ref="viewTabs" class="view-tabs">
             <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">执行图</button>
             <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
             <span>{{ presentation.cards.length }} 卡片 / {{ trace.nodes.length }} Span</span>
@@ -384,7 +395,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .workspace-brand {font:500 28px/1.3 var(--workbench-display);letter-spacing:-.7px;}
 .workspace-brand span {font:12px/1.8 var(--workbench-ui);letter-spacing:3px;color:var(--workbench-muted);}
 .workspace-main,.workspace-header {background:var(--workbench-paper);}
-.workspace-header {height:76px;}
+.workspace-header {height:44px;min-height:44px;}
 .workspace-heading h1 {font-size:14px;font-weight:500;}
 .brand-symbol {color:var(--workbench-accent);background:transparent;border-radius:0;font-size:32px;}
 .workspace-panels,.inspector-heading {background:var(--workbench-raised);}
@@ -411,6 +422,17 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .trace-studio :is(button,a,input,select,summary):focus-visible {outline:2px solid var(--workbench-focus);outline-offset:3px;}
 .inspector-column:focus-visible {outline-color:var(--workbench-focus);}
 @media(max-width:700px){.workspace-brand{font-size:24px;}.workspace-header{height:64px;}.view-tabs{gap:16px;}.view-tabs>span{font-size:12px;}.run-context{max-width:100%;}}
+.workspace-header {height:44px;min-height:44px;}
+.workspace-heading h1 {font-size:18px;font-weight:500;}
+.workspace-heading .brand-symbol {width:24px;height:24px;font-size:24px;}
+.run-toolbar {min-height:44px;padding:8px 24px;gap:10px;flex-wrap:wrap;}
+.run-context {display:flex;align-items:center;gap:12px;min-width:0;}
+.run-context h2 {margin:0;font-size:15px;font-weight:500;}
+.model-name {font:11px/1.6 var(--workbench-ui);color:var(--workbench-muted);}
+.view-tabs,.inspector-heading {height:40px;}
+.workspace-panels {margin:0 24px 24px;}
+.projection-notice {font-size:11px;line-height:1.5;}
+@media(max-width:700px){.run-toolbar{padding:8px 16px;}.workspace-header{padding:0 16px;}.workspace-panels{margin:0 16px 16px;}.run-context{flex-wrap:wrap;gap:4px 8px;}.run-metrics{gap:10px;}.workspace-heading h1{font-size:17px;}}
 
 
 .workspace-heading h1 {font:500 25.6px/1.4 var(--workbench-heading);}

@@ -19,6 +19,7 @@
       <!-- 视频上半部分——视频封面、播放数、弹幕数、时长 -->
       <a :href="`/video/${item.videoId}`" target="_blank">
         <div class="video-card__image">
+          <span class="video-card__play" aria-hidden="true"><TraceIcon name="play" :size="22" /></span>
           <!-- 视频封面 -->
           <div class="video-card__image--wrap">
             <picture class="video-card__cover">
@@ -95,10 +96,12 @@ import {
   handleDate,
   highlightKeyword,
 } from "@/lib/utils";
+import TraceIcon from '@/components/trace/TraceIcon.vue';
 import { mediaUrl } from "@/lib/media";
 import videoPlaceholder from "@/assets/img/bilibili/video-placeholder.png";
 
 export default {
+  components: { TraceIcon },
   props: {
     item: {
       type: [Object,Number],

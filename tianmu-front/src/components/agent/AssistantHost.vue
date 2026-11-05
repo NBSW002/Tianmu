@@ -1,12 +1,11 @@
 <template>
   <button v-if="allowedPage && !visible && !fullPage" title="打开个人助手" class="assistant-launcher" @click="assistant.show()" aria-label="打开个人助手"><EchoMark /></button>
-  <Transition name="assistant-panel" :css="allowedPage"><section v-show="visible" class="assistant-host" :class="{ 'assistant-full': fullPage, 'assistant-drawer': !fullPage }" aria-label="个人助手" @keydown.esc="assistant.open = false">
+  <Transition name="assistant-panel" :css="allowedPage"><section v-show="visible" class="assistant-host" :class="{ 'assistant-full': fullPage, 'assistant-drawer': !fullPage }" aria-label="个人助手" @keydown.esc="dismiss">
     <template v-if="!users.isLogin"><div class="assistant-login"><h2>你的个人助手</h2><p>登录后开始对话，历史记录仅对你可见。</p><button @click="users.updateDialogVisible(true)">登录</button><button @click="assistant.open = false">收起</button></div></template>
     <template v-else>
-      <div class="assistant-host-toolbar"><span>{{ creator ? '创作者工具已启用' : '个人助手' }}</span><button v-if="!fullPage" @click="router.push({ path: '/agent', query: pageVideo ? { videoId: pageVideo } : {} })">展开</button><button v-else @click="router.push('/')">返回首页</button></div>
       <p v-if="capabilityError" class="assistant-access-note" role="alert">{{ capabilityError }} <button @click="refreshCapabilities">重试</button></p>
       <p v-else-if="pageVideo && !readable && !checking" class="assistant-access-note">当前视频不可供助手读取，可继续通用对话。</p>
-      <AgentWorkspace v-if="mounted" :key="accountKey" managed :embedded="!fullPage" :creator="creator" :context-pending="checking || !!capabilityError" :video-title="pageMetadata.title || ''" :playback-ms="pageMetadata.playbackMs" :video-id="readable ? pageVideo : ''" @close="assistant.open = false" />
+      <AgentWorkspace v-if="mounted" :key="accountKey" managed :embedded="!fullPage" :creator="creator" :context-pending="checking || !!capabilityError" :video-title="pageMetadata.title || ''" :playback-ms="pageMetadata.playbackMs" :video-id="readable ? pageVideo : ''" @close="assistant.open = false" @expand="router.push({ path: '/agent', query: pageVideo ? { videoId: pageVideo } : {} })" />
     </template>
   </section></Transition>
 </template>
@@ -19,6 +18,7 @@ import { useUserStore } from '@/store/user'
 import { useAssistantStore } from '@/store/assistant'
 import { getAssistantCapabilities } from '@/api/agent'
 import AgentWorkspace from '@/views/agent/AgentWorkspace.vue'
+function dismiss(event) { if (!event.isComposing && event.keyCode !== 229) assistant.open = false }
 const route = useRoute(), router = useRouter(), users = useUserStore(), assistant = useAssistantStore()
 const readable = ref(false), creator = ref(false), checking = ref(false), capabilityError = ref(''), mounted = ref(false)
 const fullPage = computed(() => route.name === 'AgentWorkspace')
@@ -52,7 +52,7 @@ watch(() => route.query.assistant, value => { if (value === '1') assistant.show(
 .assistant-access-note {margin:0;padding:8px 16px;font-size:12px;background:var(--workbench-soft);color:var(--workbench-ink)}
 .assistant-host :deep(.agent-workspace) {flex:1;min-height:0;height:auto;width:100%}
 .assistant-host :deep(.workspace-main) {min-width:0;min-height:0}
-.assistant-drawer {right:0;bottom:0;width:min(1120px,96vw);height:100dvh;border-radius:18px 0 0 18px}
+.assistant-drawer {right:0;bottom:0;width:clamp(380px,32vw,480px);height:100dvh;border-radius:18px 0 0 18px}
 .assistant-full {inset:0;width:100%;height:100dvh;border:0;border-radius:0}
 .assistant-login {padding:30px}.assistant-login button {margin:12px 12px 0 0}
 @media(max-width:600px){.assistant-host {inset:8px;width:auto;height:calc(100dvh - 16px)}.assistant-full{inset:0;height:100dvh}.assistant-launcher{right:16px;bottom:16px}}

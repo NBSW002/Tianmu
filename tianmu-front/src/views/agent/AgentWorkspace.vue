@@ -1,6 +1,6 @@
 <template>
-  <div class="agent-workspace" :class="{ embedded, 'history-open': navigationOpen }" @keydown.esc="closeNavigation" @keydown.tab="cycleNavigation">
-    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航">
+  <div class="agent-workspace" :class="{ embedded, 'history-open': navigationOpen, 'is-empty': !conversationTurns.length }" @keydown.esc="closeNavigation" @keydown.tab="cycleNavigation">
+    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航" :inert="embedded && !navigationOpen || undefined">
       <button class="history-close" type="button" aria-label="关闭会话历史" @click="hideNavigation">×</button>
       <a class="workspace-brand" href="/">EchoFrame<span>个人助手</span></a>
       <button class="new-analysis" :disabled="busy" @click="newAnalysis">＋ 开启新对话</button>
@@ -27,37 +27,23 @@
     <button v-if="navigationOpen" class="history-scrim" type="button" aria-label="关闭会话历史" @click="hideNavigation" />
     <main class="workspace-main" :inert="navigationOpen || undefined">
       <header class="workspace-header">
-        <div class="assistant-identity">
-          <button ref="historyToggle" type="button" class="history-toggle" aria-label="打开会话历史" aria-controls="assistant-conversations" :aria-expanded="navigationOpen" @click="toggleNavigation"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M7 3v14" stroke="currentColor" stroke-width="1.4"/></svg></button>
-          <span class="brand-symbol"><EchoMark /></span>
-          <div><strong>EchoFrame个人助手</strong><span>围绕你的问题，开始对话</span></div>
+        <div class="assistant-identity"><span class="brand-symbol"><EchoMark /></span><strong>个人助手</strong></div>
+        <div class="workspace-header-actions">
+          <button ref="historyToggle" type="button" class="history-toggle" aria-label="打开会话历史" aria-controls="assistant-conversations" :aria-expanded="navigationOpen" @click="toggleNavigation"><TraceIcon name="list" :size="18" /></button>
+          <button type="button" class="header-action" aria-label="新对话" title="新对话" :disabled="busy" @click="newAnalysis"><TraceIcon name="plus" :size="18" /></button>
+          <button v-if="embedded" type="button" class="header-action" aria-label="展开个人助手" title="展开助手" @click="$emit('expand')"><TraceIcon name="fit" :size="18" /></button>
+          <button v-if="embedded" type="button" class="header-action close-assistant" aria-label="关闭个人助手" @click="$emit('close')">×</button>
+          <router-link v-else class="back-video" :to="form.videoId ? '/video/' + form.videoId : '/'">返回{{ form.videoId ? '视频' : '网站' }} ↗</router-link>
         </div>
-        <button v-if="embedded" class="text-button" :disabled="busy" @click="newAnalysis">新对话</button>
-        <button
-          v-if="embedded"
-          class="close-assistant"
-          aria-label="关闭个人助手"
-          @click="$emit('close')"
-        >
-          ×
-        </button>
-        <router-link v-else class="back-video" :to="form.videoId ? '/video/' + form.videoId : '/'"
-          >返回{{ form.videoId ? '视频' : '网站' }} ↗</router-link
-        >
       </header>
-      <div ref="conversationElement" class="conversation-scroll">
-        <div class="workspace-content">
-          <VideoContentIndex v-if="form.videoId && !contextPending" :key="form.videoId" :video-id="form.videoId" />
+      <VideoContentIndex v-if="form.videoId && !contextPending" :key="form.videoId" :video-id="form.videoId" :video-title="contextTitle" @remove="form.videoId = ''" />
+      <div ref="conversationElement" class="conversation-scroll" :style="fadeStyle" @scroll.passive="trackConversationScroll" @wheel.passive="markConversationIntent" @touchstart.passive="markConversationIntent" @keydown="markConversationIntent">
+        <div ref="conversationContent" class="workspace-content">
           <button v-if="historyCursor" class="text-button" :disabled="loadingHistory" @click="loadOlderMessages">{{ loadingHistory ? '正在读取…' : '加载更早的消息' }}</button>
           <section v-if="!conversationTurns.length" class="workspace-intro">
             <div class="welcome-symbol" aria-hidden="true"><EchoMark /></div>
-            <div class="intro-tag">随时交流，继续你的思考</div>
-            <h1>{{ form.videoId ? '这个视频，下一步怎么做？' : '今天有什么想聊的？' }}</h1>
+            <h1>{{ form.videoId ? '这个视频，下一步怎么做？' : '今天想聊些什么？' }}</h1>
             <p>{{ creator ? '分析自己的视频、整理观众反馈，或直接提问。' : '解释概念、整理思路，或一起制定计划。' }}</p>
-            <div class="conversation-context" v-if="form.videoId">
-              <span>▣ 当前视频</span><strong>{{ contextTitle || '视频 ' + form.videoId }}</strong
-              ><small>#{{ form.videoId }}</small>
-            </div>
             <div class="suggestion-grid">
               <button
                 v-for="item in suggestions"
@@ -70,9 +56,8 @@
                 ><i>↗</i>
               </button>
             </div>
-            <p class="suggestion-hint">点选问题后可以修改，确认后再发送。</p>
           </section>
-          <details v-if="creator" class="workspace-tools" @toggle="toolsOpen = $event.target.open">
+          <details v-if="creator && form.videoId" class="workspace-tools" @toggle="toolsOpen = $event.target.open">
             <summary>更多工具<span>实时弹幕汇总 / 常见问答</span></summary>
             <template v-if="toolsOpen">
               <RoomAudience v-if="form.videoId" :video-id="form.videoId" />
@@ -113,7 +98,7 @@
                   ><span
                     class="status-badge"
                     :class="(turn.snapshot?.status || '').toLowerCase()"
-                    >{{ statusLabel(turn.snapshot?.status) }}</span
+                    >{{ isPaused(turn) ? '已暂停' : statusLabel(turn.snapshot?.status) }}</span
                   >
                 </div>
                 <small v-if="turn.modelLabel">{{ turn.modelLabel }}</small>
@@ -130,7 +115,7 @@
                       : '正在准备回复…'
                   }}
                 </div>
-                <button v-if="turn.snapshot?.status === 'WAITING_OPERATION' && turn.events.some(event => event.waitingAuth)" type="button" class="text-button" @click="resumeAnalysis(turn)">验证登录并继续分析</button>
+                <div v-if="isPaused(turn)" class="paused-actions"><button type="button" class="resume-analysis" @click="resumeAnalysis(turn)">验证登录并继续</button><button v-if="turn.runId === activeRunId" type="button" class="text-button" :disabled="cancelling" @click="cancel">{{ cancelling ? '正在结束…' : '结束任务' }}</button></div>
                 <p v-if="turn.snapshot?.status === 'NEEDS_INPUT'" class="answer-text clarification">
                   {{ turn.snapshot.clarification }}
                 </p>
@@ -155,14 +140,6 @@
                       : '这次回复已停止。'
                   }}
                 </p>
-                <button
-                  v-if="!isTerminal(turn.snapshot?.status) && turn.runId === activeRunId"
-                  class="text-button"
-                  :disabled="cancelling"
-                  @click="cancel"
-                >
-                  {{ cancelling ? '正在停止…' : '停止生成' }}
-                </button>
                 <details v-if="turn.events.length" class="execution-details">
                   <summary>查看执行进度 <span>{{ turn.events.length }} 条记录</span></summary>
                 <div v-if="turn.snapshot" class="execution-summary">
@@ -216,12 +193,9 @@
           </section>
         </div>
       </div>
-      <div class="composer-wrap">
-        <div v-if="form.videoId" class="composer-context">
-          <button type="button" class="text-button" @click="form.videoId = ''" aria-label="移除当前视频上下文">×</button><span>▣ {{ contextTitle || '当前视频' }}</span
-          ><small>#{{ form.videoId }}</small
-          ><span v-if="needsInput" class="reply-hint">助手需要你补充信息</span>
-        </div>
+      <div class="composer-wrap" :class="{ 'is-generating': running && !paused }">
+        <Transition name="workbench-popover"><button v-if="showJump" type="button" class="jump-to-latest" @click="jumpToLatest"><TraceIcon name="down" :size="14" />回到最新</button></Transition>
+        <p v-if="needsInput" class="reply-hint">助手需要你补充信息</p>
         <div v-if="turns.length && !busy && !needsInput" class="quick-suggestions" aria-label="常用提问">
           <button v-for="item in quickSuggestions" :key="item.text" type="button" @click="useSuggestion(item)">{{ item.title }} ↗</button>
         </div>
@@ -245,11 +219,11 @@
             @keydown.enter.exact="composerEnter"
           />
           <div class="composer-actions">
-            <span class="composer-hint"><i>✦</i><span>{{ running ? '正在为你处理…' : '可以追问，也可以换个话题' }}</span></span>
+            <span class="composer-hint"><i>✦</i><span>{{ paused ? '等待登录验证' : running ? '正在为你处理…' : form.videoId ? '当前视频' : '个人助手' }}</span></span>
             <div class="composer-controls">
-              <button type="button" class="model-refresh" :disabled="modelsLoading || submitting" @click="refreshModels" aria-label="刷新模型列表" title="刷新模型列表">↻</button>
-              <select v-if="modelChoices.length" class="model-select" :disabled="submitting" v-model="selectedModel" aria-label="选择模型"><option value="">默认模型</option><option v-for="item in modelChoices" :key="item.id" :value="item.id">{{ item.label }}</option></select>
-              <button
+              <ModelPicker v-if="modelChoices.length" v-model="selectedModel" :models="modelChoices" :disabled="submitting || running" :refreshing="modelsLoading" @refresh="refreshModels" />
+              <button v-if="running && !paused" type="button" class="send-button stop-button" aria-label="停止生成" :disabled="cancelling" @click="cancel">■</button>
+              <button v-else
               type="submit"
               class="send-button"
               :disabled="!focus.trim() || submitting || loadingRun || (running && !isLogCommand(focus))"
@@ -259,7 +233,7 @@
               </button>
             </div>
           </div>
-          <p v-if="modelError" class="model-error" role="alert">{{ modelError }}</p>
+          <p v-if="modelError" class="model-error" role="alert">{{ modelError }} <button type="button" class="text-button" :disabled="modelsLoading" @click="refreshModels">重试加载</button></p>
         </form>
         <p class="workspace-footnote">
           Enter 发送 / Shift + Enter 换行 <span>AI 内容供参考，请结合实际判断</span>
@@ -274,6 +248,9 @@ import { mergeMessages, historicalTurns } from '@/agent/session-history.mjs';
 import { storeToRefs } from 'pinia';
 import { useAssistantStore } from '@/store/assistant';
 import EchoMark from '@/components/agent/EchoMark.vue';
+import TraceIcon from '@/components/trace/TraceIcon.vue';
+import ModelPicker from '@/components/agent/ModelPicker.vue';
+import { useConversationViewport } from '@/composables/useConversationViewport';
 import VideoContentIndex from '@/components/agent/VideoContentIndex.vue';
 import { getAssistantModels } from '@/api/agent';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -314,7 +291,7 @@ const props = defineProps({
   videoId: { type: String, default: '' },
   videoTitle: { type: String, default: '' },
 });
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'expand']);
 const compositionGuard = createCompositionGuard();
 const navigationOpen = ref(false), historyToggle = ref(null), historyNavigation = ref(null);
 function toggleNavigation() { navigationOpen.value = !navigationOpen.value; if (navigationOpen.value) nextTick(() => historyNavigation.value?.querySelector('button')?.focus()); }
@@ -348,7 +325,8 @@ onMounted(() => {
   }
 });
 const composerInput = ref(null),
-  conversationElement = ref(null);
+  conversationElement = ref(null), conversationContent = ref(null);
+const { showJump, fadeStyle, scroll: trackConversationScroll, intent: markConversationIntent, jumpToLatest } = useConversationViewport(conversationElement, conversationContent);
 const generalSuggestions = [
   { icon: '✧', title: '你能帮我做什么', description: '先了解助手的能力', text: '你能做什么？' },
   { icon: '↗', title: '整理思路', description: '把想法变成清晰的步骤', text: '我想学习一项新技能，你可以怎么帮助我制定计划？' },
@@ -403,6 +381,8 @@ const conversationTurns = computed(() => [
   ...turns.value.flatMap(turn => [turn, ...commandReplies.value.filter(reply => reply.afterRunId === turn.runId)]),
 ]);
 const activeRunId = computed(() => activeTurn.value?.runId);
+const isPaused = turn => turn?.snapshot?.status === 'WAITING_OPERATION' && turn.events?.some(event => event.waitingAuth);
+const paused = computed(() => isPaused(activeTurn.value));
 const running = computed(() => !!activeTurn.value && !terminal(activeTurn.value.snapshot?.status));
 const busy = computed(() => props.contextPending || submitting.value || running.value || loadingRun.value);
 const needsInput = computed(() => activeTurn.value?.snapshot?.status === 'NEEDS_INPUT');
@@ -548,7 +528,7 @@ async function submit() {
       command: 'log', message: '/log', ...logReply(activeTurn.value?.snapshot) });
     focus.value = '';
     await nextTick();
-    conversationElement.value?.scrollTo({ top: conversationElement.value.scrollHeight, behavior: 'smooth' });
+    jumpToLatest();
     return;
   }
   if (busy.value) return;
@@ -592,10 +572,7 @@ async function submit() {
     runMonitor.start(turn);
     await replaceRun(snapshot.runId);
     await nextTick();
-    conversationElement.value?.scrollTo({
-      top: conversationElement.value.scrollHeight,
-      behavior: 'smooth',
-    });
+    jumpToLatest();
   } catch (error) {
     if (error.name !== 'AbortError') notice.value = error.message;
   } finally {
@@ -1588,4 +1565,70 @@ onBeforeUnmount(() => {
 .user-question p {color:var(--workbench-charcoal);}
 .new-analysis:hover,.quick-suggestions button:hover {box-shadow:var(--workbench-ring-shadow);}
 @media(max-width:760px){.workspace-intro h1,.embedded .workspace-intro h1 {font-size:28px;line-height:1.45;}}
+/* Shared geometry for the drawer and full assistant. */
+.workspace-main { min-height:0; }
+.workspace-header {height:58px;min-height:58px;padding:0 16px;gap:8px;}
+.assistant-identity {gap:8px;min-width:0;}
+.assistant-identity .brand-symbol {display:grid;width:22px;height:24px;font-size:24px;}
+.assistant-identity strong {font-size:14px;white-space:nowrap;font-weight:500;}
+.workspace-header-actions {display:flex;align-items:center;gap:4px;margin-left:auto;}
+.header-action,.workspace-header .history-toggle {display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-width:32px;border:0;border-radius:7px;background:transparent;color:var(--workbench-muted);cursor:pointer;}
+.workspace-header .close-assistant {font-size:24px!important;}
+.agent-workspace:not(.embedded) .history-toggle{display:none;}
+@media(max-width:760px){.agent-workspace:not(.embedded) .history-toggle{display:inline-flex;}}
+.header-action:hover,.history-toggle:hover {background:var(--workbench-sidebar);}
+.header-action:disabled {opacity:.4;cursor:default;}
+.embedded .workspace-sidebar {display:none;}
+.embedded.history-open .workspace-sidebar {display:flex!important;position:absolute;inset:0 auto 0 0;width:min(284px,85%);z-index:4;padding:20px;box-shadow:var(--workbench-whisper);}
+.embedded.history-open .history-scrim {display:block;position:absolute;inset:0;z-index:3;border:0;background:rgba(41,39,34,.16);}
+.embedded .history-close {display:inline-flex;align-self:flex-end;}
+.workspace-content,.embedded .workspace-content {width:100%;max-width:768px;padding:24px;margin:0 auto;box-sizing:border-box;}
+.is-empty .workspace-content {min-height:100%;display:flex;flex-direction:column;justify-content:center;}
+.workspace-intro,.embedded .workspace-intro {width:100%;padding:0;text-align:left;margin:auto 0;}
+.workspace-intro h1,.embedded .workspace-intro h1 {font:500 26px/1.4 var(--workbench-heading);margin:12px 0 10px;}
+.workspace-intro p {font-size:13px;line-height:1.7;margin:0;}
+.welcome-symbol {font-size:28px;margin:0 0 16px;}
+.suggestion-grid {gap:10px;border:0;margin-top:24px;}
+.suggestion-grid button {min-height:76px;border:1px solid var(--workbench-border-subtle);border-radius:12px;background:var(--workbench-raised);padding:12px 10px 12px 34px;box-sizing:border-box;}
+.suggestion-grid strong {font-size:13px;margin-bottom:5px;}
+.suggestion-grid button>span:not(.suggestion-icon) {font-size:11px!important;}
+.suggestion-icon {left:11px;top:12px;font-size:16px;}
+.suggestion-grid i {display:none;}
+.conversation-context {margin-top:14px;max-width:100%;box-sizing:border-box;}
+.conversation-context small {display:none;}
+.workspace-tools {font-size:12px;margin:10px 0 16px;}
+.workspace-tools>summary {padding:5px 0;}
+.workspace-tools>summary span {display:none;}
+.composer-wrap,.embedded .composer-wrap {max-width:768px;padding:12px 24px 16px;box-sizing:border-box;}
+.chat-composer {padding:12px;border:1px solid var(--workbench-ring);box-shadow:0 2px 8px rgba(38,34,24,.025);}
+.chat-composer textarea {font-size:14px;line-height:1.6;min-height:60px;}
+.composer-actions {gap:6px;}
+.composer-hint {white-space:nowrap;flex:none;}
+.composer-hint>span {display:inline;font-size:11px!important;}
+.composer-controls {gap:6px;}
+.composer-controls .model-select {font-size:12px;max-width:152px;min-height:32px;padding:4px;}
+.send-button {width:32px;height:32px;min-width:32px;font-size:24px;}
+.stop-button {font-size:14px;}
+.workspace-footnote {display:flex;justify-content:space-between;gap:8px;margin:8px 0 0;font-size:11px!important;line-height:1.6;}
+.workspace-footnote>span {font-size:11px;}
+.user-question {margin:0 0 24px;}
+.user-question>span {display:none;}
+.user-question p {max-width:88%;margin-left:auto;padding:11px 14px;border-radius:12px 12px 3px 12px;font-size:14px;line-height:1.7;overflow-wrap:anywhere;}
+.result-heading {gap:8px;flex-wrap:wrap;}
+.result-heading strong {font-size:13px;}
+.answer-text {font-size:14px;line-height:1.8;}
+.assistant-result>small {display:block;font-size:11px;color:var(--workbench-muted);margin:0 0 10px;}
+.status-badge.waiting_operation {background:var(--workbench-soft);color:var(--workbench-accent);}
+.paused-actions {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 18px;}
+.resume-analysis {border:0;border-radius:8px;background:var(--workbench-accent);color:var(--workbench-raised);padding:8px 12px;font-size:12px;cursor:pointer;}
+.execution-details {margin-top:16px;padding-top:12px;border-top:1px solid var(--workbench-border);}
+@media(max-width:600px){
+ .workspace-content,.embedded .workspace-content {padding:20px 16px;}
+ .composer-wrap,.embedded .composer-wrap {padding:10px 16px 16px;}
+ .workspace-intro h1,.embedded .workspace-intro h1 {font-size:24px;}
+ .composer-controls .model-select {max-width:132px;}
+ .workspace-footnote>span {display:none;}
+ .composer-hint>span {font-size:11px!important;}
+}
+@media(pointer:coarse){.header-action,.workspace-header .history-toggle{width:44px;height:44px;}.send-button{width:44px;height:44px;}.chat-composer textarea{font-size:16px;}.composer-controls .model-select{min-height:44px;}}
 </style>

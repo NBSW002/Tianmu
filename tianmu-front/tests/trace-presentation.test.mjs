@@ -44,7 +44,7 @@ test('parallel jobs retain their lanes when a stack expands inline', () => {
   const first = graph.nodes.find(n => n.id === 'w0')
   const second = graph.nodes.find(n => n.id === p.cards[1].id)
   assert.equal(first.position.x, second.position.x)
-  assert.equal(Math.abs(second.position.y - first.position.y), 168)
+  assert.equal(Math.abs(second.position.y - first.position.y), 88)
   assert.equal(first.data.collapseId, p.cards[0].id)
   assert.equal(graph.nodes.length, 2)
 })

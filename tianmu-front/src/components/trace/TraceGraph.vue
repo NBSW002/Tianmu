@@ -4,7 +4,7 @@ import { computed, nextTick, shallowRef, watch } from 'vue'
 import { VueFlow, Handle, Position, MarkerType } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import { formatDuration, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { cardTitle } from '@/trace/trace-presentation.mjs'
 import TraceIcon from './TraceIcon.vue'
 
 const props = defineProps({ trace: { type: Object, required: true }, graph: { type: Object, required: true }, expanded: { type: Set, required: true }, selectedId: String, mode: String })
@@ -15,14 +15,16 @@ const nodes = computed(() => props.graph.nodes.map((node) => ({ ...node,
   selected: node.id === props.selectedId || node.data.memberIds?.includes(props.selectedId) })))
 const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
   type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--workbench-connector)', width: 14, height: 14 },
-  style: { stroke: edge.relation === 'call' ? 'var(--workbench-accent)' : 'var(--workbench-border)', strokeWidth: 1.3, strokeDasharray: edge.relation === 'call' ? undefined : '4 4' },
+  style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: undefined },
 })))
 const nodeIcon = (node) => node.kind === 'MODEL' ? 'model' : node.kind === 'TOOL' ? 'tool' : 'stage'
-const fit = () => instance.value?.fitView({ padding: 0.16, maxZoom: 1.2, duration: 0 })
+const fitAnimated = () => instance.value?.fitView({ padding: 0.16, maxZoom: 1, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220 })
+const fit = () => instance.value?.fitView({ padding: 0.16, maxZoom: 1, duration: 0 })
 // A readable starting scale, even for thousands of spans. Resizing panes must
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
 const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })
-function ready(flow) { instance.value = flow; resetView() }
+function ready(flow) { instance.value = flow; nextTick(fit) }
+const nodeTone = node => node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
 function choose(node) { emit('select', node.data.id) }
 watch(() => props.selectedId, async () => {
   await nextTick()
@@ -32,7 +34,7 @@ watch(() => props.selectedId, async () => {
   const viewport = flow.getViewport()
   const x = node.position.x * viewport.zoom + viewport.x
   const y = node.position.y * viewport.zoom + viewport.y
-  if (x < 0 || x + 248 * viewport.zoom > panel.value.clientWidth || y < 48 || y + 124 * viewport.zoom > panel.value.clientHeight) {
+  if (x < 0 || x + 148 * viewport.zoom > panel.value.clientWidth || y < 48 || y + 40 * viewport.zoom > panel.value.clientHeight) {
     flow.setViewport({ ...viewport, x: 36 - node.position.x * viewport.zoom, y: 48 - node.position.y * viewport.zoom }, { duration: 0 })
   }
 })
@@ -49,16 +51,14 @@ watch(() => props.selectedId, async () => {
         :key="trace.id" :nodes="nodes" :edges="edges" :min-zoom="0.15" :max-zoom="1.8"
         :nodes-draggable="false" :nodes-connectable="false" :edges-updatable="false" :elements-selectable="true" :nodes-focusable="true"
         :delete-key-code="null" :zoom-on-double-click="false" :fit-view-on-init="false" :pan-on-scroll="false"
-        @pane-ready="ready" @node-click="({ node }) => choose(node)"
+        @pane-ready="ready" @nodes-initialized="fit" @node-click="({ node }) => choose(node)"
       >
         <template #node-trace="{ data, selected }">
-          <div class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) || data.failureIds?.length }, `kind-${data.cardKind}`]" :data-testid="`trace-node-${data.id}`">
+          <div class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) || data.failureIds?.length }, `tone-${nodeTone(data)}`]" :data-testid="`trace-node-${data.id}`">
             <Handle type="target" :position="Position.Left" :connectable="false" />
-            <div class="node-top"><span class="node-icon"><TraceIcon :name="cardIcon(data)" :size="16" /></span><span class="node-name">{{ cardTitle(data) }}</span><i class="node-status" :class="data.status.toLowerCase()" :title="statusLabel(data.status)" /></div>
-            <div class="node-summary">{{ data.summary }}</div>
-            <div class="node-bottom"><span>{{ data.executionLabel || data.model || (data.turn > 0 ? `第 ${data.turn} 轮` : data.summaryOnly ? '阶段汇总' : data.tool || '') }}</span><b>{{ data.durationLabel || formatDuration(data.durationMs) }}</b></div>
+            <span class="node-name" :aria-label="`${cardTitle(data)}，${statusLabel(data.status)}`">{{ cardTitle(data) }}</span>
             <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${expanded.has(data.id) ? '收起' : '展开'} ${cardTitle(data)}`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '收起' : `${data.repeatCount} 步 · 展开` }}</button>
-            <span class="node-time">{{ data.offsetMs == null ? '时间未知' : `+${formatDuration(data.offsetMs)}` }}</span>
+
             <Handle type="source" :position="Position.Right" :connectable="false" />
           </div>
         </template>
@@ -68,7 +68,7 @@ watch(() => props.selectedId, async () => {
         <button type="button" aria-label="放大调用图" title="放大" @click="instance?.zoomIn({ duration: 0 })"><TraceIcon name="plus" :size="16" /></button>
         <button type="button" aria-label="返回时间起点" title="返回时间起点" @click="resetView">起点</button>
         <span />
-        <button type="button" aria-label="适应画布" title="适应画布" @click="fit"><TraceIcon name="fit" :size="16" /></button>
+        <button type="button" aria-label="适应画布" title="适应画布" @click="fitAnimated"><TraceIcon name="fit" :size="16" /></button>
       </div>
     </div>
     <div v-else class="node-table-wrap">
@@ -148,4 +148,21 @@ watch(() => props.selectedId, async () => {
 .graph-controls button:hover {box-shadow:var(--workbench-ring-shadow);}
 .graph-controls button:focus-visible,.cluster-toggle:focus-visible,.node-table button:focus-visible {outline-color:var(--workbench-focus);}
 .graph-canvas :deep(.vue-flow__node:focus-visible){outline-color:var(--workbench-focus);}
+/* Compact title-only nodes; timing and payloads belong in the inspector. */
+.graph-titlebar {padding:10px 16px;border-bottom:0;}
+.time-direction small {margin-left:8px;}
+.graph-canvas {background:var(--workbench-paper);min-height:240px;}
+.trace-node {width:148px;height:36px;display:flex;align-items:center;justify-content:center;padding:7px 10px;border:1px solid transparent;border-radius:8px;box-shadow:none;box-sizing:border-box;}
+.node-name {font-size:13px;font-weight:500;line-height:20px;}
+.trace-node.tone-model {background:var(--workbench-soft);color:#83462f;}
+.trace-node.tone-tool {background:var(--workbench-success-soft);color:#40583b;}
+.trace-node.tone-stage {background:var(--workbench-sidebar);color:#655744;}
+.trace-node.is-selected,.trace-node.is-stack.is-selected {border-color:currentColor;box-shadow:0 0 0 1px currentColor;}
+.trace-node.is-failed {border-color:var(--workbench-error);}
+.trace-node:hover {border-color:currentColor;}
+.trace-node :deep(.vue-flow__handle) {opacity:0;}
+.trace-node.is-stack {box-shadow:2px 3px 0 -1px var(--workbench-paper),2px 3px 0 0 var(--workbench-border);}
+.cluster-toggle {top:-22px;right:0;font-size:11px;padding:2px 6px;}
+.graph-controls {bottom:12px;right:12px;}
+@media(pointer:coarse){.trace-node{height:44px;}}
 </style>

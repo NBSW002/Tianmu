@@ -1,5 +1,5 @@
 /* Shared visual language for the personal assistant and execution trace workspace. */
-html.trace-workspace-page, .assistant-host, .assistant-launcher, .trace-studio {
+:root, html.trace-workspace-page, .assistant-host, .assistant-launcher, .trace-studio {
   --workbench-paper: #f5f4ed;
   --workbench-sidebar: #e8e6dc;
   --workbench-raised: #faf9f5;

@@ -2,6 +2,7 @@
   <div class="header-bar" :class="{ 'slide-down': isFixHeaderBar, 'header-bar--home': hero, 'header-bar--hero': hero && !isFixHeaderBar }">
     <!-- 左边导航栏 -->
     <div class="left-entry">
+      <router-link to="/" class="site-wordmark" aria-label="EchoFrame 首页">EchoFrame</router-link>
       <!-- <div
                 class="entry-title"
             >

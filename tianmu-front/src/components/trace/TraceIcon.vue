@@ -2,6 +2,7 @@
 /* global defineProps */
 defineProps({ name: { type: String, default: 'trace' }, size: { type: [Number, String], default: 18 } })
 const paths = {
+  play: 'm9 5 11 7-11 7z',
   search: 'M16 16l5 5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   route: 'M5 20V8a3 3 0 0 1 3-3h11 M15 1l4 4-4 4 M5 12h8l6 7 M15 19h4v-4',
   emotion: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M8 9h.01 M16 9h.01 M8 14q4 5 8 0',

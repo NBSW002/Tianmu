@@ -5,18 +5,23 @@ import { ref } from 'vue'
 const props = defineProps({ label: String, value: Number, min: Number, max: Number, reverse: Boolean })
 const emit = defineEmits(['resize', 'dragging', 'reset'])
 const activePointer = ref(null)
-let lastX = 0
+let lastX = 0, startX = 0, dragged = false
 function begin(event) {
   if (event.button !== 0 || activePointer.value != null) return
   event.preventDefault()
   event.currentTarget.focus()
   event.currentTarget.setPointerCapture(event.pointerId)
   activePointer.value = event.pointerId
-  lastX = event.clientX
-  emit('dragging', true)
+  startX = lastX = event.clientX
+  dragged = false
 }
 function move(event) {
   if (activePointer.value !== event.pointerId) return
+  if (!dragged) {
+    if (Math.abs(event.clientX - startX) < 4) return
+    dragged = true
+    emit('dragging', true)
+  }
   emit('resize', (event.clientX - lastX) * (props.reverse ? -1 : 1))
   lastX = event.clientX
 }
@@ -24,6 +29,7 @@ function finish(event) {
   if (activePointer.value !== event.pointerId) return
   activePointer.value = null
   if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  dragged = false
   emit('dragging', false)
 }
 function key(event) {

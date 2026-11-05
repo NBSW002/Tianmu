@@ -4,7 +4,7 @@ const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识�
 const intentNames = { VIDEO_METRIC: '视频互动统计', DANMAKU_REPORT: '观众反馈报告', KNOWLEDGE: '知识问答', OTHER: '其他任务', UNKNOWN: '未确定' }
 const emotionNames = { NEUTRAL: '中性', POSITIVE: '正向', NEGATIVE: '负向', UNKNOWN: '未知' }
 const phaseNames = { COLLECT: '采集反馈', COLLECTING: '采集反馈', CLASSIFY: '反馈分类', CLASSIFYING: '反馈分类', MERGE: '合并结果', MERGING: '合并结果', READY: '分析就绪', WAITING_AUTH: '等待授权', FAILED: '分析失败', CANCELLED: '已取消' }
-const toolNames = { read_skill: '读取策略', analyze_video_content: '分析视频', analyze_feedback: '分析反馈', create_feedback_report: '生成报告', read_report: '读取报告', search_feedback: '搜索反馈', ask_clarification: '请求澄清' }
+const toolNames = { query_danmaku_count: '查询弹幕数', read_danmaku: '读取弹幕', read_comments: '读取评论', read_skill: '读取策略', analyze_video_content: '分析视频', analyze_feedback: '分析反馈', create_feedback_report: '生成报告', read_report: '读取报告', search_feedback: '搜索反馈', ask_clarification: '请求澄清' }
 const failures = new Set(['FAILED', 'TIMED_OUT', 'CANCELLED'])
 const time = n => Number.isFinite(n.offsetMs) ? n.offsetMs : Infinity
 const end = n => Number.isFinite(n.offsetMs) && Number.isFinite(n.durationMs) ? n.offsetMs + n.durationMs : Infinity
@@ -185,8 +185,8 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     }
     let lane = known ? lanes.findIndex(n => Number.isFinite(stop(n.data)) && stop(n.data) <= time(card)) : -1
     if (lane < 0) lane = lanes.length
-    const x = Math.max(lastX, 0, ...predecessors.map(n => n.position.x + 292))
-    const item = { id: card.id, type: 'trace', position: { x, y: lane * 168 }, data: card }
+    const x = Math.max(lastX, 0, ...predecessors.map(n => n.position.x + 196))
+    const item = { id: card.id, type: 'trace', position: { x, y: lane * 88 }, data: card }
     for (const previous of predecessors) {
       const call = previous.data.cardKind === 'model' && card.cardKind === 'tool' && previous.data.parentId === card.parentId && previous.data.attributes?.['model.selected_tool'] === card.tool
       connect(previous, item, call ? 'call' : finished.length > 1 ? 'join' : finished.length ? 'order' : 'branch')

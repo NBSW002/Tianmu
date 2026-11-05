@@ -1,12 +1,12 @@
 <template>
   <div class="video-player">
-    <div class="player-viewport">
+    <div class="player-viewport" :aria-busy="loading">
       <div ref="artRef" class="player-mount"></div>
       <div v-if="playbackError" class="player-status player-error" role="alert">
         <p>{{ playbackError }}</p>
         <button type="button" @click="retryPlayback">重新加载</button>
       </div>
-      <div v-else-if="loading" class="player-status" role="status">正在加载视频…</div>
+      <div v-else-if="loading" class="player-status" role="status"><span class="player-loading-mark" aria-hidden="true"></span><span>正在加载视频…</span></div>
     </div>
     <div class="player-sending-area">
       <div class="player-video-info">
@@ -42,7 +42,23 @@ export default {
         playbackRate: true, // 是否显示视频播放速度功能，会出现在 设置面板 和 右键菜单 里
         aspectRatio: true, //是否显示视频长宽比功能，会出现在 设置面板 和 右键菜单 里
         setting: true, // 显示设置按钮
-        theme: "#23ade5", // 播放器主题颜色，目前用于 进度条 和 高亮元素 上,#23ade5
+        theme: "#c96442",
+        cssVar: {
+          '--art-font-color': '#faf9f5',
+          '--art-background-color': '#141413',
+          '--art-widget-background': 'rgba(48,48,46,.97)',
+          '--art-tip-background': 'rgba(20,20,19,.94)',
+          '--art-border-radius': '12px',
+          '--art-control-height': '42px',
+          '--art-control-icon-size': '22px',
+          '--art-control-icon-scale': 1.06,
+          '--art-progress-height': '3px',
+          '--art-progress-color': 'rgba(232,230,220,.22)',
+          '--art-loaded-color': 'rgba(232,230,220,.45)',
+          '--art-hover-color': 'rgba(232,230,220,.08)',
+          '--art-transition-duration': '180ms',
+          '--art-padding': '16px',
+        },
         plugins: [
           artplayerPluginDanmuku({
             danmuku: [], // 弹幕数据
@@ -82,6 +98,7 @@ export default {
     };
   },
   props: {
+    poster: { type: String, default: '' },
     videoUrl: {
       type: String,
       required: true,
@@ -139,6 +156,7 @@ export default {
           url: this.videoUrl,
           contextmenu: [],
           ...this.option,
+          poster: this.poster,
           container: this.$refs.artRef,
         }));
 
@@ -224,6 +242,7 @@ export default {
   },
   watch: {
     '$route.query.t'() { this.seekFromRoute(); },
+    poster(value) { if (this.instance) this.instance.poster = value || ''; },
     videoUrl(newVal) {
       if (this.instance && newVal) {
         this.loading = true;

@@ -1,10 +1,9 @@
 <template>
   <div class="index">
     <header class="home-masthead">
-      <HeaderBar :isFixHeaderBar="isFixHeaderBar" hero />
+      <HeaderBar :isFixHeaderBar="true" />
       <div class="home-banner">
-        <img class="home-banner__image" src="@/assets/img/home/pond-banner.webp" alt="荷塘与夏日森林插画" fetchpriority="high" />
-        <div class="home-banner__shade"></div>
+        <div class="home-banner__ornament" aria-hidden="true"></div>
         <div class="home-banner__brand"><router-link to="/" aria-label="EchoFrame 首页">EchoFrame<span class="brand-spark">✦</span></router-link><span>让每一份热爱，都有回响</span></div>
       </div>
     </header>
@@ -17,7 +16,7 @@
       <section class="recommended-container" aria-label="推荐视频" :aria-busy="loadingRecm">
         <div class="container" v-infinite-scroll="loadMoreVideo" :infinite-scroll-disabled="!hasMoreVideo || isLoadingCumulative || loadError" :infinite-scroll-delay="300" :infinite-scroll-distance="420" :infinite-scroll-immediate="true">
           <div class="recommended-swipe"><CarouselIndex :videos="feedVideos" /></div>
-          <VideoCard v-for="(item,index) in (loadingRecm ? 15 : feedVideos)" :key="loadingRecm ? `initial-${index}` : `feed-${item.videoId}`" :item="item" :isLoading="loadingRecm" />
+          <VideoCard v-for="(item,index) in (loadingRecm ? 15 : feedVideos)" :key="loadingRecm ? `initial-${index}` : `feed-${item.videoId}`" :item="item" :isLoading="loadingRecm" :style="{ '--card-order': index }" />
           <VideoCardSkeleton v-for="index in (isLoadingCumulative && !loadingRecm ? 15 : 0)" :key="`skeleton-${current}-${index}`" :hasMoreVideo="true" />
         </div>
         <div v-if="!loadingRecm && !loadError && !recmVideoList.length" class="feed-empty"><el-icon><Film /></el-icon><h2>第一份精彩，等你分享</h2><p>这里还没有视频，来发布你的第一条作品吧。</p><router-link to="/platform/upload">去投稿</router-link></div>
