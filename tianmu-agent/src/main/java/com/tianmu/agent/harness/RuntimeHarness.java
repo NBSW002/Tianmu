@@ -99,8 +99,7 @@ public class RuntimeHarness implements AutoCloseable {
                 T value = operation.get();
                 TraceDetails.output(value);
                 TraceNode.success(span);
-                if (!(value instanceof Optional<?>) || type == SpanType.FAQ_LOOKUP)
-                    resultAttributes.putAll(TraceSemantics.result(value));
+                resultAttributes.putAll(TraceSemantics.result(type, value));
                 return value;
             } catch (RuntimeException e) {
                 TraceNode.failure(span, e);
@@ -115,8 +114,8 @@ public class RuntimeHarness implements AutoCloseable {
                 Map<String, Object> result = new HashMap<>(attributes);
                 result.putAll(resultAttributes);
                 result.put("operation.outcome", outcome);
-                result.put("operation.executed", executed);
-                if (!error.isEmpty()) result.put("error.code", error);
+                result.put("operation.executed", executed && !Set.of("DISABLED", "SKIPPED").contains(attributes.getOrDefault("preparation.state", "")));
+                if (!error.isEmpty()) { result.put("error.code", error); result.remove("node.status"); }
                 TraceAttributes.apply(span, result);
                 if (after != null) session.fire(after, result);
             }

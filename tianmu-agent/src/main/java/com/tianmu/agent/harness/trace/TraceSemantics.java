@@ -11,6 +11,12 @@ public final class TraceSemantics {
         return Map.of("run.id", run.id.toString(), "session.id", run.sessionId.toString(),
                 "run.turn_seq", run.turnSeq, "tenant.id", run.owner.tenantId(), "actor.id", run.owner.userId());
     }
+    public static Map<String, Object> result(SpanType type, Object value) {
+        if (type == SpanType.CLARIFICATION_CHECK && value instanceof Optional<?> optional)
+            return Map.of("clarification.required", optional.filter(Clarification.class::isInstance).map(Clarification.class::cast).map(Clarification::required).orElse(false));
+        if (value instanceof Optional<?> && type != SpanType.FAQ_LOOKUP) return Map.of();
+        return result(value);
+    }
     public static Map<String, Object> result(Object value) {
         Map<String, Object> attrs = new HashMap<>();
         if (value instanceof Decision decision && decision.kind() != null) {
@@ -27,6 +33,8 @@ public final class TraceSemantics {
             });
             attrs.put("preparation.emotion", prepared.request().emotion().name());
             attrs.put("preparation.intent", prepared.request().intent().name());
+            attrs.put("preparation.skipped_stages", prepared.request().skippedStages().stream().sorted().toList());
+            attrs.put("preparation.degraded_stages", prepared.request().degradedStages().stream().sorted().toList());
             attrs.put("preparation.degraded_count", prepared.request().degradedStages().size());
             if (prepared.faq() != null) attrs.putAll(faq(prepared.faq()));
         } else if (value instanceof Emotion emotion) {

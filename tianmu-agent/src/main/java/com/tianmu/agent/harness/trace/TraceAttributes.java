@@ -11,7 +11,7 @@ public final class TraceAttributes {
             "tool.name", "tool.call_id", "skill.name", "skill.version", "hook.name", "hook.point", "hook.mode",
             "hook.failed", "operation.executed", "operation.outcome", "error.code", "exception.type",
             "input.char_count", "context.observation_count", "answer.evidence_count", "http.method", "http.route", "http.status_code",
-            "request.route", "faq.id", "faq.version", "preparation.emotion", "preparation.intent", "preparation.degraded_count", "preparation.skipped_count",
+            "request.route", "faq.id", "faq.version", "preparation.state", "preparation.method", "preparation.reason", "clarification.required", "preparation.skipped_stages", "preparation.degraded_stages", "preparation.emotion", "preparation.intent", "preparation.degraded_count", "preparation.skipped_count",
             "run.preparation_calls", "run.total_model_calls",
             "model.name", "model.input_tokens", "model.output_tokens", "span.type", "session.id", "run.turn_seq",
             "tenant.id", "actor.id", "run.trace_id", "route.reason", "model.decision", "model.selected_tool",

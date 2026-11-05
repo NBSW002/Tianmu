@@ -3,7 +3,7 @@ import { buildTraceGraph } from './trace-layout.mjs'
 // Adapt the existing TraceEnvelope export without depending on a running backend.
 const STATUS_LABELS = {
   SUCCEEDED: '成功', FAILED: '失败', TIMED_OUT: '超时', CANCELLED: '已取消',
-  RUNNING: '运行中', UNKNOWN: '未知', NEEDS_INPUT: '待补充',
+  DISABLED: '已禁用', SKIPPED: '已跳过', RUNNING: '运行中', UNKNOWN: '未知', NEEDS_INPUT: '待补充',
 }
 
 export const statusLabel = (status) => STATUS_LABELS[status] || status || '未知'

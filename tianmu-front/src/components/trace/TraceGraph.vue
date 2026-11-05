@@ -56,7 +56,7 @@ watch(() => props.selectedId, async () => {
             <Handle type="target" :position="Position.Left" :connectable="false" />
             <div class="node-top"><span class="node-icon"><TraceIcon :name="cardIcon(data)" :size="16" /></span><span class="node-name">{{ cardTitle(data) }}</span><i class="node-status" :class="data.status.toLowerCase()" :title="statusLabel(data.status)" /></div>
             <div class="node-summary">{{ data.summary }}</div>
-            <div class="node-bottom"><span>{{ data.model || (data.turn > 0 ? `第 ${data.turn} 轮` : data.summaryOnly ? '阶段汇总' : data.tool || '') }}</span><b>{{ formatDuration(data.durationMs) }}</b></div>
+            <div class="node-bottom"><span>{{ data.executionLabel || data.model || (data.turn > 0 ? `第 ${data.turn} 轮` : data.summaryOnly ? '阶段汇总' : data.tool || '') }}</span><b>{{ data.durationLabel || formatDuration(data.durationMs) }}</b></div>
             <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${expanded.has(data.id) ? '收起' : '展开'} ${cardTitle(data)}`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '收起' : `${data.repeatCount} 步 · 展开` }}</button>
             <span class="node-time">{{ data.offsetMs == null ? '时间未知' : `+${formatDuration(data.offsetMs)}` }}</span>
             <Handle type="source" :position="Position.Right" :connectable="false" />
@@ -100,6 +100,7 @@ watch(() => props.selectedId, async () => {
 .node-icon { display: flex; color: #9b8ca7; }
 .node-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-status { width: 5px; height: 5px; border-radius: 50%; background: #b6adbf; margin-left: auto; flex-shrink: 0; }
+.node-status.disabled, .node-status.skipped { background: #b9b3bf; }
 .node-status.succeeded { background: #7aaf98; }.node-status.failed, .node-status.timed_out { background: #cb7c8e; }
 .node-summary { margin-top: 9px; font-size: 12px; color: #74677f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .node-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; color: #958a9e; font: 10px var(--trace-mono); }

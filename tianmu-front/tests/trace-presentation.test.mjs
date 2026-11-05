@@ -48,3 +48,32 @@ test('parallel jobs retain their lanes when a stack expands inline', () => {
   assert.equal(first.data.collapseId, p.cards[0].id)
   assert.equal(graph.nodes.length, 2)
 })
+
+test('disabled recognition is an explicit annotation, never a successful timed model call', () => {
+  const raw = [
+    node('intent', 'agent.prepare.intent', 'ROUTING', 0, 2, { attributes: { 'preparation.method': 'RULE', 'preparation.state': 'EXECUTED', 'preparation.intent': 'VIDEO_METRIC' } }),
+    node('emotion', 'agent.prepare.emotion', 'ROUTING', 2, 1, { status: 'DISABLED', attributes: { 'preparation.method': 'NONE', 'preparation.state': 'DISABLED', 'preparation.reason': 'CONFIG_DISABLED' } }),
+    node('check', 'agent.prepare.validate', 'ROUTING', 3, 2, { attributes: { 'preparation.method': 'RULE', 'clarification.required': false } }),
+  ]
+  const p = buildTracePresentation(raw)
+  assert.equal(p.allCards.get('intent').executionLabel, '规则判断')
+  const emotion = p.allCards.get('emotion')
+  assert.equal(emotion.summary, '配置禁用')
+  assert.equal(emotion.status, 'DISABLED')
+  assert.equal(emotion.durationMs, null)
+  assert.equal(emotion.durationLabel, '未执行')
+  assert.equal(raw[1].durationMs, 1)
+  assert.equal(p.allCards.get('check').summary, '条件完整，无需澄清')
+  assert.equal(p.notices.length, 0)
+})
+
+test('FAQ skips and old missing records remain distinguishable from disabled configuration', () => {
+  const p = buildTracePresentation([
+    node('intent', 'agent.prepare.intent', 'ROUTING', 0, 1, { status: 'SKIPPED', attributes: { 'preparation.state': 'SKIPPED', 'preparation.reason': 'FAQ_HIT' } }),
+    node('check', 'agent.prepare.validate', 'STAGE', 2, 1),
+  ])
+  assert.equal(p.allCards.get('intent').summary, 'FAQ 已命中')
+  assert.equal(p.allCards.get('intent').status, 'SKIPPED')
+  assert.equal(p.allCards.get('check').summary, '判断结果未记录')
+  assert.ok(p.notices.includes('情绪识别：未执行或未记录'))
+})

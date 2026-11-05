@@ -25,10 +25,13 @@ export function semanticKind(n) {
   return null
 }
 
+const methods = { RULE: '规则判断', MODEL: '模型判断', LOOKUP: '知识查询' }
+const skipReasons = { CONFIG_DISABLED: '配置禁用', FAQ_HIT: 'FAQ 已命中', CLARIFICATION_REQUIRED: '等待补充信息', RESOURCE_LOOKUP: '交由资源选择处理', RULE_ROUTE: '规则路由已完成' }
 export function cardSummary(n) {
   const a = n.attributes || {}, out = n.output
   if (n.synthetic) return n.summary
   if (failures.has(n.status)) return a['error.code'] || ({ FAILED: '执行失败', TIMED_OUT: '执行超时', CANCELLED: '已取消' }[n.status])
+  if (['SKIPPED', 'DISABLED'].includes(a['preparation.state'])) return skipReasons[a['preparation.reason']] || '本次未执行'
   switch (n.cardKind || semanticKind(n)) {
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
     case 'intent': return intentNames[a['preparation.intent']] || '识别结果未记录'
@@ -53,6 +56,12 @@ export function presentNode(n) {
   const card = { ...n, cardKind, sourceId: n.id, memberIds: [n.id], synthetic: false }
   card.cardTitle = cardKind === 'tool' ? toolNames[n.tool] || n.tool || '工具调用' : cardKind === 'work' ? cardSummary(card) : titles[cardKind]
   card.summary = cardSummary(card)
+  card.executionLabel = methods[n.attributes?.['preparation.method']] || ''
+  const state = n.attributes?.['preparation.state']
+  if (['SKIPPED', 'DISABLED'].includes(state) && !failures.has(n.status)) {
+    card.status = state; card.durationMs = null; card.summaryOnly = true; card.durationLabel = '未执行'
+    card.sourceNote = '本节点记录未执行状态；原始 Span 的耗时仅为状态记录开销。'
+  }
   return card
 }
 
@@ -117,6 +126,11 @@ export function buildTracePresentation(raw) {
       card.memberIds = members.map(x => x.id)
       card.failureIds = members.filter(x => failures.has(x.status)).map(x => x.id)
       if (card.failureIds.length && !failures.has(card.status)) card.summary += ` · 内部 ${card.failureIds.length} 条异常`
+      const stage = ({ intent: 'intent', emotion: 'emotion' })[kind]
+      const preparation = ancestors(n).find(p => p.name === 'agent.preparation')
+      if (stage && n.attributes?.['preparation.method'] === 'MODEL' && preparation?.attributes?.['preparation.skipped_stages']?.includes(stage)) {
+        card.sourceNote = '模型分支已启动，本次准备结果未采用该分支结果。'
+      }
       cards.push(card)
     }
   }

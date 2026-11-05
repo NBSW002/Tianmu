@@ -67,8 +67,11 @@ public class PreparationService implements AutoCloseable {
         catch (PreparationUnavailable e) { degraded.add("faq"); hit = Optional.empty(); }
         finally { dispose(lookup); }
         run.checkpoint();
-        if (hit.isPresent()) return new Result(Route.FAQ,
+        if (hit.isPresent()) {
+            skip(run, "intent", "FAQ_HIT"); skip(run, "validate", "FAQ_HIT"); skipEmotion(run, "FAQ_HIT");
+            return new Result(Route.FAQ,
                 new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, Set.of("intent", "understanding", "emotion")), hit.get(), null);
+        }
 
         if (repository != null) run.memory(harness.stage(run, "agent.memory.load", null, null, Map.of(), () -> repository.memory(run)));
         var page = run.pageContext();
@@ -106,6 +109,7 @@ public class PreparationService implements AutoCloseable {
         run.emit("PROGRESS", Map.of("stage", "preparing"));
         if(discovery.isPresent() && page==null || VideoDiscovery.historicalReport(query) && !com.tianmu.agent.core.DanmakuTarget.matcher(query).find()){
             skipped.addAll(Set.of("intent","understanding","emotion","rewrite"));
+            skip(run, "intent", "RESOURCE_LOOKUP"); skip(run, "validate", "RESOURCE_LOOKUP"); skipEmotion(run, "RESOURCE_LOOKUP");
             return new Result(Route.HARNESS,new PreparedRequest(run.message,query,Emotion.UNKNOWN,degraded,skipped,Intent.OTHER,
                     new com.tianmu.agent.core.TaskTypes.Specification("resource.lookup",Map.of("selection_required",discovery.isPresent() && page==null && VideoDiscovery.requiresSelection(query),"report_reference_required",VideoDiscovery.historicalReport(query)),Map.of())),null,null);
         }
@@ -114,6 +118,8 @@ public class PreparationService implements AutoCloseable {
         catch (AgentException error) {
             if (!"AMBIGUOUS_ANALYSIS_SOURCES".equals(error.code())) throw error;
             skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
+            harness.stage(run, "agent.prepare.validate", null, null, rule(), () -> Optional.of(new Clarification(true, error.getMessage())));
+            skip(run, "intent", "CLARIFICATION_REQUIRED"); skipEmotion(run, "CLARIFICATION_REQUIRED");
             return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, skipped), null, error.getMessage());
         }
         if (!specification.equals(meaning.resolve(query, run.businessDate, run.createdAt,run.memory())))
@@ -124,14 +130,15 @@ public class PreparationService implements AutoCloseable {
                 && com.tianmu.agent.application.ConversationFocus.continuation(query))
             validationQuery=currentFocus.request()+"，"+com.tianmu.agent.core.DanmakuTarget.matcher(query).replaceAll("");
         var validationInput=new Input(validationQuery,run.businessDate,run.owner,run.memory(),run.createdAt);
-        Optional<Clarification> required = harness.stage(run, "agent.prepare.validate", null, null, Map.of(),
+        Optional<Clarification> required = harness.stage(run, "agent.prepare.validate", null, null, rule(),
                 () -> validators.stream().map(v -> v.validate(validationInput)).flatMap(Optional::stream).filter(Clarification::required).findFirst());
         if (policy.deterministicRouting()) {
             if (required.isPresent()) {
                 skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
+                skip(run, "intent", "CLARIFICATION_REQUIRED"); skipEmotion(run, "CLARIFICATION_REQUIRED");
                 return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, skipped), null, required.get().question());
             }
-            Intent known = switch (specification.type()) {
+            Intent known = harness.stage(run, "agent.prepare.intent", null, null, rule(), () -> switch (specification.type()) {
                 case "creator.draft" -> Intent.OTHER;
                 case "video.metric" -> Intent.VIDEO_METRIC;
                 case "danmaku.report", "audience.report" -> Intent.DANMAKU_REPORT;
@@ -139,8 +146,9 @@ public class PreparationService implements AutoCloseable {
                 case "danmaku.overview" -> Intent.OTHER;
                 case "comments.analysis" -> Intent.OTHER;
                 default -> Intent.OTHER;
-            };
+            });
             if (known != Intent.UNKNOWN) {
+                skipEmotion(run, "RULE_ROUTE");
                 skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
                 bindFocus(run,specification);
                 return new Result(Route.HARNESS, new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, skipped, known, specification), null, null);
@@ -152,6 +160,7 @@ public class PreparationService implements AutoCloseable {
         // All branches read the same immutable snapshot. Only this coordinator merges results.
         Branch<Understanding> understanding = submit(run, "understanding", end, contextInput, c -> model.understand(contextInput, c));
         Branch<Intent> intent = submit(run, "intent", intentEnd, contextInput, c -> model.intent(contextInput, c));
+        if (!policy.emotionEnabled()) skipEmotion(run, "CONFIG_DISABLED");
         Branch<Emotion> emotion = policy.emotionEnabled() ? submit(run, "emotion", emotionEnd, contextInput, c -> model.emotion(contextInput, c)) : null;
         try {
             Intent recognized;
@@ -188,6 +197,18 @@ public class PreparationService implements AutoCloseable {
             bindFocus(run,specification);
             return new Result(Route.HARNESS, new PreparedRequest(run.message, rewritten, feeling, degraded, skipped, recognized, specification), null, null);
         } finally { dispose(understanding); dispose(intent); dispose(emotion); }
+    }
+    private Map<String, Object> rule() {
+        return Map.of("preparation.method", "RULE", "preparation.state", "EXECUTED", "node.type", "ROUTING");
+    }
+    private void skipEmotion(RunState run, String reason) {
+        skip(run, "emotion", policy.emotionEnabled() ? reason : "CONFIG_DISABLED");
+    }
+    private void skip(RunState run, String name, String reason) {
+        String state = reason.equals("CONFIG_DISABLED") ? "DISABLED" : "SKIPPED";
+        harness.stage(run, "agent.prepare." + name, null, null,
+                Map.of("preparation.method", "NONE", "preparation.state", state, "preparation.reason", reason,
+                        "node.type", "ROUTING", "node.status", state), () -> null);
     }
     private boolean validIntent(String type, Intent intent) {
         return switch (type) {
@@ -236,7 +257,7 @@ public class PreparationService implements AutoCloseable {
             // Trace receives the actual business result, not the internal deadline wrapper.
             java.util.concurrent.atomic.AtomicReference<Instant> completedAt = new java.util.concurrent.atomic.AtomicReference<>();
             T value = harness.stage(run, "agent.prepare." + name, null, null,
-                    Map.of("execution.queue_ms", Math.max(0, (System.nanoTime() - submittedAt) / 1_000_000), "execution.timeout_ms", timeoutMs), () -> {
+                    Map.of("preparation.method", name.equals("faq") ? "LOOKUP" : "MODEL", "preparation.state", "EXECUTED", "execution.queue_ms", Math.max(0, (System.nanoTime() - submittedAt) / 1_000_000), "execution.timeout_ms", timeoutMs), () -> {
                 com.tianmu.agent.harness.trace.TraceDetails.input(input);
                 control.checkpoint();
                 if (!Instant.now().isBefore(deadline)) throw new PreparationUnavailable();
