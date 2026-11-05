@@ -81,6 +81,16 @@ class DeepSeekFeedbackContextTest {
                 Map.of("key","T2","title","b","observation","b","recommendation","")),"assignments",Map.of("batch1:T1","T1","batch2:T1","T2"));
         assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->model.analyzePipeline(input,control())).code());
     }
+    @Test void pipelineIgnoresProviderCountersAndDerivesCoverageOnlyFromAcceptedMembers(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory){
+        var child=new Topic("batch:T1","反馈","意见","",List.of("G1"),13,2);
+        var input=new Input(WorkKind.MERGE,List.of(),List.of(child),null,null);
+        extraFields=Map.of("topics",List.of(Map.of("key","T1","title","综合","observation","意见","recommendation","","messages",104,"author_messages",99)),"assignments",Map.of("C1","T1"));
+        var model=adapter(ContextPolicy.defaults());var proposals=model.analyzePipeline(input,control());
+        var planner=new com.tianmu.agent.feedback.FeedbackPlanner(new com.tianmu.agent.feedback.FeedbackObjects(new com.tianmu.agent.adapters.storage.FileObjectStore(directory),json),com.tianmu.agent.feedback.FeedbackPolicy.defaults());
+        var accepted=planner.validate("merge",input,proposals);assertEquals(13,accepted.covered());assertEquals(2,accepted.authorCovered());
+        extraFields=Map.of("topics",List.of(Map.of("key","T1","title","综合","observation","意见","recommendation","","unexpected",104)),"assignments",Map.of("C1","T1"));
+        assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->model.analyzePipeline(input,control())).code());
+    }
     Input input(boolean correction){
         var times=new ArrayList<Long>();var moments=new ArrayList<VideoContent.Moment>();
         for(long t=0;t<12;t++){times.add(t);moments.add(new VideoContent.Moment(t,"画".repeat(600)));}

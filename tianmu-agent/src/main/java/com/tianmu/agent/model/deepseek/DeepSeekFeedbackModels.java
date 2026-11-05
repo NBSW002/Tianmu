@@ -37,6 +37,9 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         return parse(body,10);
     }
     private List<Proposal> parse(com.fasterxml.jackson.databind.JsonNode body,int maxTopics){
+        return parse(body,maxTopics,false);
+    }
+    private List<Proposal> parse(com.fasterxml.jackson.databind.JsonNode body,int maxTopics,boolean hostCounters){
         try {
             // Flash may echo the JSON-mode format marker. It is fixed protocol metadata, not evidence.
             boolean formatMarker=body.size()==3 && body.path("type").isTextual() && "json_object".equals(body.path("type").asText());
@@ -44,7 +47,18 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             if(formatMarker)com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("model.response_repaired",true));
             var rows=new LinkedHashMap<String,com.fasterxml.jackson.databind.JsonNode>();var members=new LinkedHashMap<String,List<String>>();
             for(var row:body.get("topics")){
-                if(!row.isObject() || row.size()!=4)throw new IllegalArgumentException();
+                if(!row.isObject())throw new IllegalArgumentException();
+                if(row.size()!=4){
+                    if(!hostCounters)throw new IllegalArgumentException();
+                    var fields=row.fields();
+                    while(fields.hasNext()){
+                        var field=fields.next();
+                        if(Set.of("key","title","observation","recommendation").contains(field.getKey()))continue;
+                        if(!Set.of("messages","author_messages").contains(field.getKey()) || !field.getValue().isIntegralNumber())throw new IllegalArgumentException();
+                    }
+                    // Model-derived counters never enter Proposal or the report; coverage is host-derived.
+                    com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("model.response_repaired",true));
+                }
                 for(String field:List.of("key","title","observation","recommendation"))if(!row.path(field).isTextual())throw new IllegalArgumentException();
                 String key=row.get("key").asText();if(rows.putIfAbsent(key,row)!=null)throw new IllegalArgumentException();members.put(key,new ArrayList<>());
             }
@@ -87,7 +101,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             payload.put("correction",Map.of("missing",input.correction().missing().stream().map(id->aliases.getOrDefault(id,id)).toList(),
                     "duplicates",input.correction().duplicates().stream().map(id->aliases.getOrDefault(id,id)).toList(),"unknown_count",input.correction().unknown().size(),"issue",input.correction().issue()));
         }
-        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),6144,control,true),max);
+        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),6144,control,true),max,true);
         if(childIds.isEmpty())return result;
         return result.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),
                 p.members().stream().map(id->childIds.getOrDefault(id,id)).toList())).toList();
