@@ -65,15 +65,32 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     public String pipelinePolicyHash(){return pipelineHash;}
     public List<Proposal> analyzePipeline(Input input,CallControl control){
         var payload=new LinkedHashMap<String,Object>();payload.put("kind",input.kind());
+        var childIds=new LinkedHashMap<String,String>();
         int max=input.kind()==FeedbackAnalysis.WorkKind.MERGE?1:10;payload.put("max_topics",max);
         if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY)payload.put("groups",input.groups().stream().map(g->{
             var row=new LinkedHashMap<String,Object>();row.put("id",g.id());row.put("source",g.source());row.put("text",g.text());
             row.put("reply_context",g.replyContext());row.put("author",g.author());row.put("playback_ms",g.playbackMs());row.put("count",g.messages());row.put("candidate_cluster",g.candidateCluster());return row;
         }).toList());
-        else payload.put("children",input.children());
+        else {
+            var children=new ArrayList<Map<String,Object>>();
+            for(var child:input.children()){
+                String alias="C"+(children.size()+1);childIds.put(alias,child.id());
+                // Descendant membership is a host ledger, not another assignment namespace for synthesis.
+                children.add(Map.of("id",alias,"title",child.title(),"observation",child.observation(),
+                        "recommendation",child.recommendation(),"messages",child.messages(),"author_messages",child.authorMessages()));
+            }
+            payload.put("children",children);payload.put("expected_input_ids",List.copyOf(childIds.keySet()));
+        }
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
-        if(input.correction()!=null)payload.put("correction",Map.of("missing",input.correction().missing(),"duplicates",input.correction().duplicates(),"issue",input.correction().issue()));
-        return parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),6144,control,true),max);
+        if(input.correction()!=null){
+            var aliases=new HashMap<String,String>();childIds.forEach((alias,id)->aliases.put(id,alias));
+            payload.put("correction",Map.of("missing",input.correction().missing().stream().map(id->aliases.getOrDefault(id,id)).toList(),
+                    "duplicates",input.correction().duplicates().stream().map(id->aliases.getOrDefault(id,id)).toList(),"unknown_count",input.correction().unknown().size(),"issue",input.correction().issue()));
+        }
+        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),6144,control,true),max);
+        if(childIds.isEmpty())return result;
+        return result.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),
+                p.members().stream().map(id->childIds.getOrDefault(id,id)).toList())).toList();
     }
     private com.fasterxml.jackson.databind.JsonNode complete(Input input,Map<String,Object> payload,CallControl control){
         if(input.correction()==null)return client.complete(config.analysisModel(),client.messages(instruction,payload),6144,control,true);

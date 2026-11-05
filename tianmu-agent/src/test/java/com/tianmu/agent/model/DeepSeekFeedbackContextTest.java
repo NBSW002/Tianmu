@@ -69,10 +69,14 @@ class DeepSeekFeedbackContextTest {
     @Test void pipelineMergeCarriesChildReferencesAndEnforcesBoundedSynthesis()throws Exception {
         var children=List.of(new Topic("batch1:T1","声音问题","有人听不到","检查音轨",List.of("G1"),12,0),
                 new Topic("batch2:T1","声音正常","另有人认为清楚","保留差异",List.of("G2"),1,0));
-        extraFields=Map.of("assignments",Map.of("batch1:T1","T1","batch2:T1","T1"));
+        extraFields=Map.of("assignments",Map.of("C1","T1","C2","T1"));
         var model=adapter(ContextPolicy.defaults());var input=new Input(WorkKind.MERGE,List.of(),children,null,null);
         var result=model.analyzePipeline(input,control());assertEquals(Set.of("batch1:T1","batch2:T1"),new HashSet<>(result.get(0).members()));
-        assertEquals(json.readTree(json.writeValueAsString(children)),payload(0).get("children"));assertEquals(1,payload(0).path("max_topics").asInt());
+        var sent=payload(0);assertEquals("C1",sent.path("children").get(0).path("id").asText());
+        assertEquals("声音正常",sent.path("children").get(1).path("title").asText());
+        assertFalse(sent.path("children").get(0).has("members"));
+        assertEquals(List.of("C1","C2"),json.convertValue(sent.path("expected_input_ids"),List.class));
+        assertEquals(1,sent.path("max_topics").asInt());
         extraFields=Map.of("topics",List.of(Map.of("key","T1","title","a","observation","a","recommendation",""),
                 Map.of("key","T2","title","b","observation","b","recommendation","")),"assignments",Map.of("batch1:T1","T1","batch2:T1","T2"));
         assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->model.analyzePipeline(input,control())).code());
