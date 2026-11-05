@@ -103,11 +103,14 @@ def main():
                         time.sleep(0.1)
                     assert run["status"] == "SUCCEEDED" and run["route"] == expected, "Unexpected demo route/result"
                     if value:
-                        assert value in run["answer"]["text"] and "模拟" in run["answer"]["text"]
+                        assert "模拟" in run["answer"]["text"]
+                        if "报告" not in message:
+                            assert value in run["answer"]["text"]
                         intent = "DANMAKU_REPORT" if "报告" in message else "VIDEO_METRIC"
                         assert run["preparation"]["intent"] == intent, "Intent was not merged into the task"
                         assert run["preparationCalls"] == 0, "Explicit tasks must skip recognition models"
-                        assert {"intent", "understanding", "emotion", "rewrite"}.issubset(run["preparation"]["skippedStages"])
+                        assert {"understanding", "emotion", "rewrite"}.issubset(run["preparation"]["skippedStages"])
+                        assert "intent" not in run["preparation"]["skippedStages"], "Rule-based intent must be recorded as executed"
                         assert run["preparation"]["specification"] == run["task"]["specification"], "Assembly must preserve prepared conditions"
                     else:
                         assert run["totalModelCalls"] == 0
@@ -118,8 +121,9 @@ def main():
                         assert "event:ARTIFACT_READY" in stream
                         report_path = re.search(r"/api/agent/runs/[a-z0-9-]+/reports/rp_[a-z0-9-]+", run["answer"]["text"]).group()[len("/api/agent"):]
                         code, html = request(base, "GET", report_path)
-                        assert code == 200 and "模拟数据" in html and "完整处理" in html
-                        assert "完整批次观点记录与原话举例" in html
+                        assert code == 200 and "模拟数据" in html and "完整反馈与统计说明" in html
+                        assert "观众原话与完整建议" in html
+                        assert f"已处理所选范围全部 {value} 条互动" in html, "Report must retain the demo source count"
                         if args.artifacts:
                             args.artifacts.mkdir(parents=True, exist_ok=True)
                             (args.artifacts / "report.html").write_text(html, encoding="utf-8")
@@ -177,14 +181,17 @@ def main():
                     required = {"receive_query", "pre_route", "faq_lookup", "context_build", "agent_start", "llm_inference", "read_skill",
                                 "tool_call", "agent_end", "finish"}
                     assert required.issubset(span_types), "The report trace is missing stages: " + repr(sorted(required - span_types))
-                    assert not {"emotion_recognition", "intent_recognition", "query_understanding"} & span_types, "Skipped recognition must not produce inference spans"
+                    skipped_recognition = [item for item in attrs if item.get("span.type") in {"emotion_recognition", "query_understanding"}]
+                    assert all(item.get("preparation.state") in {"SKIPPED", "DISABLED"} for item in skipped_recognition), "Skipped recognition must not produce inference spans"
+                    rule_intents = [item for item in attrs if item.get("span.type") == "intent_recognition"]
+                    assert rule_intents and all(item.get("preparation.method") == "RULE" and item.get("node.type") != "MODEL" for item in rule_intents), "Explicit intent must use a rule span, not model inference"
                     assert roots[0]["attributes"].get("run.preparation_calls") == 0, "Trace must count actual preparation calls"
-                    assert roots[0]["attributes"].get("preparation.skipped_count", 0) >= 4, "Trace must disclose skipped preparation"
+                    assert roots[0]["attributes"].get("preparation.skipped_count", 0) >= 3, "Trace must disclose skipped preparation"
                     assert any(item.get("preparation.intent") == "DANMAKU_REPORT" for item in attrs), "Intent is missing from the trace"
                     assert any(item.get("request.route") == "HARNESS" for item in attrs), "Route is missing from the trace"
                     assert any(item.get("finish.type") == "TOOL_DELIVERY" and item.get("run.status") == "SUCCEEDED" for item in attrs), "Terminal delivery is missing from the trace"
                     assert {item.get("tool.name") for item in attrs if item.get("tool.name")} >= {
-                        "read_skill", "analyze_feedback", "create_feedback_report"}, "A report tool span is missing"
+                        "read_skill", "analyze_danmaku", "create_feedback_report"}, "A report tool span is missing"
                     assert "分析直播间1001昨天的弹幕并生成报告" not in trace_file.read_text(encoding="utf-8")
                     assert "这款什么时候发货？" not in trace_file.read_text(encoding="utf-8"), "Raw danmaku text must not enter trace"
                     trace_summary = {"spanCount": len(run_trace), "spanTypes": sorted(span_types),
