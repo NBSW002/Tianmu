@@ -8,14 +8,17 @@ import java.text.Normalizer;
 import java.util.*;
 
 /** Presentation projection of accepted evidence. It never reclassifies or changes the membership ledger. */
-public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> notes,Map<String,Long> daily) {
+public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> notes,Map<String,Long> daily,FeedbackPlaybackTrend playback) {
+    public static final int MAIN_TOPIC_LIMIT=5;
+    public List<Card> mainCards(){return cards.stream().limit(MAIN_TOPIC_LIMIT).toList();}
+    public long otherAudienceMessages(){return cards.stream().skip(MAIN_TOPIC_LIMIT).mapToLong(c->c.topic().messages()-c.topic().authorMessages()).sum();}
     public record Quote(String text,Source source,boolean author,Long playbackMs,String replyContext) {}
     public record Card(Topic topic,long comments,long danmaku,List<Quote> quotes,List<VideoContent.Moment> moments) {}
     public FeedbackReportDocument {cards=List.copyOf(cards);notes=List.copyOf(notes);daily=Collections.unmodifiableMap(new TreeMap<>(daily));}
 
     public static FeedbackReportDocument build(Asset asset,List<Topic> roots,Map<String,Topic> graph,
             Map<String,List<Group>> leaves,Map<String,Long> daily) {
-        var cards=new ArrayList<Card>();var shown=new ArrayList<String>();var allOriginals=new HashSet<String>();
+        var playbackGroups=new ArrayList<Group>();var cards=new ArrayList<Card>();var shown=new ArrayList<String>();var allOriginals=new HashSet<String>();
         var ordered=roots.stream().sorted(Comparator.comparingLong((Topic t)->t.messages()-t.authorMessages()).reversed()).toList();
         for(var root:ordered){
             var groups=new ArrayList<Group>();var queue=new ArrayDeque<Topic>();var seen=new HashSet<String>();queue.add(root);
@@ -28,7 +31,7 @@ public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> no
             for(var g:groups){
                 if(g.messages()!=g.originalIds().size())throw corrupt();
                 for(String id:g.originalIds())if(!originals.add(id) || !allOriginals.add(id))throw corrupt();
-                if(g.source()==Source.COMMENT)comments+=g.messages();else danmaku+=g.messages();
+                if(g.source()==Source.COMMENT)comments+=g.messages();else {danmaku+=g.messages();playbackGroups.add(g);}
                 if(g.author())authors+=g.messages();
             }
             if(comments+danmaku!=root.messages() || authors!=root.authorMessages())throw corrupt();
@@ -59,7 +62,7 @@ public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> no
                 || cards.stream().mapToLong(Card::danmaku).sum()!=asset.snapshot().counts().danmaku()
                 || cards.stream().mapToLong(c->c.topic().authorMessages()).sum()!=asset.snapshot().counts().authorComments()+asset.snapshot().counts().authorDanmaku())throw corrupt();
         var notes=graph.values().stream().filter(t->leaves.containsKey(t.id())).toList();
-        return new FeedbackReportDocument(asset,cards,notes,daily);
+        return new FeedbackReportDocument(asset,cards,notes,daily,asset.request().sources().contains(Source.DANMAKU)?FeedbackPlaybackTrend.build(asset,playbackGroups):null);
     }
     static String replyContext(String raw){
         if(raw.isBlank())return "";

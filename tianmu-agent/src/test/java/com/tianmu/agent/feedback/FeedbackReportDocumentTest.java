@@ -42,6 +42,44 @@ class FeedbackReportDocumentTest {
         var doc=FeedbackReportDocument.build(asset(false,new Counts(1,2,0,0,3)),List.of(a,b),Map.of(a.id(),a,b.id(),b),Map.of(a.id(),List.of(first),b.id(),List.of(duplicate)),Map.of());
         assertEquals(2,doc.cards().get(0).topic().messages());assertEquals(1,doc.cards().get(1).topic().messages());assertEquals(1,doc.cards().stream().mapToInt(c->c.quotes().size()).sum());
     }
+    @Test void mainReportShowsFiveLargestAudienceTopicsWithoutDeletingEvidenceOrInflatingWithAuthors(){
+        var roots=new ArrayList<Topic>();var graph=new LinkedHashMap<String,Topic>();var leaves=new LinkedHashMap<String,List<Group>>();
+        for(int i=1;i<=7;i++){
+            int count=i==7?20:i;boolean isAuthor=i==7;String id="leaf"+i+":T1";
+            int ordinal=i;var ids=java.util.stream.IntStream.range(0,count).mapToObj(j->"C:"+(ordinal*100+j)).toList();
+            var g=new Group("G"+i,Source.COMMENT,"不同话题原文"+i,"",isAuthor,null,count,ids);
+            var t=new Topic(id,"业务话题"+i,"保留该话题观点。","",List.of(g.id()),count,isAuthor?count:0);
+            roots.add(t);graph.put(id,t);leaves.put(id,List.of(g));
+        }
+        var doc=FeedbackReportDocument.build(asset(false,new Counts(41,0,20,0,21)),roots,graph,leaves,Map.of());
+        assertEquals(7,doc.cards().size());assertEquals(7,doc.notes().size());assertEquals(5,doc.mainCards().size());
+        assertEquals(List.of("业务话题6","业务话题5","业务话题4","业务话题3","业务话题2"),doc.mainCards().stream().map(c->c.topic().title()).toList());
+        assertEquals(1,doc.otherAudienceMessages());
+        String html=new String(FeedbackReportRenderer.render(doc),java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(5,html.split("<article class=\"topic\"",-1).length-1);assertTrue(html.contains("其他话题"));assertTrue(html.contains("业务话题1"));assertTrue(html.contains("业务话题7"));
+        assertTrue(html.contains("全部 21 条观众反馈为分母"));assertTrue(html.contains("4.8%"));
+    }
+    @Test void playbackTrendCountsEveryOriginalAndPreservesZeroBinsInsteadOfPlottingOnlyQuotes(){
+        var groups=List.of(new Group("G1",Source.DANMAKU,"重复弹幕","",false,1000L,3,List.of("D:1","D:2","D:3")),
+                new Group("G2",Source.DANMAKU,"结尾弹幕","",true,9999L,1,List.of("D:4")),
+                new Group("G3",Source.DANMAKU,"位置缺失","",false,null,1,List.of("D:5")),
+                new Group("G4",Source.DANMAKU,"上界不含","",false,10000L,1,List.of("D:6")));
+        var a=asset(true,new Counts(0,6,0,1,5));var t=FeedbackPlaybackTrend.build(a,groups);
+        assertEquals(1000,t.bucketMs());assertEquals(10,t.counts().size());assertEquals(4,t.plotted());assertEquals(2,t.omitted());
+        assertEquals(0,t.counts().get(0));assertEquals(3,t.counts().get(1));assertEquals(1,t.counts().get(9));assertTrue(t.knownRange());
+        var leaf=new Topic("leaf:T1","弹幕话题","观点","",groups.stream().map(Group::id).toList(),6,1);
+        var doc=FeedbackReportDocument.build(a,List.of(leaf),Map.of(leaf.id(),leaf),Map.of(leaf.id(),groups),Map.of("2026-10-20",6L));
+        assertEquals(t,doc.playback());String html=new String(FeedbackReportRenderer.render(doc),java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(html.contains("class='playback-chart'"));assertTrue(html.contains("已定位 4 条"));assertTrue(html.contains("2 条位置缺失或超出范围"));
+        assertTrue(html.contains("按发送日期查看反馈"));assertFalse(html.contains("<script"));
+    }
+    @Test void unknownDurationAndUnpositionedFeedbackAreExplicitInsteadOfInventingAVideoRange(){
+        var a=asset(false,new Counts(0,3,0,0,3));var unknown=FeedbackPlaybackTrend.build(a,List.of(first,opposite));
+        assertFalse(unknown.knownRange());assertEquals(2001,unknown.endMs());assertEquals(3,unknown.plotted());
+        var noPositions=FeedbackPlaybackTrend.build(a,List.of(new Group("G1",Source.DANMAKU,"反馈","",false,null,3,List.of("D:1","D:2","D:3"))));
+        assertTrue(noPositions.counts().isEmpty());assertEquals(3,noPositions.omitted());
+        assertThrows(AgentException.class,()->FeedbackPlaybackTrend.build(a,List.of(first)));
+    }
     @Test void structuredReplyChainsShowSourceTextWithoutTransportIdsOrJson(){
         String raw="[{\"id\":\"7520745728063299600\",\"author\":false,\"text\":\"绒毛很可爱，但不要随便摸\"},{\"id\":\"7520745728063299601\",\"author\":true,\"text\":\"这里是作者说明\"}]";
         String shown=FeedbackReportDocument.replyContext(raw);assertEquals("上文：绒毛很可爱，但不要随便摸\n作者：这里是作者说明",shown);assertFalse(shown.contains("752074"));

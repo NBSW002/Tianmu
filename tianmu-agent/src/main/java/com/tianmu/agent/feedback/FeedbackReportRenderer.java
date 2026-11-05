@@ -20,7 +20,7 @@ public final class FeedbackReportRenderer {
     public static byte[] render(FeedbackReportDocument document){
         var asset=document.asset();var counts=asset.snapshot().counts();var query=asset.request().query();long video=query.videoId();
         var h=new StringBuilder("<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>观众反馈报告</title><style>");
-        h.append(STYLE).append("</style></head><body><main><header><p class=\"eyebrow\">观众反馈 · 视频复盘</p><h1>观众都在聊什么</h1><p class=\"muted\">");
+        h.append(STYLE).append(FeedbackReportCharts.STYLE).append("</style></head><body><main><header><p class=\"eyebrow\">观众反馈 · 视频复盘</p><h1>观众都在聊什么</h1><p class=\"muted\">");
         if(query.allTime())h.append("全部已保留反馈 · 截至 ").append(e(DATE.format(query.end())));
         else h.append(e(DATE.format(query.start()))).append(" — ").append(e(DATE.format(query.end())));
         h.append(" · 北京时间</p><div class=\"metrics\">");
@@ -37,10 +37,12 @@ public final class FeedbackReportRenderer {
             h.append("</ul><p class=\"muted\">按相关观众反馈量排列；各话题中的不同偏好与证据见下文，不能据条数推断留存或整体受众态度。</p>");
         }
         h.append("</section>");
+        FeedbackReportCharts.render(h,document);
         if(asset.video()!=null){h.append("<section><h2>这段视频的内容</h2>");paragraphs(h,asset.video().summary());h.append("<p class=\"muted\">依据 ").append(asset.video().sampledAtMs().size()).append(" 个采样位置；静帧不代表完整连续过程。");
             if(asset.video().transcript().isBlank())h.append("未提供音频转录，配乐与收音评价仅来自反馈，尚未独立核实。");h.append("</p></section>");}
         h.append("<section aria-labelledby=\"topics-title\"><h2 id=\"topics-title\">观众在讨论什么</h2>");int index=0;
-        for(var card:document.cards()){
+        if(document.cards().size()>FeedbackReportDocument.MAIN_TOPIC_LIMIT)h.append("<p class='topic-coverage'>展开观众反馈最多的 5 个话题，覆盖 ").append(document.mainCards().stream().mapToLong(c->c.topic().messages()-c.topic().authorMessages()).sum()).append(" 条观众反馈；其他 ").append(document.otherAudienceMessages()).append(" 条保留在完整分析中。</p>");
+        for(var card:document.mainCards()){
             var t=card.topic();h.append("<article class=\"topic\" id=\"topic-").append(++index).append("\"><div class=\"topic-head\"><span class=\"number\">").append(String.format(Locale.ROOT,"%02d",index)).append("</span><h3>").append(e(t.title())).append("</h3><span class=\"badge\">").append(t.messages()-t.authorMessages()).append(" 条观众反馈</span></div><p class=\"muted\">");
             if(asset.request().sources().contains(Source.DANMAKU))h.append("弹幕 ").append(card.danmaku()).append(" 条 · ");
             if(asset.request().sources().contains(Source.COMMENT))h.append("评论及回复 ").append(card.comments()).append(" 条 · ");
@@ -64,10 +66,15 @@ public final class FeedbackReportRenderer {
             if(!t.recommendation().isBlank()){h.append("<div class=\"action\"><p class=\"label\">可以怎么做</p>");paragraphs(h,t.recommendation());h.append("</div>");}
             h.append("</article>");
         }
+        if(document.cards().size()>FeedbackReportDocument.MAIN_TOPIC_LIMIT){
+            h.append("<details class='other-topics'><summary>其他话题 · 完整分析已保留</summary><ul>");
+            for(var card:document.cards().stream().skip(FeedbackReportDocument.MAIN_TOPIC_LIMIT).toList())h.append("<li>").append(e(card.topic().title())).append(" · ").append(card.topic().messages()-card.topic().authorMessages()).append(" 条观众反馈</li>");
+            h.append("</ul><p>对应观察及建议见下方完整分析记录；这些话题没有被删除或并入主话题。</p></details>");
+        }
         h.append("</section>");
         if(!document.daily().isEmpty()){
-            h.append("<section><h2>观众什么时候讨论得最多</h2><p class=\"muted\">按反馈发送日期统计，与视频播放位置不同。</p><div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">日期</th><th scope=\"col\">反馈记录</th></tr></thead><tbody>");
-            document.daily().forEach((day,n)->h.append("<tr><th scope=\"row\">").append(e(day)).append("</th><td>").append(n).append("</td></tr>"));h.append("</tbody></table></div></section>");
+            h.append("<section><details class=\"daily-data\"><summary>按发送日期查看反馈</summary><p class=\"muted\">按反馈发送日期统计，与视频播放位置不同。</p><div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">日期</th><th scope=\"col\">反馈记录</th></tr></thead><tbody>");
+            document.daily().forEach((day,n)->h.append("<tr><th scope=\"row\">").append(e(day)).append("</th><td>").append(n).append("</td></tr>"));h.append("</tbody></table></div></details></section>");
         }
         h.append("<details class=\"method\"><summary>统计口径与完整分析记录</summary><p>只包含所选范围内当前保留的入库记录，结束时刻不计入。父评论仅作语境，不重复计数；跨来源观众已去重。原话是阅读例子，展示去重不改变分析成员和统计。结构覆盖不等于所有语义判断正确。</p><p>视频 ").append(video).append(" · 数据读取时间 ").append(e(DATE.format(asset.snapshot().dataAsOf().atZone(ZONE)))).append("。</p>");
         if(!document.notes().isEmpty()){
