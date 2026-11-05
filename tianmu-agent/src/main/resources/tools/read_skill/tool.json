@@ -1,6 +1,6 @@
 {
   "name": "read_skill",
-  "description": "Read skill instructions to activate tools; then optionally page a reference by its declared resource name. Paging offsets count Unicode characters. No filesystem paths.",
+  "description": "Activate one skill per turn; never batch read_skill with another call. The skill exposes its declared tools, so do not activate another skill merely to use an already-exposed tool. Optionally page a declared reference after activation; offsets count Unicode characters, not filesystem paths.",
   "inputSchema": {
     "type": "object",
     "properties": {
