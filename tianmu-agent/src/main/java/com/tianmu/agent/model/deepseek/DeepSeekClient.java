@@ -98,7 +98,10 @@ public final class DeepSeekClient {
             if(nativeTools!=null && !nativeTools.isEmpty()) {
                 requestBody.put("tools",nativeTools.stream().map(t->Map.of("type","function","function",Map.of("name",t.name(),"description",t.description(),"parameters",t.inputSchema()))).toList());
                 Object choice=requiredTool==null?"auto":"required".equals(requiredTool)?"required":Map.of("type","function","function",Map.of("name",requiredTool));
-                requestBody.put("tool_choice",choice);requestBody.put("parallel_tool_calls",false);
+                boolean parallelSources=requiredTool==null
+                        && nativeTools.stream().anyMatch(t->t.name().equals("analyze_comments"))
+                        && nativeTools.stream().anyMatch(t->t.name().equals("analyze_danmaku"));
+                requestBody.put("tool_choice",choice);requestBody.put("parallel_tool_calls",parallelSources);
                 TraceAttributes.apply(Span.current(),Map.of("model.tool_choice",requiredTool==null?"auto":requiredTool));
             }
             TraceAttributes.apply(Span.current(),com.tianmu.agent.model.ModelPayloadMetrics.measure(mapper,requestBody));

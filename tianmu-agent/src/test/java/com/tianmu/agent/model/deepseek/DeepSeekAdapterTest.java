@@ -86,6 +86,14 @@ class DeepSeekAdapterTest {
         assertFalse(name.path("description").asText().isBlank());assertEquals(mapper.valueToTree(skills.names().stream().sorted().toList()),name.path("enum"));
         assertFalse(functions.get("prepare_creator_interactions").path("parameters").path("properties").path("items").path("items").path("properties").path("playback_ms").path("description").asText().isBlank());
     }
+    @Test void independentFeedbackSourcesEnableNativeParallelCallsOnlyWhenBothAreAvailable(){
+        var tools=List.of(new ToolDefinition("analyze_comments","comments",Map.of("type","object")),
+                new ToolDefinition("analyze_danmaku","danmaku",Map.of("type","object")));
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","prepare")),tools,128,control());
+        assertTrue(requests.get(0).path("parallel_tool_calls").asBoolean());
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","prepare")),tools.subList(0,1),128,control());
+        assertFalse(requests.get(1).path("parallel_tool_calls").asBoolean());
+    }
     @Test void requiredResourceReadsReachTheProviderAsRequiredAndReleaseAfterTheRead(){
         var tools=nativeContext(List.of(),List.of()).availableTools();
         nativeAnswer=request->Map.of("tool_calls",List.of(Map.of("id","required-read","type","function","function",Map.of("name","analyze_video_content","arguments","{\"video_id\":1001}"))));
