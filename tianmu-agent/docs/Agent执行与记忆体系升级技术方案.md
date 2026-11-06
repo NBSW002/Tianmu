@@ -559,3 +559,6 @@ P0 可与 P1 的设计细化并行，但 P2 不绕过源码契约和状态隔离
 
 
 服务器验收补正：真实模型将“讲这个主题时”的局部偏好泛化成全局偏好，导致错误去重。整理策略升级 conversation-facts-v2，明确跨轮主题不得扩大范围，text 保留限定，topic 的原话必须属于实际 support；旧任务固定 policy 不可静默换版本。补充未引用旧主题来源拒绝测试，并重跑原始真实场景后才关闭该质量项。
+
+
+真实工具/报告验收已通过：有效作者账号原生 read_result 两页调用的执行区间重叠，异步反馈报告全程仅一次基础召回，直接交付不恢复记忆。另发现外部视觉服务两片段分别 VIDEO_MODEL_UNAVAILABLE / VIDEO_MODEL_TIMEOUT，工具已并行但供应商未完成；修复其业务错误被 Trace 显示为 SUCCEEDED 的问题：stage 返回真实 ToolResult，错误节点 FAILED + OTel ERROR + business_error，并保留成功兄弟分支。对应故障注入测试及独立复核已通过，外部视觉服务可用性不计作本批机制已恢复。

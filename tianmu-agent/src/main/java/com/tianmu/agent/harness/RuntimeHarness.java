@@ -111,6 +111,10 @@ public class RuntimeHarness implements AutoCloseable {
                 TraceDetails.output(value);
                 TraceNode.success(span);
                 resultAttributes.putAll(TraceSemantics.result(type, value));
+                if(Boolean.FALSE.equals(resultAttributes.get("tool.success"))){
+                    outcome="business_error";span.setStatus(StatusCode.ERROR);
+                    TraceAttributes.apply(span,Map.of("node.status","FAILED"));
+                }
                 return value;
             } catch (RuntimeException e) {
                 TraceNode.failure(span, e);

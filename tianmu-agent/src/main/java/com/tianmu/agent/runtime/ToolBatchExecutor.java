@@ -33,20 +33,23 @@ public final class ToolBatchExecutor {
                 run.checkpoint();
                 while(next<calls.size() && active<parallelism){
                     int index=next++;var call=calls.get(index);var branch=branches.get(index);
-                    var task=new FutureTask<Result>(()->harness.stage(run,"agent.tool",null,null,
+                    var task=new FutureTask<Result>(()->{
+                        var value=harness.stage(run,"agent.tool",null,null,
                             Map.of("tool.name",call.name(),"tool.batch_index",index,"tool.execution_mode","PARALLEL","tool.call_id",call.providerCallId()==null?"batch-"+index:call.providerCallId()),()->{
                         run.checkpoint();TraceDetails.input(call);
                         try{
                             var cached=ledger==null?null:ledger.replay(run,index);
-                            var value=cached==null?branch.execute():cached;branch.validate(value);
-                            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.success",true,"tool.has_evidence",value.evidenceId()!=null,"tool.replay",cached!=null));
-                            TraceDetails.output(value);return new Result(call,branch,value,true);
+                            var result=cached==null?branch.execute():cached;branch.validate(result);
+                            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.success",true,"tool.has_evidence",result.evidenceId()!=null,"tool.replay",cached!=null));
+                            TraceDetails.output(result);return result;
                         }catch(AgentException e){
                             if(fatal(e.code()))throw e;
                             TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.success",false,"tool.error_code",e.code()));
-                            return new Result(call,branch,new ToolResult(call.name(),Map.of("error_code",e.code(),"retryable",Set.of("TOOL_CALL_TIMEOUT","TOOL_TEMPORARY_ERROR").contains(e.code())),null),false);
+                            return new ToolResult(call.name(),Map.of("error_code",e.code(),"retryable",Set.of("TOOL_CALL_TIMEOUT","TOOL_TEMPORARY_ERROR").contains(e.code())),null);
                         }
-                    }));
+                    });
+                        return new Result(call,branch,value,!value.data().containsKey("error_code"));
+                    });
                     Runnable wrapped=harness.contextual(()->{try{task.run();}finally{done.offer(index);}});
                     futures.add(task);submitted.add(wrapped);
                     try{workers.execute(wrapped);}catch(RejectedExecutionException e){task.cancel(false);throw new AgentException("CALL_CAPACITY_EXCEEDED","Tool batch workers are full");}

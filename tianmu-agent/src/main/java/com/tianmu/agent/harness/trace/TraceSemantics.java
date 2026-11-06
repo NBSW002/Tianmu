@@ -57,6 +57,7 @@ public final class TraceSemantics {
             optional.filter(FaqAnswer.class::isInstance).map(FaqAnswer.class::cast).ifPresent(f -> attrs.putAll(faq(f)));
         } else if (value instanceof ToolResult tool) {
             attrs.put("tool.success", !tool.data().containsKey("error_code"));
+            if(tool.data().get("error_code") instanceof String code){attrs.put("error.code",code);attrs.put("node.status","FAILED");}
             attrs.put("tool.has_evidence", tool.evidenceId() != null);
             attrs.put("tool.terminal_delivery", tool.terminalAnswer() != null);
             attrs.put("clarification.required", tool.terminalClarification() != null);

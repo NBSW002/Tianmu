@@ -74,4 +74,20 @@ class NativeToolBatchTest {
             assertEquals("INVALID_EVIDENCE",assertThrows(AgentException.class,()->branch.validate(new ToolResult("query_video_metrics",Map.of(),"forged"))).code());
         }finally{workers.shutdown();}
     }
+    @Test void recoverableBranchFailureIsARealFailedTraceNodeAndKeepsItsSiblingResult(){
+        var workers=ExecutionConfiguration.standalone("batch-error",2,2,4);
+        try(var f=new HarnessLifecycleTest.Fixture()){
+            var tools=HarnessLifecycleTest.dispatcher(new SkillCatalog(),(q,s)->{
+                if(q.date().equals(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1)))throw new AgentException("VIDEO_MODEL_TIMEOUT","fixture timeout");
+                return new MetricData(q.videoId(),q.date(),q.metric(),42,"v1","fixture",Instant.now(),"Asia/Shanghai",true,true);
+            },f.harness);
+            var run=f.run();run.start();run.execution().activateSkill("video-metrics");
+            var results=new ToolBatchExecutor(f.harness,workers,true,2).execute(run,List.of(call(1),call(2)),tools);
+            assertFalse(results.get(0).success());assertTrue(results.get(1).success());
+            var failed=f.recording.spans.stream().filter(s->s.getName().equals("agent.tool") && Boolean.FALSE.equals(s.getAttributes().get(io.opentelemetry.api.common.AttributeKey.booleanKey("tool.success")))).findFirst().orElseThrow();
+            assertEquals("FAILED",failed.getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("node.status")));
+            assertEquals("business_error",failed.getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("operation.outcome")));
+            assertEquals(io.opentelemetry.api.trace.StatusCode.ERROR,failed.getStatus().getStatusCode());
+        }finally{workers.shutdown();}
+    }
 }
