@@ -345,6 +345,17 @@ class DeepSeekAdapterTest {
         answer = request -> "{\"needsClarification\":true,\"clarificationQuestion\":\"Which date?\",\"conditions\":{},\"rewrittenQuery\":null}";
         assertEquals("Which date?", port.understand(input(), control()).clarificationQuestion());
     }
+    @Test void understandingReusesLongOriginalWhenRewriteIsNull() {
+        var port = new DeepSeekAdapters().deepSeekPreparation(client, properties, mapper, new PromptCatalog());
+        String original = "请概括学习笔记：" + "先理解缓存，再理解索引，最后理解事务。".repeat(60);
+        var longInput = new Input(original, input().businessDate(), input().scope());
+        answer = request -> "{\"needsClarification\":false,\"clarificationQuestion\":null,\"conditions\":{},\"rewrittenQuery\":null}";
+        Understanding result = port.understand(longInput, control());
+        assertFalse(result.needsClarification());
+        assertEquals(original, result.rewrittenQuery());
+        assertTrue(result.conditions().isEmpty());
+        assertEquals(1, requests.size());
+    }
     @Test void understandingRejectsCoercionExtraFieldsAndContradictoryPayloads() {
         var port = new DeepSeekAdapters().deepSeekPreparation(client, properties, mapper, new PromptCatalog());
         for (String invalid : List.of(

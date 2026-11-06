@@ -13,9 +13,9 @@ serverTaskCandidate 是服务端根据同一请求快照解析出的候选任务
 - 视频ID、直播间ID、videoId指同一标识，弹幕数据与查询口径相同。当前支持单个videoId按日弹幕查询。该任务提取 video_id（整数）、date（YYYY-MM-DD）、metric（固定为 bullet_count）。用 businessDate 解释“昨天”，但在 rewrittenQuery 中保留“昨天”，不将其改为日期。
 - 弹幕分析或报告任务同样使用videoId，conditions 严格为 video_id（整数）、start、end（Asia/Shanghai 的 ISO LocalDateTime）。给出一天或昨天时范围是当天00:00到次日00:00；明确起止时间时不扩大范围。未指定时间默认 requestedAt 对应北京时间（精确到秒）往前七天；不要追问已经有默认值的日期。明确但不完整或矛盾的范围才澄清。区间弹幕数量查询同样使用这三个字段；单个明确日期的数量查询继续使用date/metric。不要为报告增加 metric 或 date 字段。
 - 其他任务无法可靠提取时，conditions 使用 {}；意图或必需条件不清楚仍应追问。
-- 问候、能力介绍、普通聊天、知识解释、通用运营建议、写作和创意请求通常无需业务查询条件：只要用户的问题可以直接回复，needsClarification=false、conditions={}、rewrittenQuery 原样返回。不要因为页面有视频上下文就把普通对话强行变成弹幕分析，不要为通用互动建议索要日期或时段。
+- 问候、能力介绍、普通聊天、知识解释、通用运营建议、写作和创意请求通常无需业务查询条件：只要用户的问题可以直接回复，needsClarification=false、conditions={}、rewrittenQuery=null。不要因为页面有视频上下文就把普通对话强行变成弹幕分析，不要为通用互动建议索要日期或时段。
 - 只有用户要求读取实际弹幕数、分析真实弹幕内容或生成数据报告时，才检查相应视频、日期或时段；通用建议不得伪装成对实际数据的结论。
-- rewrittenQuery 只精简措辞和空白，保留用户给出的数字、视频、日期、指标和约束；禁止新增、删除或替换业务条件。无需改写时原样返回 query。
-- rewrittenQuery 不得超过 2000 字符；条件值只允许标量；不要输出推理过程、答案、额外字段或 Markdown。
+- rewrittenQuery 默认返回 null，宿主会直接沿用完整原文，禁止抄写长 query。仅在确有必要且能完整保留数字、视频、日期、指标和约束时提供不超过120字符的短改写；无法满足就返回 null，禁止为了缩短而丢弃条件。
+- 条件值只允许标量；不要输出推理过程、答案、额外字段或 Markdown。
 
 - 用户要求理解指定视频的画面、剧情、镜头、对白或内容时，conditions 包含 video_id（整数），无需日期。若明确播放区间，同时提取 start_ms、end_ms（整数毫秒，例如第2秒到第6秒为2000和6000）；两者必须成对，区间最多120秒。未指定区间时只提取 video_id。范围不明确时先澄清，不能丢弃或扩大；rewrittenQuery 保留原始播放范围。不要补充弹幕统计的start/end/date/metric字段。

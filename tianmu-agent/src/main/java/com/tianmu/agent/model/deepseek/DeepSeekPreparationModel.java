@@ -64,7 +64,11 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
                 throw new IllegalArgumentException("Invalid understanding text");
         Map<String, Object> conditions = mapper.convertValue(result.path("conditions"),
                 new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
-        return new Understanding(result.path("needsClarification").booleanValue(),
-                result.path("clarificationQuestion").textValue(), conditions, result.path("rewrittenQuery").textValue());
+        boolean clarify = result.path("needsClarification").booleanValue();
+        String rewrite = result.path("rewrittenQuery").textValue();
+        // Null means reuse the immutable request; never spend output tokens echoing long input.
+        if (!clarify && rewrite == null) rewrite = input.query();
+        return new Understanding(clarify,
+                result.path("clarificationQuestion").textValue(), conditions, rewrite);
     }
 }
