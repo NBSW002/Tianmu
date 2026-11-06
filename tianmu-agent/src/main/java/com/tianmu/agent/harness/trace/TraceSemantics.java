@@ -24,6 +24,10 @@ public final class TraceSemantics {
                 case TOOL -> "CALL_TOOL"; case ANSWER -> "FINAL_ANSWER"; case CLARIFY -> "CLARIFY";
             });
             if (decision.call() != null) attrs.put("model.selected_tool", decision.call().name());
+            var selectedTools = new ArrayList<String>();
+            if (decision.call() != null) selectedTools.add(decision.call().name());
+            decision.additionalCalls().forEach(call -> selectedTools.add(call.name()));
+            if (!selectedTools.isEmpty()) attrs.put("model.selected_tools", List.copyOf(selectedTools));
             if (decision.answer() != null && decision.answer().text() != null)
                 attrs.put("output.char_count", decision.answer().text().length());
         } else if (value instanceof Result prepared) {

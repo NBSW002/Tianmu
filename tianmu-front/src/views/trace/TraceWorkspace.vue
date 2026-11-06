@@ -11,7 +11,7 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, buildTraceOverview, layoutPresentation, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -61,12 +61,13 @@ document.title = 'Trace Studio · EchoFrame运行追踪'
 onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort() })
 
 const trace = computed(() => traces.value.find((item) => item.id === activeId.value) || traces.value[0])
-const expanded = ref(new Set())
 const presentation = computed(() => buildTraceOverview(buildTracePresentation(trace.value.nodes)))
+const expanded = ref(defaultExpandedStages(presentation.value))
 const graph = computed(() => layoutPresentation(presentation.value, expanded.value))
 const selected = computed(() => presentation.value.allCards.get(selectedId.value) || (presentation.value.rawById.has(selectedId.value) ? presentNode(presentation.value.rawById.get(selectedId.value)) : null))
 const selectedSource = computed(() => presentation.value.rawById.get(selected.value?.sourceId))
 const selectedMembers = computed(() => (selected.value?.memberIds || []).filter(id => id !== selected.value.sourceId).map(id => presentation.value.rawById.get(id)).filter(Boolean))
+const invocations = computed(() => modelInvocations(selected.value, presentation.value))
 const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
 function toggleGroup(id) {
   const next = new Set(expanded.value)
@@ -78,7 +79,7 @@ const date = (value) => value == null ? '时间未提供' : new Intl.DateTimeFor
 
 function selectNode(id) { selectedId.value = id }
 function changeTrace() {
-  expanded.value = new Set()
+  expanded.value = defaultExpandedStages(presentation.value)
   selectedId.value = presentation.value.cards[0]?.id || trace.value.nodes[0].id
 }
 function cancelQuery() {
@@ -120,15 +121,17 @@ watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCl
   onCleanup(() => controller.abort())
   payloadLoading.value = true
   try {
-    const results = await Promise.allSettled(['input', 'output', 'error', 'provider_output'].map(async (direction) => {
-      const reference = node[`${direction}Ref`]
-      if (node[direction] != null || !reference || reference === 'UNAVAILABLE') return
-      const data = await getTracePayload(node.attributes['run.id'] || current.runId, reference, controller.signal)
-      if (!controller.signal.aborted) {
-        node[direction] = data.value ?? data.preview ?? null
-        node[`${direction}State`] = data.state
-      }
-    }))
+    const related = invocations.value.map(call => presentation.value.rawById.get(call.toolId)).filter(Boolean)
+    const results = await Promise.allSettled([node, ...related].flatMap(target =>
+      (target === node ? ['input', 'output', 'error', 'provider_output'] : ['input', 'output']).map(async direction => {
+        const reference = target[`${direction}Ref`]
+        if (target[direction] != null || !reference || reference === 'UNAVAILABLE') return
+        const data = await getTracePayload(target.attributes['run.id'] || current.runId, reference, controller.signal)
+        if (!controller.signal.aborted) {
+          target[direction] = data.value ?? data.preview ?? null
+          target[`${direction}State`] = data.state
+        }
+      })))
     const failure = results.find((result) => result.status === 'rejected')
     if (failure) throw failure.reason
   } catch (error) { if (!controller.signal.aborted) payloadError.value = error.message }
@@ -211,7 +214,7 @@ function downloadExample() {
           <div ref="viewTabs" class="view-tabs">
             <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">执行图</button>
             <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
-            <span>{{ presentation.cards.length }} 卡片 / {{ trace.nodes.length }} Span</span>
+            <span>{{ graph.nodes.length }} 卡片 / {{ trace.nodes.length }} Span</span>
           </div>
           <TraceGraph :trace="trace" :graph="graph" :expanded="expanded" :selected-id="selectedId" :mode="mode" @select="selectNode" @toggle="toggleGroup" />
           <p v-if="mode === 'graph' && presentation.notices.length" class="projection-notice">{{ presentation.notices.join(' · ') }}</p>
@@ -231,6 +234,19 @@ function downloadExample() {
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
             <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
+            <section v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
+              <h3>本轮调用 <span>{{ invocations.length }} 项</span></h3>
+              <p v-if="!invocations.length" class="invocation-empty">{{ ['FINAL_ANSWER', 'ANSWER'].includes(selected.attributes?.['model.decision']) ? '本轮直接生成回答' : '尚无工具或 Skill 调用记录' }}</p>
+              <article v-for="call in invocations" :key="call.id" class="invocation-card">
+                <div class="invocation-heading"><strong>{{ call.label }}</strong><span :class="{ 'invocation-error': call.businessError || ['FAILED', 'TIMED_OUT'].includes(call.status), 'invocation-pending': !call.status }">{{ call.businessError ? '业务错误' : call.status ? statusLabel(call.status) : '未找到执行记录' }}</span></div>
+                <code>{{ call.name }}</code>
+                <p v-if="call.skill" class="invocation-skill">Skill：{{ call.skill }}</p>
+                <p class="invocation-summary">{{ call.summary }}</p>
+                <TraceCode title="调用参数" :value="call.arguments" :state="call.inputState" :reference="call.inputRef" />
+                <details v-if="call.toolId"><summary>执行结果</summary><TraceCode title="工具返回" :value="call.output" :state="call.outputState" :reference="call.outputRef" /></details>
+                <button v-if="call.toolId" type="button" class="invocation-link" @click="selectNode(call.toolId)">查看执行节点 →</button>
+              </article>
+            </section>
             <p v-if="selected.sourceNote || selected.legacy" class="projection-notice">{{ selected.sourceNote || '历史记录缺少任务 ID，按同一运行的父级范围归组；内部阶段可能未记录。' }}</p>
             <section v-if="selectedMembers.length" class="member-section"><h3>内部记录 · {{ selectedMembers.length }}</h3><button v-for="member in selectedMembers" :key="member.id" type="button" @click="selectNode(member.id)"><span>{{ nodeDisplayName(member) }}</span><small :class="{ error: ['FAILED', 'TIMED_OUT'].includes(member.status) }">{{ statusLabel(member.status) }} · {{ formatDuration(member.durationMs) }}</small></button></section>
             <dl v-if="selected.kind === 'MODEL' || selected.totalTokens != null" class="token-grid"><div><dt>输入 Token</dt><dd>{{ formatValue(selected.inputTokens) }}</dd></div><div><dt>输出 Token</dt><dd>{{ formatValue(selected.outputTokens) }}</dd></div></dl>
@@ -280,6 +296,18 @@ html.trace-workspace-page #app { max-width: none; background: var(--workbench-pa
 .payload-state { font-size: 12px; }
 .projection-notice { margin: 0; padding: 8px 20px; font-size: 12px; color: var(--workbench-ink); background: var(--workbench-paper); }
 .semantic-result { padding: 12px; border-radius: 8px; background: var(--workbench-paper); color: var(--workbench-accent); font-size: 13px; }
+.invocation-section { margin: 20px 0; }
+.invocation-section h3 { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; }
+.invocation-section h3 span,.invocation-empty { color: var(--workbench-muted); font-size: 12px; }
+.invocation-card { padding: 12px; margin-top: 10px; border-radius: 10px; background: var(--workbench-paper); border: 1px solid var(--workbench-border); }
+.invocation-heading { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.invocation-heading strong { font-weight: 500; }.invocation-heading span { color: var(--workbench-success); }
+.invocation-heading .invocation-error { color: var(--workbench-error); }
+.invocation-heading .invocation-pending { color: var(--workbench-muted); }
+.invocation-card code { display: block; overflow-wrap: anywhere; color: var(--workbench-muted); font: 11px/1.6 var(--trace-mono); margin-top: 4px; }
+.invocation-skill,.invocation-summary { font-size: 12px; overflow-wrap: anywhere; margin: 8px 0; }
+.invocation-card summary { font-size: 12px; cursor: pointer; }
+.invocation-link { padding: 6px 0 0; border: 0; background: none; color: var(--workbench-accent); font-size: 12px!important; }
 .member-section { margin: 20px 0; }
 .member-section h3 { font-size: 12px; font-weight: 500; color: var(--workbench-ink); }
 .member-section button { display: flex; justify-content: space-between; gap: 8px; width: 100%; background: none; border: 0; border-bottom: 1px solid var(--workbench-border); padding: 8px 0; text-align: left; color: var(--workbench-ink); }

@@ -4,7 +4,7 @@ const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识�
 const intentNames = { VIDEO_METRIC: '视频互动统计', DANMAKU_REPORT: '观众反馈报告', KNOWLEDGE: '知识问答', OTHER: '其他任务', UNKNOWN: '未确定' }
 const emotionNames = { NEUTRAL: '中性', POSITIVE: '正向', NEGATIVE: '负向', UNKNOWN: '未知' }
 const phaseNames = { COLLECT: '采集反馈', COLLECTING: '采集反馈', CLASSIFY: '反馈分类', CLASSIFYING: '反馈分类', MERGE: '合并结果', MERGING: '合并结果', READY: '分析就绪', WAITING_AUTH: '等待授权', FAILED: '分析失败', CANCELLED: '已取消' }
-const toolNames = { query_danmaku_count: '查询弹幕数', read_danmaku: '读取弹幕', read_comments: '读取评论', read_skill: '读取策略', analyze_video_content: '分析视频', analyze_feedback: '分析反馈', create_feedback_report: '生成报告', read_report: '读取报告', search_feedback: '搜索反馈', ask_clarification: '请求澄清' }
+const toolNames = { query_danmaku_count: '查询弹幕数', read_danmaku: '读取弹幕', read_comments: '读取评论', read_skill: '读取 Skill', analyze_video_content: '分析视频', analyze_feedback: '分析反馈', create_feedback_report: '生成报告', read_report: '读取报告', search_feedback: '搜索反馈', ask_clarification: '请求澄清' }
 const failures = new Set(['FAILED', 'TIMED_OUT', 'CANCELLED'])
 Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', finish: '运行结束' })
 Object.assign(phaseNames, { ANALYZING: '分析反馈' })
@@ -14,6 +14,49 @@ const end = n => Number.isFinite(n.offsetMs) && Number.isFinite(n.durationMs) ? 
 const compare = (a, b) => time(a) - time(b) || a.id.localeCompare(b.id)
 const statusOrder = ['FAILED', 'TIMED_OUT', 'CANCELLED', 'RUNNING', 'WAITING_OPERATION', 'NEEDS_INPUT', 'UNKNOWN', 'SUCCEEDED']
 export const cardTitle = n => n?.cardTitle || titles[n?.cardKind] || n?.label || n?.name || '节点'
+export const toolDisplayName = name => toolNames[name] || name || '工具调用'
+const payloadObject = value => {
+  if (typeof value !== 'string') return value || {}
+  try { return JSON.parse(value) } catch { return {} }
+}
+function decisionCalls(node) {
+  const out = payloadObject(node.output)
+  const primary = out.call || (out.tool ? { name: out.tool, arguments: out.arguments } : null)
+  const calls = [primary, ...(Array.isArray(out.additionalCalls) ? out.additionalCalls : [])].filter(call => call?.name)
+  const declared = node.attributes?.['model.selected_tools'] || [node.attributes?.['model.selected_tool']].filter(Boolean)
+  for (const name of declared) if (!calls.some(call => call.name === name)) calls.push({ name })
+  return calls
+}
+
+// Parent scope + recorded loop step identify a round. Time bounds distinguish
+// repeated model attempts inside that round; tool names alone never link runs.
+export function modelInvocations(node, presentation) {
+  if (node?.cardKind !== 'model') return []
+  const calls = decisionCalls(node)
+  const peers = [...presentation.allCards.values()].filter(card => !card.synthetic && card.parentId && card.parentId === node.parentId
+    && card.turn === node.turn && card.attributes?.['run.id'] === node.attributes?.['run.id']
+    && card.attributes?.['run.turn_seq'] === node.attributes?.['run.turn_seq'])
+  const next = Math.min(Infinity, ...peers.filter(card => card.cardKind === 'model' && time(card) > time(node)).map(time))
+  const tools = peers.filter(card => card.cardKind === 'tool' && Number.isFinite(time(node)) && time(card) >= time(node) && time(card) < next).sort(compare)
+  const describe = (call, tool, index) => {
+    const input = payloadObject(tool?.input), args = input.arguments ?? (tool?.input != null ? tool.input : call?.arguments)
+    const members = (tool?.memberIds || []).map(id => presentation.rawById.get(id)).filter(Boolean)
+    const skill = members.find(member => member.attributes?.['skill.name'])?.attributes?.['skill.name']
+      || (call?.name === 'read_skill' || tool?.tool === 'read_skill' ? payloadObject(args).name : null)
+    return { id: tool?.id || `planned:${index}`, toolId: tool?.id, name: tool?.tool || call.name,
+      label: toolDisplayName(tool?.tool || call.name), skill: skill || null, arguments: args,
+      inputState: tool ? tool.inputState : args != null ? 'COMPLETE' : node.outputState,
+      inputRef: tool?.inputRef, output: tool?.output, outputState: tool?.outputState, outputRef: tool?.outputRef,
+      status: tool?.status, businessError: tool?.attributes?.['tool.success'] === false,
+      selected: !!call, summary: tool ? cardHighlight(tool) : '已选择，未找到对应执行记录' }
+  }
+  const unmatched = [...calls]
+  const result = tools.map((tool, index) => {
+    const i = unmatched.findIndex(call => call.name === tool.tool)
+    return describe(i < 0 ? null : unmatched.splice(i, 1)[0], tool, index)
+  })
+  return [...result, ...unmatched.map((call, index) => describe(call, null, index))]
+}
 export function cardHighlight(n) {
   if (!n) return ''
   if (failures.has(n.status)) return ({ INVALID_ANALYSIS: '返回内容校验失败', MODEL_UNAVAILABLE: '模型暂时不可用', TOOL_TIMEOUT: '工具执行超时' }[n.attributes?.['error.code']]) || ({ FAILED: '执行失败，查看详情', TIMED_OUT: '执行超时', CANCELLED: '已取消' }[n.status])
@@ -22,6 +65,8 @@ export function cardHighlight(n) {
   if (n.status === 'WAITING_OPERATION') return '等待后台结果'
   if (n.cardKind === 'background') return n.failureIds?.length && n.status === 'SUCCEEDED' ? `重试 ${n.failureIds.length} 次后成功` : n.status === 'SUCCEEDED' ? '分析已完成' : '查看分析进度'
   if (n.cardKind === 'execution' || n.cardKind === 'delivery_group') return n.highlight
+  if (n.cardKind === 'work' && n.highlight) return n.highlight
+  if (n.failureIds?.length) return n.summary?.includes('条异常') ? n.summary : `${n.summary || '已完成'} · ${n.failureIds.length} 条异常`
   if (n.cardKind === 'faq') return n.attributes?.['faq.hit'] === true ? '已命中，直接回答' : n.attributes?.['faq.hit'] === false ? '未命中' : '匹配结果未记录'
   if (n.cardKind === 'clarification') return n.attributes?.['clarification.required'] === true ? '需要补充信息' : n.attributes?.['clarification.required'] === false ? '无需澄清' : '判断结果未记录'
   if (n.cardKind === 'merge') return n.attributes?.['request.route'] === 'CLARIFY' ? '先向用户澄清' : n.attributes?.['request.route'] === 'HARNESS' ? '进入执行' : n.summary
@@ -30,7 +75,7 @@ export function cardHighlight(n) {
     if (n.tool === 'ask_clarification') return '等待用户补充'
     if (n.status !== 'SUCCEEDED') return n.summary
     if (n.attributes?.['tool.has_evidence']) return '已取得结果与证据'
-    return ({ create_feedback_report: '已请求生成报告', analyze_comments: '已请求评论分析', analyze_danmaku: '已请求弹幕分析', read_skill: '策略已载入' }[n.tool]) || '本步已完成'
+    return ({ create_feedback_report: '已请求生成报告', analyze_comments: '已请求评论分析', analyze_danmaku: '已请求弹幕分析', read_skill: 'Skill 已载入' }[n.tool]) || '本步已完成'
   }
   return n.summary || '查看执行详情'
 }
@@ -73,7 +118,9 @@ export function cardSummary(n) {
     }
     case 'model': {
       const decision = a['model.decision'] || out?.decision
-      if (decision === 'CALL_TOOL' || decision === 'TOOL') return `调用 ${toolNames[a['model.selected_tool']] || a['model.selected_tool'] || out?.tool || '工具'}`
+      const calls = decisionCalls(n)
+      if (calls.length) return `调用 ${calls.map(call => toolDisplayName(call.name)).join('、')}`
+      if (decision === 'CALL_TOOL' || decision === 'TOOL') return '调用工具（名称未记录）'
       return ({ FINAL_ANSWER: '完成本轮决策', ANSWER: '完成本轮决策', CLARIFY: '请求补充信息', PROCEED: '继续执行' }[decision]) || (n.type === 'query_understanding' ? '解析任务条件' : '模型请求')
     }
     case 'tool': return a['tool.success'] === false ? '工具返回业务错误' : a['tool.terminal_delivery'] ? '已生成交付结果' : a['tool.has_evidence'] ? '返回结果与证据' : '查看参数与执行结果'
@@ -86,6 +133,7 @@ export function presentNode(n) {
   const cardKind = semanticKind(n) || 'diagnostic'
   const card = { ...n, cardKind, sourceId: n.id, memberIds: [n.id], synthetic: false }
   card.cardTitle = cardKind === 'tool' ? toolNames[n.tool] || n.tool || '工具调用' : cardKind === 'work' ? phaseNames[n.attributes?.['analysis.work_kind']] || phaseNames[n.attributes?.['analysis.phase']] || '后台步骤' : titles[cardKind]
+  if (cardKind === 'model' && n.turn > 0) card.cardTitle = `模型思考 · 第 ${n.turn} 轮`
   card.summary = cardSummary(card)
   card.executionLabel = methods[n.attributes?.['preparation.method']] || ''
   const state = n.attributes?.['preparation.state']
@@ -136,18 +184,42 @@ export function buildTracePresentation(raw) {
     job.summary = `${job.modelCalls} 次模型调用 · ${roots.length} 个步骤${job.failureIds.length ? ` · ${job.failureIds.length} 次失败尝试${job.status === 'SUCCEEDED' ? '，重试后成功' : ''}` : ''}`
     job.legacy = !roots[0].attributes?.['analysis.job_id']
     job.jobId = roots[0].attributes?.['analysis.job_id'] || null
+    const units = [], retries = new Map()
+    for (const root of roots) {
+      const workId = root.attributes?.['analysis.work_id']
+      const key = workId && JSON.stringify([root.parentId, workId, root.attributes?.['analysis.work_kind'], root.attributes?.['analysis.phase']])
+      if (!key) { units.push([root]); continue }
+      const attempts = retries.get(key)
+      if (attempts && Number.isFinite(end(root)) && end(attempts.at(-1)) <= time(root)
+          && (root.attributes?.['execution.attempt'] || 1) > (attempts.at(-1).attributes?.['execution.attempt'] || 1)) attempts.push(root)
+      else { const next = [root]; retries.set(key, next); units.push(next) }
+    }
+    const steps = units.map(attempts => {
+      if (attempts.length === 1) return { ...presentNode(attempts[0]), memberIds: subtree(attempts[0]).map(n => n.id) }
+      const retry = aggregate(`retry:${attempts[0].id}`, attempts, 'work', cardTitle(presentNode(attempts[0])))
+      retry.attributes = { ...attempts[0].attributes }
+      retry.children = attempts.map(n => ({ ...presentNode(n), cardTitle: `第 ${n.attributes?.['execution.attempt'] || 1} 次尝试`, memberIds: subtree(n).map(x => x.id) }))
+      retry.highlight = retry.status === 'SUCCEEDED' ? `重试 ${attempts.length - 1} 次后成功` : `${attempts.length} 次尝试 · ${retry.status === 'RUNNING' ? '处理中' : '查看异常'}`
+      retry.summary = retry.highlight
+      groups.set(retry.id, retry)
+      return retry
+    }).sort(compare)
     let batch = []
     const flush = () => {
       if (batch.length > 1) {
-        const group = aggregate(`batch:${batch[0].id}`, batch, 'work', phaseNames[batch[0].attributes?.['analysis.work_kind']] || phaseNames[batch[0].attributes?.['analysis.phase']] || (batch[0].model ? '模型处理' : '后台步骤'))
+        const roots = batch.flatMap(n => n.rootIds?.map(id => byId.get(id)) || [byId.get(n.id)])
+        const group = aggregate(`batch:${batch[0].id}`, roots, 'work', cardTitle(batch[0]))
         group.summary = `${batch.length} 次 · 串行${group.failureIds.length ? ` · ${group.failureIds.length} 条异常` : ''}`
-        group.children = batch.map(n => ({ ...presentNode(n), memberIds: subtree(n).map(x => x.id) }))
+        group.children = batch
+        group.repeatCount = batch.length
+        const failed = batch.filter(n => failures.has(n.status)).length
+        group.highlight = `${batch.filter(n => n.status === 'SUCCEEDED').length} 成功${failed ? ` · ${failed} 异常` : ''}${group.failureIds.length && !failed ? ' · 含重试' : ''}`
         groups.set(group.id, group); job.children.push(group)
-      } else if (batch.length) job.children.push({ ...presentNode(batch[0]), memberIds: subtree(batch[0]).map(x => x.id) })
+      } else if (batch.length) job.children.push(batch[0])
       batch = []
     }
     const signature = n => JSON.stringify([n.parentId, n.attributes?.['analysis.work_kind'], n.attributes?.['analysis.phase'], n.attributes?.['resource.id'], n.attributes?.['video.bvid'], n.model, n.attributes?.['execution.attempt'] || 1])
-    for (const n of roots) {
+    for (const n of steps) {
       if (batch.length && (signature(batch.at(-1)) !== signature(n) || end(batch.at(-1)) > time(n) || !Number.isFinite(end(n)) || !Number.isFinite(time(n)))) flush()
       batch.push(n)
     }
@@ -195,7 +267,12 @@ export function buildTracePresentation(raw) {
   const allCards = new Map()
   const index = list => list.forEach(n => { allCards.set(n.id, n); if (n.children?.length) index(n.children) })
   index(cards)
-  return { cards, allCards, groups, notices, rawById: byId }
+  const presentation = { cards, allCards, groups, notices, rawById: byId }
+  for (const card of cards.filter(n => n.cardKind === 'model')) {
+    const calls = modelInvocations(card, presentation)
+    if (calls.length && !failures.has(card.status)) card.summary = `调用 ${calls.map(call => call.skill ? `Skill：${call.skill}` : call.label).join('、')}`
+  }
+  return presentation
 }
 
 /** A short overview over the same source-backed cards; expansion restores each original step. */
@@ -226,6 +303,11 @@ export function buildTraceOverview(presentation) {
   }
   flush()
   return { ...presentation, cards, allCards, groups }
+}
+
+// Keep the agent loop visible while retaining the compact background groups.
+export function defaultExpandedStages(presentation) {
+  return new Set(presentation.cards.filter(card => card.cardKind === 'execution').map(card => card.id))
 }
 
 // Presentation edges describe chronological order, not causal dependencies.

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTracePresentation, buildTraceOverview, cardHighlight, layoutPresentation } from '../src/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, cardHighlight, defaultExpandedStages, layoutPresentation, modelInvocations } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
 
@@ -30,6 +30,55 @@ test('entry recognition forks into three real model spans and joins before the c
 
 const node = (id, name, kind, offsetMs, durationMs, extra = {}) => ({ id, name, kind, offsetMs, durationMs, status: 'SUCCEEDED', attributes: {}, ...extra })
 
+test('model details list every call in its round, resolve Skill and retain provider members without duplicate cards', () => {
+  const p = buildTracePresentation([
+    node('model', 'agent.model', 'MODEL', 0, 4, { parentId: 'loop', turn: 1, attributes: { 'model.selected_tool': 'read_skill' }, output: { kind: 'TOOL', call: { name: 'read_skill', arguments: { name: 'feedback' } }, additionalCalls: [{ name: 'read_comments', arguments: { video_id: '1001' } }] } }),
+    node('provider', 'model.request', 'MODEL', 1, 2, { parentId: 'model', totalTokens: 12 }),
+    node('skill', 'agent.tool', 'TOOL', 5, 2, { parentId: 'loop', turn: 1, tool: 'read_skill', input: { name: 'read_skill', arguments: { name: 'feedback' } } }),
+    node('skill-load', 'agent.skill', 'STAGE', 6, 0.5, { parentId: 'skill', attributes: { 'skill.name': 'feedback', 'skill.version': '1' } }),
+    node('comments', 'agent.tool', 'TOOL', 8, 1, { parentId: 'loop', turn: 1, tool: 'read_comments', attributes: { 'tool.success': false }, output: { error_code: 'UNAVAILABLE' } }),
+    node('other-loop', 'agent.tool', 'TOOL', 6, 1, { parentId: 'other', turn: 1, tool: 'read_comments' }),
+    node('later-turn', 'agent.tool', 'TOOL', 10, 1, { parentId: 'loop', turn: 2, tool: 'read_comments' }),
+  ])
+  const model = p.allCards.get('model'), calls = modelInvocations(model, p)
+  assert.deepEqual(calls.map(c => c.toolId), ['skill', 'comments'])
+  assert.equal(calls[0].skill, 'feedback')
+  assert.deepEqual(calls[0].arguments, { name: 'feedback' })
+  assert.equal(calls[1].businessError, true)
+  assert.equal(model.cardTitle, '模型思考 · 第 1 轮')
+  assert.match(model.summary, /Skill：feedback、读取评论/)
+  assert.ok(model.memberIds.includes('provider'))
+  assert.ok(!p.cards.some(card => card.id === 'provider'))
+})
+
+test('planned tools remain unexecuted and repeated model attempts do not borrow later executions', () => {
+  const p = buildTracePresentation([
+    node('first', 'agent.model', 'MODEL', 0, 2, { parentId: 'loop', turn: 1, attributes: { 'model.selected_tools': ['read_comments', 'read_danmaku'] } }),
+    node('retry', 'agent.model', 'MODEL', 3, 2, { parentId: 'loop', turn: 1, attributes: { 'model.selected_tool': 'read_comments' } }),
+    node('tool', 'agent.tool', 'TOOL', 6, 1, { parentId: 'loop', turn: 1, tool: 'read_comments', status: 'TIMED_OUT' }),
+  ])
+  const first = modelInvocations(p.allCards.get('first'), p)
+  assert.equal(first.length, 2)
+  assert.ok(first.every(call => !call.toolId && !call.status))
+  const retry = modelInvocations(p.allCards.get('retry'), p)
+  assert.equal(retry[0].toolId, 'tool')
+  assert.equal(retry[0].status, 'TIMED_OUT')
+})
+
+test('retry aggregation keeps attempts and errors under the same work while unrelated work remains separate', () => {
+  const work = (id, start, attempt, status, workId) => node(id, 'feedback.work', 'STAGE', start, 2, { parentId: 'run', status, attributes: { 'analysis.job_id': 'job', 'analysis.work_id': workId, 'analysis.phase': 'MERGING', 'execution.attempt': attempt } })
+  const p = buildTracePresentation([work('failed', 0, 1, 'FAILED', 'a'), work('retried', 3, 2, 'SUCCEEDED', 'a'), work('other', 6, 1, 'SUCCEEDED', 'b')])
+  const retry = p.allCards.get('retry:failed')
+  assert.ok(retry)
+  assert.equal(retry.status, 'SUCCEEDED')
+  assert.equal(cardHighlight(retry), '重试 1 次后成功')
+  assert.deepEqual(retry.children.map(c => c.id), ['failed', 'retried'])
+  assert.ok(retry.failureIds.includes('failed'))
+  assert.ok(!retry.memberIds.includes('other'))
+  assert.ok(p.allCards.has('other'))
+  assert.equal(p.rawById.size, 3)
+})
+
 test('overview collapses execution and delivery while expansion preserves original calls', () => {
   const p=buildTracePresentation([
     node('faq','agent.prepare.faq','STAGE',0,1,{attributes:{'faq.hit':false}}),
@@ -45,8 +94,13 @@ test('overview collapses execution and delivery while expansion preserves origin
   assert.equal(cardHighlight(overview.cards[3]),'报告已返回')
   const execution=overview.cards[1]
   assert.deepEqual(execution.children.map(c=>c.id),['decision','tool'])
-  const expanded=layoutPresentation(overview,new Set([execution.id]))
+  const defaults=defaultExpandedStages(overview)
+  assert.deepEqual([...defaults],[execution.id])
+  const expanded=layoutPresentation(overview,defaults)
   assert.ok(expanded.nodes.some(n=>n.id==='decision'));assert.ok(expanded.nodes.some(n=>n.id==='tool'))
+  assert.ok(expanded.nodes.some(n=>n.data.cardKind==='background'))
+  assert.ok(expanded.nodes.some(n=>n.data.cardKind==='delivery_group'))
+  assert.ok(!layoutPresentation(overview,new Set()).nodes.some(n=>n.id==='decision'))
   assert.ok(overview.allCards.has('answer'));assert.ok(overview.rawById.has('finish'))
   assert.equal(p.cards.length,7)
 })

@@ -15,6 +15,15 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class TraceDetailsTest {
+    @Test void selectedToolsIncludeEveryCallAndExcludeArguments() {
+        var first = new com.tianmu.agent.core.AgentTypes.ToolCall("analyze_danmaku", Map.of("private", "fixture"));
+        var second = new com.tianmu.agent.core.AgentTypes.ToolCall("analyze_comments", Map.of());
+        var decision = new com.tianmu.agent.core.AgentTypes.Decision(com.tianmu.agent.core.AgentTypes.Kind.TOOL, first, null, null, List.of(second));
+        var attributes = TraceAttributes.sanitize(TraceSemantics.result(decision));
+        assertEquals("analyze_danmaku", attributes.get("model.selected_tool"));
+        assertEquals(List.of("analyze_danmaku", "analyze_comments"), attributes.get("model.selected_tools"));
+        assertFalse(attributes.toString().contains("fixture"));
+    }
     @Test void cacheMissAndMissingUsageSurviveExportWithoutImplyingCompleteCacheAccounting(){
         var usage=new TraceUsage();
         try(var scope=Context.current().with(TraceUsage.KEY,usage).makeCurrent()){

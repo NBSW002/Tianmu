@@ -1,7 +1,7 @@
 <script setup>
 /* global defineProps, defineEmits */
 import { computed, nextTick, shallowRef, watch } from 'vue'
-import { VueFlow, Handle, Position, MarkerType } from '@vue-flow/core'
+import { VueFlow, Handle, BaseEdge, Position, MarkerType } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import { formatDuration, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { cardTitle, cardHighlight } from '@/trace/trace-presentation.mjs'
@@ -14,9 +14,14 @@ const panel = shallowRef(null)
 const nodes = computed(() => props.graph.nodes.map((node) => ({ ...node,
   selected: node.id === props.selectedId || node.data.memberIds?.includes(props.selectedId) })))
 const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
-  type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--workbench-connector)', width: 14, height: 14 },
+  type: 'orthogonal', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--workbench-connector)', width: 14, height: 14 },
   style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: undefined },
 })))
+function edgePath({ sourceX, sourceY, targetX, targetY }) {
+  if (sourceY === targetY) return `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
+  const middleX = (sourceX + targetX) / 2
+  return `M ${sourceX} ${sourceY} H ${middleX} V ${targetY} H ${targetX}`
+}
 const nodeIcon = (node) => node.kind === 'MODEL' ? 'model' : node.kind === 'TOOL' ? 'tool' : 'stage'
 let fitTicket = 0
 async function fit(readable = true) {
@@ -62,7 +67,7 @@ watch(() => props.selectedId, async () => {
 <template>
   <section ref="panel" class="trace-graph-panel">
     <div v-if="mode === 'graph'" class="graph-titlebar">
-      <span class="time-direction" title="从左到右展示执行阶段；上下分支表示日志中的并行步骤。阶段可展开，原始时间保留在下方时间线。">执行主线 →<small>展开阶段查看步骤</small></span>
+      <span class="time-direction" title="从左到右展示执行阶段；上下分支表示日志中的并行步骤。拖动画布查看后续步骤，原始时间保留在下方时间线。">执行主线 →<small>拖动画布查看后续步骤</small></span>
       <div class="graph-legend"><span><i class="model-dot" />模型</span><span><i class="tool-dot" />工具</span><span><i class="stage-dot" />判断 / 任务</span></div>
     </div>
     <div v-if="mode === 'graph'" class="graph-canvas">
@@ -72,6 +77,9 @@ watch(() => props.selectedId, async () => {
         :delete-key-code="null" :zoom-on-double-click="false" :fit-view-on-init="false" :pan-on-scroll="false"
         @pane-ready="ready" @nodes-initialized="fit" @node-click="({ node }) => choose(node)"
       >
+        <template #edge-orthogonal="edge">
+          <BaseEdge :id="edge.id" :path="edgePath(edge)" :marker-end="edge.markerEnd" :style="edge.style" />
+        </template>
         <template #node-trace="{ data, selected }">
           <div class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) }, `tone-${nodeTone(data)}`]" :data-testid="`trace-node-${data.id}`">
             <Handle type="target" :position="Position.Left" :connectable="false" />
