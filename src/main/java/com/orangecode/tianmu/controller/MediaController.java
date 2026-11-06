@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,6 +37,16 @@ import java.util.regex.Pattern;
 @RestController
 @RequestMapping("/media")
 public class MediaController {
+    // Image/video requests must retain HTTP errors rather than the business
+    // JSON envelope used by the application's global RuntimeException handler.
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Void> mediaError(ResponseStatusException error) {
+        return ResponseEntity.status(error.getStatusCode()).cacheControl(CacheControl.noStore()).build();
+    }
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Void> invalidMediaParameter() {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore()).build();
+    }
     private static final Pattern OBJECT_NAME = Pattern.compile("[A-Za-z0-9_-]{8,128}\\.(png|jpe?g|gif|webp|avif)", Pattern.CASE_INSENSITIVE);
     private static final Pattern VIDEO_OBJECT_NAME = Pattern.compile("[A-Za-z0-9_-]{8,128}\\.(mp4|webm|mov|avi)", Pattern.CASE_INSENSITIVE);
     private static final Pattern BYTE_RANGE = Pattern.compile("bytes=(\\d*)-(\\d*)");

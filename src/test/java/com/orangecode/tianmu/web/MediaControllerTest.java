@@ -11,6 +11,8 @@ import io.minio.*;
 import org.junit.jupiter.api.*;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import com.orangecode.tianmu.exception.GlobalExceptionHandler;
 import java.io.ByteArrayOutputStream;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -44,6 +46,16 @@ class MediaControllerTest {
     }
     @Test void onlySupportedSizesAreAccepted() {
         assertEquals(400,assertThrows(ResponseStatusException.class,()->controller.image(name,1920)).getStatusCode().value());
+        verifyNoInteractions(minio,thumbnails);
+    }
+    @Test void httpErrorsRemainErrorsEvenWithTheGlobalBusinessEnvelopeHandler() throws Exception {
+        var mvc=MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/media/"+name).param("w","1920"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/media/"+name).param("w","invalid"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/media/"+name).param("w","320"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
         verifyNoInteractions(minio,thumbnails);
     }
     @Test void authorizedDerivativeUsesOriginalVersionAndReturnsWebp() throws Exception {
