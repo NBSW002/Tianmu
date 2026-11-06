@@ -24,7 +24,7 @@ import java.nio.charset.StandardCharsets;
 @Service
 @ConditionalOnExpression("${agent.memory.enabled:false} and ${agent.memory.consolidation.enabled:false}")
 public final class MemoryConsolidation {
-    public static final String VERSION="conversation-facts-v1";
+    public static final String VERSION="conversation-facts-v2";
     private final JdbcTemplate db;private final TransactionTemplate tx;private final ObjectMapper json;
     private final MemoryLedger ledger;private final PersonalMemoryStore store;private final io.opentelemetry.api.trace.Tracer tracer;
     public MemoryConsolidation(DataSource source,ObjectMapper json,MemoryLedger ledger,PersonalMemoryStore store,io.opentelemetry.api.trace.Tracer tracer){
@@ -114,6 +114,7 @@ public final class MemoryConsolidation {
         for(var expected:sources){var live=source(o,expected.messageId());if(!live.hash().equals(expected.hash()) || !live.runId().equals(expected.runId()))throw MemoryLedger.invalidated();}
     }
     public void work(Map<String,Object> job,MemoryModelPort model){
+        if(!VERSION.equals(decode(job.get("plan_json")).path("policy").asText()))throw new AgentException("MODEL_REVISION_UNAVAILABLE","Consolidation policy revision changed");
         var sources=phase("agent.memory.sources",()->load(job));guard(job,sources);
         String current=sources.stream().filter(s->s.runId().equals(job.get("run_id")) && s.role().equals("USER")).map(Source::messageId).findFirst().orElseThrow(MemoryLedger::invalidated);
         db.update("UPDATE agent_memory_job SET model_calls=model_calls+1 WHERE job_id=? AND lease_token=?",job.get("job_id"),job.get("lease_token"));
@@ -133,6 +134,9 @@ public final class MemoryConsolidation {
         attribute 为稳定英文属性键，优先使用 response_length、explanation_style、video_genre、learning_goal；同一属性不同值仍用相同键。
         qualifier 是真实限定条件，无则空；value 为稳定短值，response_length 用 concise/detailed，explanation_style 用 examples_first/concept_first。
         topic 仅在偏好明确限于主题时填写原话出现的连续短语，否则空；不要把全局偏好分配到临时主题。text 为不扩充事实的简洁中文陈述。
+        范围不能扩大：“讲这个主题时”是主题范围，必须用先前用户原话还原主题，同时引用主题原话和本轮偏好原话；不能当成全局偏好。无法可靠还原则不保存。
+        例如前一用户说“今天我们聊数据库”，本轮用户说“讲这个主题时，我长期更喜欢先举例再讲原理”，应输出 topic="数据库"、qualifier=""，support 同时逐字引用这两条用户消息；不能输出 topic=""。
+        topic 已表达的限定不在 qualifier 重复填写。全局偏好（不管聊什么/所有主题）则 topic=""、qualifier=""。text 必须保留主题限定。
         每项只记一件事。最多8项；超额必须 complete=false、overflow=true，不得假装完整。每个quote必须逐字来自对应用户原话。
         """;
     public static Proposal parse(JsonNode root,List<Source> sources,String current){
@@ -151,6 +155,7 @@ public final class MemoryConsolidation {
                 refs.add(new Support(id,quote));
             }
             if(!ids.contains(current) || !topic.isEmpty() && sources.stream().filter(s->s.role().equals("USER")).noneMatch(s->s.text().contains(topic)))throw new AgentException("INVALID_MODEL_RESPONSE","Fact is not supported by current user");
+            if(!topic.isEmpty() && refs.stream().noneMatch(ref->ref.quote().contains(topic)))throw new AgentException("INVALID_MODEL_RESPONSE","Topic requires its quoted user source");
             if(!factKeys.add(kind+":"+attribute+":"+normalize(qualifier)+":"+normalize(topic)))throw new AgentException("INVALID_MODEL_RESPONSE","Conflicting candidates for the same fact");
             new Content(Scope.user(),Kind.valueOf(kind),item.path("text").asText(),null);
             out.add(new Candidate(kind,attribute,qualifier,value,item.path("text").asText(),topic,List.copyOf(refs)));

@@ -44,4 +44,8 @@ class MemoryConsolidationTest {
         var empty=proposal();((com.fasterxml.jackson.databind.node.ArrayNode)empty.path("candidates")).removeAll();
         assertTrue(MemoryConsolidation.parse(empty,sources,"new").candidates().isEmpty());
     }
+    @Test void topicCannotBorrowAnUnreferencedOldUserMessage()throws Exception{
+        var root=proposal();((com.fasterxml.jackson.databind.node.ArrayNode)root.path("candidates").get(0).path("support")).remove(0);
+        assertThrows(AgentException.class,()->MemoryConsolidation.parse(root,sources,"new"));
+    }
 }
