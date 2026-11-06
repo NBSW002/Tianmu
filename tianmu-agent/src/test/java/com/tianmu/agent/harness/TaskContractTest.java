@@ -25,6 +25,17 @@ class TaskContractTest {
         run.task(new TaskAssembler(new SkillCatalog(), new PromptCatalog(), new ToolCatalog()).assemble(run));
         return run;
     }
+    @Test void genericContentDoesNotRequireAVideoButExplicitVideoContentStillDoes() {
+        for (String text : List.of("请用一句话概括下面的学习内容：缓存保存临时结果。", "帮我整理这段笔记内容", "本轮只讨论布局，不生成互动内容。")) {
+            assertFalse(VideoContentTask.requested(text));
+            assertTrue(new VideoContentReadiness().validate(new Input(text, LocalDate.now(), new AccessScope("t", "u", Set.of()))).isEmpty());
+        }
+        for (String text : List.of("请总结这个视频的内容", "分析这段片段的内容", "看看画面发生了什么")) {
+            assertTrue(VideoContentTask.requested(text));
+            assertTrue(new VideoContentReadiness().validate(new Input(text, LocalDate.now(), new AccessScope("t", "u", Set.of()))).isPresent());
+        }
+        assertEquals("video.content", TaskMeaning.defaults().resolve("请概括视频1001的内容", LocalDate.now()).type());
+    }
     @Test void playbackBoundsSurvivePersistedJsonAndRejectInvalidSpecifications() throws Exception {
         for (String range : List.of("第2秒到第6秒", "2到6秒", "00:02到00:06", "第2.000秒至第6.000秒")) {
             var spec = VideoContentTask.parse("分析视频1001 " + range + "的画面");

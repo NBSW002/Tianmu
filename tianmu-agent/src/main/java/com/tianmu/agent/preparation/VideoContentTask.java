@@ -15,7 +15,9 @@ public final class VideoContentTask {
     public static boolean requested(String text) {
         if (CreatorInteractionTask.requested(text)) return false;
         return !AudienceReportTask.requested(text) && !DanmakuReportTask.requested(text) && !CommentAnalysisTask.requested(text) && !text.contains("弹幕") && !ConversationTopics.general(text)
-                && (text.matches("(?s).*(内容|画面|剧情|镜头|对白|讲了什么|发生了什么).*") || ConversationTopics.videoContent(text));
+                && (text.matches("(?s).*(画面|剧情|镜头|对白|讲了什么|发生了什么).*")
+                    || text.contains("内容") && (text.contains("视频") || text.contains("片段") || DanmakuTarget.matcher(text).find())
+                    || ConversationTopics.videoContent(text));
     }
     public static Specification parse(String text) {
         var ids = DanmakuTarget.matcher(text).results().toList();
