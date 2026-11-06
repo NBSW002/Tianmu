@@ -32,6 +32,13 @@ public class RunState implements EvidenceContext {
     private final String executionQuery;
     private final RunBackend backend;
     private MemoryTypes.View memory = MemoryTypes.View.empty();
+    private volatile Runnable memoryGuard=()->{};
+    private volatile Runnable memoryBarrier=()->{};
+    private volatile Runnable projectionBarrier=()->{};
+    public void projectionBarrier(Runnable guard){projectionBarrier=Objects.requireNonNull(guard);}
+    public void memoryGuard(Runnable guard){memoryGuard=Objects.requireNonNull(guard);memoryBarrier=guard;}
+    public void memoryGuard(Runnable guard,Runnable barrier){memoryGuard=Objects.requireNonNull(guard);memoryBarrier=Objects.requireNonNull(barrier);}
+    public void verifyMemory(){memoryBarrier.run();projectionBarrier.run();}
     private com.tianmu.agent.core.RequestContext pageContext;
     private Snapshot restored;
     public final AccessScope owner;
@@ -131,7 +138,7 @@ public class RunState implements EvidenceContext {
         checkpoint();if(status!=Status.RUNNING || pending.deadline().isAfter(deadline))throw new IllegalStateException("Invalid operation wait");
         var span=io.opentelemetry.api.trace.Span.current().getSpanContext();
         String traceParent=span.isValid()?"00-"+span.getTraceId()+"-"+span.getSpanId()+"-"+span.getTraceFlags().asHex():null;
-        operation=pending;continuation=new com.tianmu.agent.core.PendingOperation.Continuation(pending,execution.activeSkills(),execution.exchanges(),memory,modelBudget.snapshot(),traceParent);
+        operation=pending;continuation=new com.tianmu.agent.core.PendingOperation.Continuation(pending,execution.activeSkills(),execution.exchanges(),memory.withPersistent(List.of()).withCompaction(List.of()),modelBudget.snapshot(),traceParent);
         status=Status.WAITING_OPERATION;
         try{backend.save(this);}catch(RuntimeException failure){status=Status.RUNNING;operation=null;continuation=null;throw failure;}
         emit("PROGRESS",Map.of("stage","waiting_operation","operation_id",pending.id().toString()));
@@ -165,7 +172,7 @@ public class RunState implements EvidenceContext {
     public CancellationToken cancellation() { return cancellation; }
     public Instant deadline() { return deadline; }
     public CallControl callControl() { return callControl(deadline, cancellation); }
-    public CallControl callControl(Instant until, CancellationToken token) { return new CallControl(until, token, modelBudget, this::externalModelCallStarted); }
+    public CallControl callControl(Instant until, CancellationToken token) { return new CallControl(until, token, modelBudget, this::externalModelCallStarted).withDispatchBarrier(this::verifyMemory); }
     public synchronized ModelBudget modelBudget() { return modelBudget; }
     public synchronized void configureBudget(LoopPolicy policy) { if (!controlBound && continuation==null) modelBudget = new ModelBudget(policy.maxTokens(), policy.tokenReservation()); }
     public synchronized boolean bindControl(Duration timeout) {
@@ -211,6 +218,7 @@ public class RunState implements EvidenceContext {
     public void checkpoint() {
         cancellation.checkpoint();
         backend.checkpoint(this);
+        memoryGuard.run();
         cancellation.checkpoint();
         if (!Instant.now().isBefore(deadline)) { timeout(); cancellation.checkpoint(); }
         if (turnControl.state().phase() == TurnControl.Phase.COMMITTED)

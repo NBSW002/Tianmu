@@ -28,6 +28,12 @@ management:
         readiness:
           include: readinessState,agentStorage
 agent:
+  memory:
+    # Personal memory is gated until lifecycle and real-model quality acceptance pass.
+    enabled: ${AGENT_MEMORY_ENABLED:false}
+  compaction:
+    enabled: ${AGENT_COMPACTION_ENABLED:false}
+    trigger-bytes: ${AGENT_COMPACTION_TRIGGER_BYTES:5632}
   video:
     cache:
       memory-ttl: ${VIDEO_CACHE_MEMORY_TTL:1h}

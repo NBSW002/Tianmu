@@ -18,6 +18,7 @@ public class DeliveryService {
     public void clarification(RunState run, String question) { clarification(run, question, reserve(run)); }
     public TurnControl.Reservation reserve(RunState run) {
         run.checkpoint();
+        run.verifyMemory();
         TurnControl.Reservation reservation = run.reserveFinalResponse();
         if (reservation == null) { run.checkpoint(); throw new AgentException("FINAL_RESPONSE_BUSY", "Final response already reserved"); }
         return reservation;
@@ -31,6 +32,7 @@ public class DeliveryService {
             // Static FAQ answers do not make business data claims.
             if (!answer.evidenceIds().isEmpty()) throw new AgentException("INVALID_EVIDENCE", "FAQ cannot invent evidence");
             run.checkpoint();
+            run.verifyMemory();
             run.succeed(reservation, answer, StopReason.FAQ_ANSWER);
             return answer;
         });
@@ -40,6 +42,7 @@ public class DeliveryService {
             com.tianmu.agent.harness.trace.TraceDetails.input(Map.of("clarification", text));
             String clarification = harness.transform(run, TransformPoint.CLARIFICATION, text);
             run.checkpoint();
+            run.verifyMemory();
             run.clarify(reservation, clarification);
             return clarification;
         });
@@ -71,6 +74,7 @@ public class DeliveryService {
             List<AnswerNote> notes = EvidencePresentation.notes(evidence);
             answer = new Answer(answer.text(), answer.evidenceIds(), notes);
             run.checkpoint();
+            run.verifyMemory();
             run.succeed(reservation, answer, reason);
             return answer;
         });

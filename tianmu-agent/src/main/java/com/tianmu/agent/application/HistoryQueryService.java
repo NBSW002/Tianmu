@@ -13,12 +13,17 @@ public final class HistoryQueryService {
     private final UUID session;
     private final AccessScope owner;
     private final long turn;
+    private final java.util.function.UnaryOperator<List<Message>> consumption;
 
     public HistoryQueryService(ConversationStore conversations, UUID session, AccessScope owner, long turn) {
+        this(conversations,session,owner,turn,java.util.function.UnaryOperator.identity());
+    }
+    public HistoryQueryService(ConversationStore conversations,UUID session,AccessScope owner,long turn,java.util.function.UnaryOperator<List<Message>> consumption){
         this.conversations = conversations;
         this.session = Objects.requireNonNull(session);
         this.owner = Objects.requireNonNull(owner);
         this.turn = turn;
+        this.consumption=Objects.requireNonNull(consumption);
     }
 
     public Map<String, Object> read(long before, int limit, String query) {
@@ -37,7 +42,7 @@ public final class HistoryQueryService {
         var matched = loaded.stream().filter(m -> needle.isEmpty() || m.text().toLowerCase(Locale.ROOT).contains(needle)).toList();
         int start = Math.max(0, matched.size() - limit);
         List<Map<String, Object>> records = new ArrayList<>();
-        for (Message message : matched.subList(start, matched.size())) {
+        for (Message message : consumption.apply(matched.subList(start, matched.size()))) {
             String text = message.text();
             boolean truncated = text.length() > TEXT_LIMIT;
             if (truncated) text = text.substring(0, Character.isHighSurrogate(text.charAt(TEXT_LIMIT - 1)) ? TEXT_LIMIT - 1 : TEXT_LIMIT);

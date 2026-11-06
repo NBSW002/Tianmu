@@ -26,10 +26,11 @@ public final class AgentTypes {
                     && videoIds.containsAll(required.videoIds) && readableVideoIds.containsAll(required.readableVideoIds);
         }
     }
-    public record ToolCall(String name, Map<String, Object> arguments, String providerCallId,String providerGroupId) {
+    public record ToolCall(String name, Map<String, Object> arguments, String providerCallId,String providerGroupId,String assistantText) {
+        public ToolCall(String name,Map<String,Object> arguments,String id,String group) {this(name,arguments,id,group,"");}
         public ToolCall(String name,Map<String,Object> arguments) { this(name,arguments,null,null); }
         public ToolCall(String name,Map<String,Object> arguments,String id) { this(name,arguments,id,null); }
-        public ToolCall { arguments = ImmutablePayload.map(arguments); }
+        public ToolCall { arguments = ImmutablePayload.map(arguments);assistantText=assistantText==null?"":assistantText;if(assistantText.length()>8000)throw new IllegalArgumentException("Assistant tool text exceeds limit"); }
     }
     public record AnswerNote(String label, String text, Instant updatedAt, String timezone) {}
     public record Answer(String text, List<String> evidenceIds, List<AnswerNote> dataNotes) {

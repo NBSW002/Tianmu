@@ -51,6 +51,33 @@ class DeepSeekAdapterTest {
     @AfterEach void stop() { if (release != null) release.countDown(); server.stop(0); }
     CallControl control() { return new CallControl(Instant.now().plusSeconds(2), new CancellationToken()); }
     Input input() { return new Input("视频1001昨天的弹幕数", LocalDate.of(2026, 10, 21), new AccessScope("private-tenant", "private-user", Set.of(1001L))); }
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans={false,true})
+    void revokedContextBarrierPreventsAnyActualHttpDispatch(boolean streaming){
+        var rejected=control().withDispatchBarrier(()->{throw new AgentException("MEMORY_CONTEXT_INVALIDATED","revoked");});
+        var messages=client.messages("rules",Map.of("query","fabricated private source"));
+        var error=assertThrows(AgentException.class,()->{if(streaming)client.completeHarness("deepseek-flash",messages,List.of(),128,rejected.withTextOutput(text->{}));else client.complete("deepseek-flash",messages,128,rejected);});
+        assertEquals("MEMORY_CONTEXT_INVALIDATED",error.code());assertTrue(requests.isEmpty());
+    }
+    Input candidateInput() {
+        var old=input();var catalog=new com.tianmu.agent.preparation.IntentCandidateCatalog(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.tool.ToolCatalog());
+        return new Input(old.query(),old.businessDate(),old.scope(),old.memory(),old.requestedAt(),catalog.candidates(old.scope()));
+    }
+    @Test void capabilityIntentReceivesTheSnapshotAndReturnsBoundedPrimaryAndRelatedGoals() throws Exception {
+        answer=request->"{\"primary\":\"audience-report\",\"related\":[\"video-content\",\"comment-analysis\"]}";
+        var model=new DeepSeekPreparationModel(client,properties,mapper,new PromptCatalog());
+        var result=model.recognizeIntent(candidateInput(),control());
+        assertEquals(Intent.DANMAKU_REPORT,result.intent());assertEquals("audience-report",result.primary());
+        assertEquals(List.of("video-content","comment-analysis"),result.related());
+        var messages=requests.get(0).path("messages");var payload=mapper.readTree(messages.get(messages.size()-1).path("content").asText());
+        assertEquals(12,payload.path("intentCandidates").size());
+        assertEquals("视频1001昨天的弹幕数",payload.path("query").asText());
+    }
+    @Test void capabilityIntentRejectsUnregisteredPrimaryAndInventedRelatedGoals() {
+        var model=new DeepSeekPreparationModel(client,properties,mapper,new PromptCatalog());
+        for(String response:List.of("{\"primary\":\"run_shell\",\"related\":[]}","{\"primary\":\"knowledge\",\"related\":[\"not-available\"]}","{\"primary\":\"unknown\",\"related\":[\"video-content\"]}")) {
+            answer=request->response;assertThrows(IllegalArgumentException.class,()->model.recognizeIntent(candidateInput(),control()));
+        }
+    }
     ModelContext context() { return new ModelContext(input().query(), input().businessDate(), input().scope(), Set.of(), List.of(), List.of(), 6); }
     ModelContext nativeContext(List<ToolResult> results,List<ToolExchange> exchanges) {
         return new ModelContext(input().query(),input().businessDate(),input().scope(),Set.of(),results,

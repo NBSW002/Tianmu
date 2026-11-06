@@ -2,6 +2,7 @@ import { readStoredUser } from '@/lib/auth'
 import { useUserStore } from '@/store/user'
 import { reportPath, sseDecoder, validRunId } from '@/agent/protocol.mjs'
 import { readRunSnapshot } from '@/agent/run-clock.mjs'
+import { notifyMemoryChanged } from '@/lib/memory-events.mjs'
 
 export function agentUser() {
   return readStoredUser()
@@ -55,6 +56,12 @@ async function request(path, options = {}) {
       PUBLICATION_UNAVAILABLE: '发送服务暂不可用，请稍后重试确认发送结果',
       QA_CONFLICT: '这条问答已经更新，请刷新后再操作',
       QA_UNAVAILABLE: '常见问答暂时不可用，请稍后重试',
+      MEMORY_CONTEXT_INVALIDATED: '本轮使用的记忆已变化，请重新提问',
+      MEMORY_DISABLED: '记忆已暂停，仍可在管理页查看和删除',
+      MEMORY_VERSION_CONFLICT: '记忆已经更新，请刷新后重试',
+      MEMORY_ACTION_DENIED: '请明确要保存或忘记的内容，也可以在记忆管理中操作',
+      MEMORY_QUOTA_EXCEEDED: '记忆数量已达上限，请先整理不再需要的内容',
+      MEMORY_UNAVAILABLE: '记忆服务暂时不可用，请稍后重试',
     }
     const error = new Error(
       messages[data.code] ||
@@ -72,6 +79,14 @@ async function request(path, options = {}) {
 function runPath(id) {
   if (!validRunId(id)) throw new Error('无效的任务 ID')
   return `/api/agent/runs/${id}`
+}
+
+export async function memoryRequest(path = '', options = {}) {
+  const routes = /^\/(?:memories(?:\/[a-f0-9-]{36}|\/reset)?|memory-settings(?:\/automatic)?|memory-topics|runs\/[a-f0-9-]{36}\/memory(?:-jobs)?)(?:\?[^#]*)?$/
+  if (!routes.test(path)) throw new Error('无效的记忆接口')
+  const result = await (await request(`/api/agent${path}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } })).json()
+  if (options.method && options.method.toUpperCase() !== 'GET') notifyMemoryChanged()
+  return result
 }
 
 export async function getAgentTrace(traceId, signal) {

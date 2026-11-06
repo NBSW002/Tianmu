@@ -116,7 +116,7 @@ public final class DeepSeekClient {
                     .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofByteArray(payload)).build();
             long reservation=(long)payload.length+maxTokens+1024;
             JsonNode body = com.tianmu.agent.runtime.control.ModelBudget.execute(control, model, external, reservation, () -> {
-                TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));return streaming ? exchangeStream(request,control) : exchange(request, control);
+                return streaming ? exchangeStream(request,control) : exchange(request, control);
             });
             TraceDetails.capture("provider_output", body, "MODEL_PROVIDER_RESPONSE");
             JsonNode choice = body.path("choices").path(0);
@@ -163,6 +163,8 @@ public final class DeepSeekClient {
     private static final ScheduledExecutorService STREAM_DEADLINES=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"model-stream-deadlines");t.setDaemon(true);return t;});
     private JsonNode exchangeStream(HttpRequest request,CallControl control) {
         long started=System.nanoTime();var first=new java.util.concurrent.atomic.AtomicBoolean();
+        control.beforeDispatch();
+        TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));
         var future=http.sendAsync(request,HttpResponse.BodyHandlers.ofInputStream());
         var body=new java.util.concurrent.atomic.AtomicReference<InputStream>();
         Runnable close=()->{future.cancel(true);var stream=body.get();if(stream!=null)try{stream.close();}catch(IOException ignored){}};
@@ -195,6 +197,8 @@ public final class DeepSeekClient {
     private JsonNode exchange(HttpRequest request, CallControl control) {
         long requestStarted = System.nanoTime();
         try {
+            control.beforeDispatch();
+            TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));
             CompletableFuture<HttpResponse<byte[]>> future = http.sendAsync(request, info -> new com.tianmu.agent.resource.BoundedHttpBody(131072));
             try (var registration = control.cancellation().onCancel(() -> future.cancel(true))) {
                 HttpResponse<byte[]> response;

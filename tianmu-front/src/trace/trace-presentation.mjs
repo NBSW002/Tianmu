@@ -2,10 +2,13 @@
 // No model calls, fabricated durations, or name-only cross-task aggregation.
 const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识别', clarification: '澄清识别', merge: '识别结果汇合', model: '模型思考', tool: '工具调用', background: '后台任务', work: '后台步骤', diagnostic: '异常记录' }
 const intentNames = { VIDEO_METRIC: '视频互动统计', DANMAKU_REPORT: '观众反馈报告', KNOWLEDGE: '知识问答', OTHER: '其他任务', UNKNOWN: '未确定' }
+const capabilityNames = { conversation:'通用对话', knowledge:'知识与操作咨询', 'video-content':'视频内容理解', 'video-metrics':'视频互动统计', 'danmaku-analysis':'弹幕分析', 'comment-analysis':'评论分析', 'audience-report':'观众反馈报告', 'video-discovery':'查找自己的视频', 'report-query':'历史报告查询', 'smart-comment':'智能评论草稿', 'smart-danmaku':'智能弹幕草稿', unknown:'尚未明确' }
 const emotionNames = { NEUTRAL: '中性', POSITIVE: '正向', NEGATIVE: '负向', UNKNOWN: '未知' }
 const phaseNames = { COLLECT: '采集反馈', COLLECTING: '采集反馈', CLASSIFY: '反馈分类', CLASSIFYING: '反馈分类', MERGE: '合并结果', MERGING: '合并结果', READY: '分析就绪', WAITING_AUTH: '等待授权', FAILED: '分析失败', CANCELLED: '已取消' }
 const toolNames = { query_danmaku_count: '查询弹幕数', read_danmaku: '读取弹幕', read_comments: '读取评论', read_skill: '读取 Skill', analyze_video_content: '分析视频', analyze_feedback: '分析反馈', create_feedback_report: '生成报告', read_report: '读取报告', search_feedback: '搜索反馈', ask_clarification: '请求澄清' }
 const failures = new Set(['FAILED', 'TIMED_OUT', 'CANCELLED'])
+titles.memory='记忆召回'
+titles.compaction='上下文压缩'
 Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', finish: '运行结束' })
 Object.assign(phaseNames, { ANALYZING: '分析反馈' })
 Object.assign(toolNames, { analyze_danmaku: '分析弹幕', analyze_comments: '分析评论' })
@@ -18,6 +21,31 @@ export const toolDisplayName = name => toolNames[name] || name || '工具调用'
 const payloadObject = value => {
   if (typeof value !== 'string') return value || {}
   try { return JSON.parse(value) } catch { return {} }
+}
+const contextSlotNames = { system_prompt:'系统提示词',tool_catalog:'工具列表',skill_catalog:'Skill 列表',agent_catalog:'A2A Agent 列表',execution_context:'执行环境',focus:'本轮聚焦',memory_context:'记忆召回',environment_context:'页面环境',reference_context:'参考资料',current_context:'当前上下文',runtime_state:'执行状态',output_contract:'输出约定' }
+export function contextDetails(node) {
+  const attrs=node?.attributes || {}
+  const present=Array.isArray(attrs['context.present_slots'])?attrs['context.present_slots']:[]
+  const sizes=new Map((Array.isArray(attrs['context.slot_bytes'])?attrs['context.slot_bytes']:[]).filter(value=>typeof value==='string' && /^[a-z_]+[:=]\d+$/.test(value)).map(value=>{const [name,size]=value.split(/[:=]/);return [name,Number(size)]}))
+  const slots=Object.keys(contextSlotNames).filter(name=>present.includes(name)).map(name=>({name,label:contextSlotNames[name],bytes:sizes.get(name) ?? null}))
+  return {visible:slots.length>0,version:attrs['context.schema_version'] || null,projection:attrs['context.projection_version'] || null,slots}
+}
+export function compactionDetails(node) {
+  const a=node?.attributes || {}
+  const number=key=>Number.isFinite(a[key]) && a[key]>=0?a[key]:null
+  return {visible:node?.name==='agent.context.compact' || node?.type==='context_compact',from:number('compaction.covered_from'),through:number('compaction.covered_through'),messages:number('compaction.source_messages'),inputBytes:number('compaction.input_bytes'),outputBytes:number('compaction.output_bytes'),savedBytes:number('compaction.saved_bytes'),prompt:a['compaction.prompt_version'] || null,trigger:a['compaction.trigger_reason']==='HISTORY_BUDGET'?'历史窗口达到整理阈值':null}
+}
+export function intentDetails(node) {
+  const attrs=node?.attributes || {}, input=payloadObject(node?.input), output=payloadObject(node?.output)
+  const snapshot=Array.isArray(output.candidates)?output.candidates:Array.isArray(input.intentCandidates)?input.intentCandidates:[]
+  const ids=Array.isArray(attrs['preparation.intent_candidates'])?attrs['preparation.intent_candidates']:[]
+  const candidates=(snapshot.length?snapshot:ids.map(id=>({id}))).slice(0,32).filter(candidate=>candidate && typeof candidate.id==='string')
+    .map(candidate=>({...candidate,label:candidate.label || capabilityNames[candidate.id] || candidate.id}))
+  const label=id=>candidates.find(candidate=>candidate.id===id)?.label || capabilityNames[id] || id
+  const primary=attrs['preparation.intent_primary'] || output.primary || null
+  const related=attrs['preparation.intent_related'] || output.related || []
+  return { candidates,primary:primary?{id:primary,label:label(primary)}:null,
+    related:Array.isArray(related)?related.filter(id=>typeof id==='string').slice(0,4).map(id=>({id,label:label(id)})):[],visible:candidates.length>0 || !!primary }
 }
 function decisionCalls(node) {
   const out = payloadObject(node.output)
@@ -83,6 +111,8 @@ export const cardIcon = n => ({ faq: 'search', intent: 'route', emotion: 'emotio
 
 export function semanticKind(n) {
   const t = n.type, name = n.name
+  if (t === 'context_compact' || name === 'agent.context.compact') return 'compaction'
+  if (t === 'memory_recall' || name === 'agent.memory.recall') return 'memory'
   if (t === 'faq_lookup' || name === 'agent.prepare.faq') return 'faq'
   if (t === 'intent_recognition' || name === 'agent.prepare.intent') return 'intent'
   if (t === 'emotion_recognition' || name === 'agent.prepare.emotion') return 'emotion'
@@ -110,7 +140,9 @@ export function cardSummary(n) {
     case 'finish': return ({ SUCCEEDED: '本次运行已成功结束', NEEDS_INPUT: '等待用户补充信息', CANCELLED: '本次运行已取消' }[n.status]) || '查看最终运行状态'
     case 'merge': return ({ HARNESS: '条件已确认，进入 Agent', CLARIFY: '调用澄清工具，等待补充', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
-    case 'intent': return intentNames[a['preparation.intent']] || '识别结果未记录'
+    case 'memory': return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
+    case 'compaction': return Number.isFinite(a['compaction.source_messages']) ? `${a['compaction.source_messages']} 条消息 · 节省 ${a['compaction.saved_bytes'] || 0} B` : '整理旧历史，保留近期原文'
+    case 'intent': return intentDetails(n).primary?.label || intentNames[a['preparation.intent']] || '识别结果未记录'
     case 'emotion': return emotionNames[a['preparation.emotion']] || '识别结果未记录'
     case 'clarification': {
       const required = a['clarification.required'] ?? (typeof out?.required === 'boolean' ? out.required : undefined)

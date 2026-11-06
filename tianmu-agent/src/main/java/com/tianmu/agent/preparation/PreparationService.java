@@ -20,6 +20,10 @@ import java.util.regex.Pattern;
 @Service
 @EnableConfigurationProperties(PreparationPolicy.class)
 public class PreparationService implements AutoCloseable {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryToolService memories;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryRecallService memoryRecall;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.CompactionService compaction;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryLedger memoryLedger;
     private final FaqPort faq;
     private final PreparationModelPort model;
     private final PreparationPolicy policy;
@@ -33,6 +37,7 @@ public class PreparationService implements AutoCloseable {
     private org.springframework.beans.factory.ObjectProvider<com.tianmu.agent.query.VideoSearchPort> videoSearch;
     private org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor calls = com.tianmu.agent.config.ExecutionConfiguration.standalone("agent-preparation", 6, 6, 48);
     private boolean ownsExecutor = true;
+    private IntentCandidateCatalog intentCandidates;
     private record Completed<T>(T value, Instant at) {}
     private record Branch<T>(FutureTask<Completed<T>> future, CancellationToken token, CancellationToken.Registration registration, Runnable submitted) {}
     public PreparationService(FaqPort faq, PreparationModelPort model, PreparationPolicy policy, RuntimeHarness harness) {
@@ -53,20 +58,29 @@ public class PreparationService implements AutoCloseable {
     @org.springframework.beans.factory.annotation.Autowired
     public PreparationService(FaqPort faq, PreparationModelPort model, PreparationPolicy policy, RuntimeHarness harness,
             List<QueryReadinessPolicy> validators, TaskMeaning meaning, com.tianmu.agent.runtime.store.ConversationStore repository,
-            @org.springframework.beans.factory.annotation.Qualifier("preparationExecutor") org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor) {
+            @org.springframework.beans.factory.annotation.Qualifier("preparationExecutor") org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor,
+            IntentCandidateCatalog intentCandidates) {
         this(faq, model, policy, harness, validators, meaning, repository);
+        this.intentCandidates=intentCandidates;
         calls.shutdown(); calls = executor; ownsExecutor = false;
     }
     public Result prepare(RunState run, String query) {
         if (repository != null) run.memory(harness.stage(run, "agent.memory.load", null, null, Map.of(), () -> repository.memory(run)));
+        if(memoryLedger!=null)run.memory(run.memory().withRecent(memoryLedger.inherit(run,run.memory().recent())));
+        else if(memoryRecall!=null)memoryRecall.inherit(run);
+        if(compaction!=null)compaction.apply(run);
         Input input = new Input(query, run.businessDate, run.owner, run.memory().withContext(run.pageContext(),run.memory().focus()), run.createdAt);
         Set<String> degraded = new LinkedHashSet<>(), skipped = new LinkedHashSet<>();
-        Instant faqDeadline = deadline(run, policy.faqTimeout());
-        Branch<Optional<FaqAnswer>> lookup = submit(run, "faq", faqDeadline, input, c -> faq.find(input, c));
         Optional<FaqAnswer> hit;
-        try { hit = await(run, lookup, faqDeadline); }
-        catch (PreparationUnavailable e) { degraded.add("faq"); hit = Optional.empty(); }
-        finally { dispose(lookup); }
+        if(memories!=null && com.tianmu.agent.memory.MemoryToolService.management(query)) {
+            skip(run,"faq","MEMORY_MANAGEMENT");hit=Optional.empty();
+        } else {
+            Instant faqDeadline = deadline(run, policy.faqTimeout());
+            Branch<Optional<FaqAnswer>> lookup = submit(run, "faq", faqDeadline, input, c -> faq.find(input, c));
+            try { hit = await(run, lookup, faqDeadline); }
+            catch (PreparationUnavailable e) { degraded.add("faq"); hit = Optional.empty(); }
+            finally { dispose(lookup); }
+        }
         run.checkpoint();
         if (hit.isPresent()) {
             skip(run, "intent", "FAQ_HIT"); skip(run, policy.deterministicRouting() ? "validate" : "clarification", "FAQ_HIT");
@@ -105,7 +119,8 @@ public class PreparationService implements AutoCloseable {
             run.memory(new com.tianmu.agent.core.MemoryTypes.View(run.memory().version(),"",List.of(),true,run.memory().boundary(),page,focus));
         else run.memory(run.memory().withContext(page,focus));
         String analysisQuery=discovery.isPresent() && page!=null?VideoDiscovery.analysisText(query):query;
-        Input contextInput = new Input(analysisQuery, run.businessDate, run.owner, run.memory(), run.createdAt);
+        Input contextInput = new Input(analysisQuery, run.businessDate, run.owner, run.memory(), run.createdAt,
+                intentCandidates==null?List.of():intentCandidates.candidates(run.owner));
         run.emit("PROGRESS", Map.of("stage", "preparing"));
         boolean resourceLookup = discovery.isPresent() && page==null || VideoDiscovery.historicalReport(query) && !com.tianmu.agent.core.DanmakuTarget.matcher(query).find();
         if(policy.deterministicRouting() && resourceLookup){
@@ -170,13 +185,15 @@ public class PreparationService implements AutoCloseable {
         Instant emotionEnd = deadline(run, policy.emotionTimeout());
         // All branches read the same immutable snapshot. Only this coordinator merges results.
         Branch<Understanding> understanding = submit(run, "clarification", end, contextInput, c -> model.clarification(contextInput, c));
-        Branch<Intent> intent = submit(run, "intent", intentEnd, contextInput, c -> model.intent(contextInput, c));
+        Branch<IntentRecognition> intent = submit(run, "intent", intentEnd, contextInput,
+                c -> IntentCandidateCatalog.validate(contextInput,model.recognizeIntent(contextInput,c)));
         if (!policy.emotionEnabled()) skipEmotion(run, "CONFIG_DISABLED");
         Branch<Emotion> emotion = policy.emotionEnabled() ? submit(run, "emotion", emotionEnd, contextInput, c -> model.emotion(contextInput, c)) : null;
         try {
-            Intent recognized;
-            try { recognized = await(run, intent, intentEnd); }
-            catch (PreparationUnavailable e) { degraded.add("intent"); recognized = Intent.UNKNOWN; }
+            IntentRecognition recognition;
+            try { recognition = await(run, intent, intentEnd); }
+            catch (PreparationUnavailable e) { degraded.add("intent"); recognition = new IntentRecognition(Intent.UNKNOWN,null,List.of(),contextInput.intentCandidates()); }
+            Intent recognized=recognition.intent();
             Understanding result;
             try { result = await(run, understanding, end); }
             catch (PreparationUnavailable e) {
@@ -196,7 +213,7 @@ public class PreparationService implements AutoCloseable {
             if (result.needsClarification()) {
                 skipped.add("rewrite");
                 Emotion feeling = readyEmotion(run, emotion, emotionEnd, degraded, skipped);
-                return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, feeling, degraded, skipped, recognized), null, result.clarificationQuestion());
+                return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, feeling, degraded, skipped, recognized,null,recognition), null, result.clarificationQuestion());
             }
             String rewritten = result.rewrittenQuery();
             if (!safeRewrite(query, rewritten)
@@ -206,7 +223,7 @@ public class PreparationService implements AutoCloseable {
             Emotion feeling = readyEmotion(run, emotion, emotionEnd, degraded, skipped);
             run.checkpoint();
             bindFocus(run,specification);
-            return new Result(Route.HARNESS, new PreparedRequest(run.message, rewritten, feeling, degraded, skipped, recognized, specification), null, null);
+            return new Result(Route.HARNESS, new PreparedRequest(run.message, rewritten, feeling, degraded, skipped, recognized, specification,recognition), null, null);
         } finally { dispose(understanding); dispose(intent); dispose(emotion); }
     }
     private Map<String, Object> rule() {

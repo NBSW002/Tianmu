@@ -18,26 +18,32 @@ import java.util.*;
 public final class TraceDetails {
     public record Binding(TraceDetails store, UUID runId, java.util.concurrent.atomic.AtomicLong capturedBytes) {}
     public static final ContextKey<Binding> KEY = ContextKey.named("tianmu.trace.details");
+    public static final ContextKey<java.util.concurrent.atomic.AtomicBoolean> MEMORY = ContextKey.named("tianmu.memory.trace.protection");
+    public static void protectMemory(){var flag=Context.current().get(MEMORY);if(flag!=null)flag.set(true);}
     private static final Set<String> DIRECTIONS = Set.of("input", "output", "provider_output", "error");
     private final ObjectStore objects;
     private final ObjectMapper mapper;
     private final int maxBytes;
     private final boolean enabled;
+    private boolean protectDerived;
     private long maxRunBytes = 8388608;
     @org.springframework.beans.factory.annotation.Autowired
     public TraceDetails(ObjectProvider<ObjectStore> objects, ObjectMapper mapper, TraceProperties properties,
             @Value("${harness.trace.details.max-bytes:131072}") int maxBytes,
             @Value("${harness.trace.details.enabled:true}") boolean enabled,
-            @Value("${harness.trace.details.max-run-bytes:8388608}") long maxRunBytes) {
+            @Value("${harness.trace.details.max-run-bytes:8388608}") long maxRunBytes,
+            @Value("${agent.memory.enabled:false}") boolean memoryEnabled,
+            @Value("${agent.compaction.enabled:false}") boolean compactionEnabled) {
         this(objects.getIfAvailable(() -> new FileObjectStore(properties.directory().resolve("details"))), mapper, maxBytes, enabled);
         if (maxRunBytes < maxBytes || maxRunBytes > 67108864) throw new IllegalArgumentException("Invalid per-run trace detail limit");
         this.maxRunBytes = maxRunBytes;
+        this.protectDerived=memoryEnabled || compactionEnabled;
     }
     public TraceDetails(ObjectStore objects, ObjectMapper mapper, int maxBytes, boolean enabled) {
         if (maxBytes < 4096 || maxBytes > 524288) throw new IllegalArgumentException("Trace detail limit must be 4 KiB to 512 KiB");
         this.objects = objects; this.mapper = mapper.copy().findAndRegisterModules(); this.maxBytes = maxBytes; this.enabled = enabled;
     }
-    public Context bind(Context context, UUID runId) { return context.with(KEY, new Binding(this, runId, new java.util.concurrent.atomic.AtomicLong())); }
+    public Context bind(Context context, UUID runId) { return context.with(KEY, new Binding(this, runId, new java.util.concurrent.atomic.AtomicLong())).with(MEMORY,new java.util.concurrent.atomic.AtomicBoolean(protectDerived)); }
     public static void input(Object value) { capture("input", value, "LOGICAL_INPUT"); }
     public static void output(Object value) { capture("output", value, "RESULT"); }
     public static void capture(String direction, Object value, String kind) {
@@ -49,6 +55,8 @@ public final class TraceDetails {
         Span span = Span.current(); String prefix = "detail." + direction;
         if (!enabled) { TraceAttributes.apply(span, Map.of(prefix + "_state", "DISABLED")); return; }
         try {
+            var protectedMemory=Context.current().get(MEMORY);
+            if(protectedMemory!=null && protectedMemory.get())value=Map.of("memoryProtected",true,"runId",binding.runId().toString(),"details","Read authorized memory references from the run memory endpoint");
             boolean[] redacted = {false};
             JsonNode clean = clean(mapper.valueToTree(value), redacted);
             byte[] content = mapper.writeValueAsBytes(clean);

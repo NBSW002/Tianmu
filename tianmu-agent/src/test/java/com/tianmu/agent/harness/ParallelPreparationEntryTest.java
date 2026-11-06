@@ -16,6 +16,28 @@ import java.util.concurrent.atomic.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ParallelPreparationEntryTest {
+    @Test void capabilitySelectionSurvivesMergeAndTaskAssemblyWithThreeCallsOnly() {
+        var catalog=new IntentCandidateCatalog(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.tool.ToolCatalog());
+        try(var f=new HarnessLifecycleTest.Fixture();var preparation=new PreparationService((i,c)->Optional.empty(),new PreparationFlowTest.Model(){
+            @Override public IntentRecognition recognizeIntent(Input input,CallControl control) {
+                assertEquals(12,input.intentCandidates().size());
+                return new IntentRecognition(Intent.KNOWLEDGE,"knowledge",List.of(),input.intentCandidates());
+            }
+        },policy(),f.harness)) {
+            org.springframework.test.util.ReflectionTestUtils.setField(preparation,"intentCandidates",catalog);
+            var run=new RunState(new AccessScope("demo","alice",Set.of(1001L)),"请解释一下视频构图");
+            new RequestOrchestrator(preparation,new AgentRuntime(context->{
+                assertEquals("knowledge",context.preparation().recognition().primary());
+                assertEquals("conversation",context.task().specification().type());return Decision.answer("构图说明",List.of());
+            },f.tools,f.harness),f.harness).execute(run);
+            assertEquals(Status.SUCCEEDED,run.snapshot().status());assertEquals(3,run.snapshot().preparationCalls());
+            for(String name:List.of("agent.prepare.intent","agent.prepare.merge")) {
+                var span=f.recording.spans.stream().filter(s->s.getName().equals(name)).findFirst().orElseThrow();
+                assertEquals("knowledge",span.getAttributes().get(AttributeKey.stringKey("preparation.intent_primary")));
+                assertEquals(12,span.getAttributes().get(AttributeKey.stringArrayKey("preparation.intent_candidates")).size());
+            }
+        }
+    }
     private PreparationPolicy policy() {
         return new Binder(new MapConfigurationPropertySource(Map.of("agent.preparation.faq-timeout","300ms")))
                 .bind("agent.preparation",Bindable.of(PreparationPolicy.class)).get();

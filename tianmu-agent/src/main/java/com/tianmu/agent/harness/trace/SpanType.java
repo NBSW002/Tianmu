@@ -3,7 +3,7 @@ package com.tianmu.agent.harness.trace;
 /** Stable business taxonomy, independent of legacy span display names. */
 public enum SpanType {
     RECEIVE_QUERY, PRE_ROUTE, FAQ_LOOKUP, FAQ_DIRECT, INTENT_RECOGNITION, EMOTION_RECOGNITION, QUERY_UNDERSTANDING, CLARIFICATION_CHECK, TASK_READINESS, PREPARATION_MERGE,
-    MEMORY_LOAD, CONTEXT_BUILD, AGENT_START, LLM_INFERENCE, TOOL_CALL, READ_SKILL,
+    MEMORY_LOAD, MEMORY_RECALL, CONTEXT_COMPACT, CONTEXT_BUILD, AGENT_START, LLM_INFERENCE, TOOL_CALL, READ_SKILL,
     ANSWER_READY, TERMINAL_DELIVERY, AGENT_END, FINISH, ERROR;
 
     public String value() { return name().toLowerCase(java.util.Locale.ROOT); }
@@ -20,6 +20,10 @@ public enum SpanType {
             case "agent.prepare.intent" -> INTENT_RECOGNITION;
             case "agent.prepare.understanding" -> QUERY_UNDERSTANDING;
             case "agent.memory.load" -> MEMORY_LOAD;
+            case "agent.memory.snapshot" -> MEMORY_LOAD;
+            case "agent.memory.recall" -> MEMORY_RECALL;
+            case "agent.context.compact" -> CONTEXT_COMPACT;
+            case "agent.context.compaction_load" -> CONTEXT_BUILD;
             case "agent.context", "agent.assemble" -> CONTEXT_BUILD;
             case "agent.model", "agent.model.finalize", "video.model.vision", "video.model.transcription" -> LLM_INFERENCE;
             case "agent.tool" -> TOOL_CALL;

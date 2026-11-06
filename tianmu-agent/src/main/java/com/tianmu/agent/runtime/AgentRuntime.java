@@ -19,6 +19,7 @@ import com.tianmu.agent.harness.trace.*;
 
 @Component
 public class AgentRuntime {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryRecallService memoryRecall;
     private static final Logger log = LoggerFactory.getLogger(AgentRuntime.class);
     private static final Set<String> RETRYABLE = Set.of("TOOL_CALL_TIMEOUT", "TOOL_TEMPORARY_ERROR");
     private final String finalizeDirective;
@@ -137,6 +138,7 @@ public class AgentRuntime {
                         new com.tianmu.agent.application.ReportTaskStateView(run,run.execution()).build())));
     }
     private Decision decide(RunState run, ModelContext context) {
+        if(memoryRecall!=null)memoryRecall.verify(run);
         return harness.stage(run, context.finalizing() ? "agent.model.finalize" : "agent.model", HookPoint.PRE_MODEL, HookPoint.POST_MODEL,
                 Map.of("run.finalizing", context.finalizing(), "loop.step", run.snapshot().steps(),
                         "agent.available_tools", context.availableTools().stream().map(ToolDefinition::name).limit(32).toList()), () -> {

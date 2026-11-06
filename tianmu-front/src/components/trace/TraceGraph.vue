@@ -47,7 +47,7 @@ const fitAnimated = () => fit(false)
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
 const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })
 function ready(flow) { instance.value = flow; nextTick(fit) }
-const nodeTone = node => ['faq','intent','emotion','clarification','merge','background','work'].includes(node.cardKind) ? node.cardKind : node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
+const nodeTone = node => ['faq','intent','emotion','clarification','merge','background','work','memory','compaction'].includes(node.cardKind) ? node.cardKind : node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
 const stackCount = node => node.children?.length || node.repeatCount || 0
 function choose(node) { emit('select', node.data.id) }
 watch(() => props.selectedId, async () => {
@@ -198,6 +198,8 @@ watch(() => props.selectedId, async () => {
 .trace-node.tone-merge {background:#e2dfd3;color:var(--workbench-charcoal);}
 .trace-node.tone-background {background:#eee8dd;color:#71604c;}
 .trace-node.tone-work {background:#f0ece3;color:var(--workbench-muted);}
+.trace-node.tone-memory {background:#e9ede2;color:var(--workbench-success);}
+.trace-node.tone-compaction {background:#eee8dd;color:#71604c;}
 .trace-node.is-failed {border-color:var(--workbench-error);}
 .trace-node.is-selected,.trace-node.is-stack.is-selected {border-color:var(--workbench-ring-deep);box-shadow:var(--workbench-ring-shadow);}
 .cluster-toggle {top:-9px;right:-8px;font-size:10px;font-weight:500;padding:1px 5px;min-width:27px;height:18px;line-height:14px;border:0;border-radius:6px;background:var(--workbench-raised);color:var(--workbench-muted);box-shadow:var(--workbench-ring-shadow);font-variant-numeric:tabular-nums;}

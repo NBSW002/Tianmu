@@ -12,6 +12,8 @@ import java.util.Map;
 /** Application entry pipeline. AgentRuntime only runs after preparation chooses HARNESS. */
 @Component
 public class RequestOrchestrator {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryRecallService memoryRecall;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.CompactionService compaction;
     private final PreparationService preparation;
     private final AgentRuntime runtime;
     private final RuntimeHarness harness;
@@ -31,6 +33,8 @@ public class RequestOrchestrator {
         try {
             harness.execute(run, () -> {
                 if (!run.start()) return;
+                if(memoryRecall!=null)memoryRecall.begin(run);
+                if(compaction!=null)compaction.begin(run);
                 String input = harness.stage(run, "agent.input", null, null, Map.of(),
                         () -> {
                             com.tianmu.agent.harness.trace.TraceDetails.input(run.query());
@@ -48,6 +52,7 @@ public class RequestOrchestrator {
                     case FAQ -> delivery.faq(run, result.faq());
                     case CLARIFY -> runtime.clarifyPrepared(run, result.clarification());
                     case HARNESS -> {
+                        if(memoryRecall!=null)memoryRecall.recall(run);
                         var task = harness.stage(run, "agent.assemble", null, null, Map.of(), () -> {
                             com.tianmu.agent.harness.trace.TraceDetails.input(Map.of("preparation", result, "memory", run.memory()));
                             return assembler.assemble(run);
@@ -60,7 +65,7 @@ public class RequestOrchestrator {
         catch (Exception e) { run.fail("INTERNAL_ERROR"); }
     }
     public void resume(RunState run){
-        try{harness.execute(run,()->{if(run.snapshot().status()!=Status.RUNNING || run.task()==null)throw new AgentException("INVALID_OPERATION_STATE","No resumable prepared task");assembler.verify(run.task());runtime.runPrepared(run,run.task());});}
+        try{harness.execute(run,()->{if(run.snapshot().status()!=Status.RUNNING || run.task()==null)throw new AgentException("INVALID_OPERATION_STATE","No resumable prepared task");if(memoryRecall!=null){memoryRecall.begin(run);memoryRecall.recall(run);}if(compaction!=null){compaction.begin(run);compaction.apply(run);}assembler.verify(run.task());runtime.runPrepared(run,run.task());});}
         catch(AgentException e){run.fail(e.code());}catch(Exception e){run.fail("INTERNAL_ERROR");}
     }
 }

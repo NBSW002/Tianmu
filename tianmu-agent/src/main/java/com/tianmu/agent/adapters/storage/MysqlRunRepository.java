@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 
 /** One authoritative writer per Agent database in v0.7. All terminal rows share one transaction. */
 public final class MysqlRunRepository implements RunRepository, ReportStore, ConversationStore, StorageManagement, AutoCloseable {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryBackground memoryBackground;
     private final JdbcTemplate db; private final TransactionTemplate tx; private final ObjectMapper json;
     private final RedisMemoryCache cache; private final ObjectStore objects; private final Duration timeout; private final int maxCalls;
     private final MysqlReportStore reports;
@@ -51,6 +52,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         conversations = new MysqlConversationStore(db, this.json, cache, new MysqlConversationStore.Access() {
             public <T> T read(Supplier<T> action) { return MysqlRunRepository.this.read(action); }
             public void session(UUID id, AccessScope owner) { MysqlRunRepository.this.session(id, owner, false); }
+            public boolean memoryAllowed(UUID run,AccessScope owner){return com.tianmu.agent.memory.MemoryLedger.historyAllowed(db,json,owner,run);}
             public MysqlConversationStore.Window window(RunState run) {
                 session(run.sessionId, run.owner);
                 var stored = row(run.id, run.owner, false);
@@ -132,6 +134,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                 m.id().toString(), outcome, "{}", stamp(Instant.now().plus(Duration.ofDays(90))));
     }
     private void notifyOutbox(Meta m, long version) {
+        if(memoryBackground!=null)memoryBackground.enqueue(db,m.owner(),m.session(),m.id());
         db.update("INSERT INTO agent_outbox(tenant_id,outbox_id,event_id,destination,owner_user_id,session_id,run_id,payload_json) VALUES(?,?,?,'MEMORY_REFRESH',?,?,?,?)",
                 m.owner().tenantId(), UUID.randomUUID().toString(), UUID.randomUUID().toString(), m.owner().userId(),
                 m.session().toString(), m.id().toString(), encode(Map.of("version", version)));
@@ -262,6 +265,8 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                 m.owner().tenantId(), m.owner().userId(), m.session().toString(), m.id().toString(), sequence, type, payload, done ? 1 : null, stamp(expiry));
     }
     private Snapshot finishLocked(Meta m, Map<String, Object> row, Snapshot target, String event, Object data) {
+        if (target.status() == Status.SUCCEEDED || target.status() == Status.NEEDS_INPUT)
+            com.tianmu.agent.memory.MemoryLedger.verifyCommit(db,json,m.owner(),m.id());
         if (target.answer() != null) for (String id : target.answer().evidenceIds()) {
             Integer count = db.queryForObject("SELECT COUNT(*) FROM agent_evidence e LEFT JOIN agent_artifact a ON a.tenant_id=e.tenant_id AND a.artifact_id=e.raw_artifact_id WHERE e.tenant_id=? AND e.owner_user_id=? AND e.run_id=? AND e.evidence_id=? AND e.expires_at>UTC_TIMESTAMP(6) AND (e.raw_artifact_id IS NULL OR a.status='READY')", Integer.class, m.owner().tenantId(), m.owner().userId(), m.id().toString(), id);
             if (count == null || count != 1) throw new AgentException("INVALID_EVIDENCE", "Answer evidence is not durably available");
@@ -468,6 +473,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         } catch (Exception e) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("outbox_unavailable type={}", e.getClass().getSimpleName()); }
     }
     private void warm(Map<String, Object> record) {
+        if(Set.of("MEMORY_EXTRACT","MEMORY_COMPACT","MEMORY_COMPACT_CHECK").contains(record.get("destination"))){if(memoryBackground==null)throw new AgentException("MEMORY_DISABLED","Memory worker is disabled");memoryBackground.accept(record);return;}
         if (!"MEMORY_REFRESH".equals(record.get("destination"))) throw new AgentException("OUTBOX_TARGET_UNSUPPORTED", "No registered handler for outbox target");
         // The cache is scoped by the saved authorization snapshot, preventing a narrowed scope from using a broader window.
         var runs = read(() -> db.queryForList("SELECT * FROM agent_run WHERE tenant_id=? AND run_id=?", record.get("tenant_id"), record.get("run_id")));
@@ -486,10 +492,13 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
             var sess = session(sid, owner, true);
             Object active = sess.get("current_run_id");
             if (active != null) {
-                var current = row(UUID.fromString(active.toString()), owner, true);
-                if (!terminal(current)) finishLocked(meta(current), current, cancelled(snapshot(current), StopReason.USER_CANCELLED), "ABORT", Map.of("reason", "user_cancelled"));
+                try {
+                    var current = row(UUID.fromString(active.toString()), owner, true, false);
+                    if (!terminal(current)) finishLocked(meta(current), current, cancelled(snapshot(current), StopReason.USER_CANCELLED), "ABORT", Map.of("reason", "user_cancelled"));
+                } catch (AgentException e) { if (!"RUN_NOT_FOUND".equals(e.code())) throw e; }
             }
             db.update("UPDATE agent_session SET status='DELETING',generation=generation+1,session_epoch=session_epoch+1,history_version=history_version+1,purge_requested_at=UTC_TIMESTAMP(6) WHERE tenant_id=? AND session_id=?", owner.tenantId(), sid.toString());
+            com.tianmu.agent.memory.MemoryLifecycle.session(db,owner.tenantId(),sid.toString(),true);
             db.update("INSERT INTO agent_audit_event(tenant_id,event_id,actor_user_id,session_id,action,subject_type,subject_id,outcome,attributes_json,expires_at) VALUES(?,?,?,?,'SESSION_DELETE_REQUESTED','SESSION',?,'DELETING','{}',?)",
                     owner.tenantId(), UUID.randomUUID().toString(), owner.userId(), sid.toString(), sid.toString(), stamp(Instant.now().plus(Duration.ofDays(90))));
             return null;
@@ -510,6 +519,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                 for (var old : oldRuns) { Meta m = meta(old); cache.evict(conversations.cacheKey(m.owner(), m.session())); }
                 write(() -> {
                     db.queryForList("SELECT session_id FROM agent_session WHERE tenant_id=? AND session_id=? FOR UPDATE", tenant, sid);
+                    com.tianmu.agent.memory.MemoryLifecycle.session(db,tenant,sid,false);
                     db.update("DELETE FROM agent_creator_draft WHERE run_id IN (SELECT run_id FROM agent_run WHERE tenant_id=? AND session_id=?)", tenant, sid);
                     for (String table : List.of("agent_clarification", "agent_evidence", "agent_artifact", "agent_message", "agent_run_event", "agent_run"))
                         db.update("DELETE FROM " + table + " WHERE tenant_id=? AND session_id=?", tenant, sid);
@@ -529,6 +539,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                 for (var artifact : artifacts) objects.delete(artifact.get("object_key").toString());
                 write(() -> {
                     db.queryForList("SELECT session_id FROM agent_session WHERE tenant_id=? AND session_id=? FOR UPDATE", m.owner().tenantId(), m.session().toString());
+                    com.tianmu.agent.memory.MemoryLifecycle.session(db,m.owner().tenantId(),m.session().toString(),false);
                     db.update("DELETE FROM agent_clarification WHERE tenant_id=? AND (run_id=? OR resumed_by_run_id=?)", m.owner().tenantId(), m.id().toString(), m.id().toString());
                     db.update("DELETE FROM agent_creator_draft WHERE run_id=?", m.id().toString());
                     for (String table : List.of("agent_evidence", "agent_artifact", "agent_message", "agent_run_event", "agent_run"))

@@ -59,6 +59,14 @@ flowchart TB
 
 ## Agent 架构
 
+### 动态上下文协议
+
+Agent 输入统一采用 [ContextEnvelope 1.0](../tianmu-agent/docs/动态上下文架构.md)：固定槽位依次为 system_prompt、tool_catalog、skill_catalog、agent_catalog、execution_context、focus、memory_context、environment_context、reference_context、current_context、runtime_state、output_contract。不存在的模块省略，其余相对顺序保持不变；agent_catalog 当前是可选扩展位，不代表已具备 A2A 调用能力。
+
+ContextAssembler 将已授权的目录、记忆、页面、会话与执行结果归位，NativeContextProjector 投影到模型原生 messages/tools，统一预算门控检查真实请求。current_context 包含压缩摘要与未压缩消息，原生工具调用和结果保持关联；长期记忆单独归入 memory_context。记忆召回独立于装配，权限与来源失效检查覆盖所有消费副本。该协议正在逐步接入，具体状态见专题方案。
+
+会话摘要与长期记忆采用不同作用域，共用来源失效与可靠派生任务机制。[上下文压缩方案](../tianmu-agent/docs/上下文压缩调研与实施方案.md)规定先精简可回源工具结果，再压缩旧的完整消息前缀，近期原文与当前任务由宿主保留；摘要放入 current_context.compaction。实现已接入可靠后台摘要、固定范围及删除失效；配置默认关闭，部署环境可显式开启。审查与验收边界见[审查记录](../tianmu-agent/docs/记忆压缩与上下文审查记录.md)。
+
 Agent 是独立的 Spring Boot 服务，分为**前置处理**和 **Harness Loop** 两个阶段。前置处理确定“用户要做什么、能访问什么、执行条件是否齐全”；Harness 根据准备好的任务，组织模型与工具协作完成工作。
 
 ### 前置处理：从用户请求到执行任务

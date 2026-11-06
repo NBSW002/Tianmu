@@ -14,6 +14,7 @@ public interface ToolContext {
     AccessScope scope();
     LocalDate businessDate();
     void checkpoint();
+    default ToolResult memory(ToolCall call){throw new com.tianmu.agent.core.AgentException("MEMORY_DISABLED","Personal memory is disabled");}
     default Map<String,Object> history(long before,int limit,String query) { throw new com.tianmu.agent.core.AgentException("HISTORY_UNAVAILABLE","History unavailable"); }
     default void checkCreatorDraft(long videoId, String kind) { throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED", "Creator draft unavailable"); }
     List<Map<String, String>> listSkills();

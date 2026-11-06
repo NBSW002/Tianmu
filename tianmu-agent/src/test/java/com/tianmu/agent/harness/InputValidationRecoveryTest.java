@@ -68,7 +68,7 @@ class InputValidationRecoveryTest {
                     return Decision.answer("128",List.of(context.observations().get(1).evidenceId()));
                 }
             };
-            fixture.execute(run,model);assertEquals(Status.SUCCEEDED,run.snapshot().status());assertEquals(1,fixture.queries.get());assertEquals(3,requests.size());
+            fixture.execute(run,model);assertEquals(Status.SUCCEEDED,run.snapshot().status(),()->"error="+run.snapshot().errorCode());assertEquals(1,fixture.queries.get());assertEquals(3,requests.size());
             var messages=requests.get(1).path("messages");var reply=messages.get(messages.size()-1);
             assertEquals("bad-call",reply.path("tool_call_id").asText());assertEquals("bad-call",messages.get(messages.size()-2).path("tool_calls").get(0).path("id").asText());
             assertEquals("BEFORE_HANDLER",json.readTree(reply.path("content").asText()).path("data").path("input_validation").path("phase").asText());

@@ -14,6 +14,10 @@
 
 可通过 `AGENT_PREPARATION_TIMEOUT` 调整识别超时；`AGENT_PREPARATION_EMOTION_ENABLED=false` 显式关闭情绪分支。`AGENT_PREPARATION_RULE_ONLY=true` 仅用于回退旧规则路径，Trace 会显示真实跳过状态。主模型热切换仍控制 loop 模型，前置模型使用服务端 `PREPARATION_MODEL` 配置。
 
+意图分支在调用模型前取得本轮能力候选快照：通用对话、知识咨询，以及由实际注册 Skill／工具和当前作者权限筛选出的功能。候选包含稳定 ID、说明、目标边界、关联 Skill、可用工具及功能所需条件。未提供视频 ID 或日期不会让候选消失；缺失条件仍由独立澄清分支处理。新增 Skill 默认按注册元数据加入候选，已知功能另有面向用户目标的标签与边界。
+
+模型只返回 `primary` 和最多四个 `related` 候选 ID。服务端校验它们属于本轮候选清单，并从候选元数据映射原有执行分类；候选选择不能修改任务条件、读取来源或工具权限。汇合结果保留该快照，主模型取得主目标与关联目标提示，Trace 意图节点及汇合详情展示本轮候选、主目标与关联目标。历史任务和旧版识别适配器保留原分类兼容；不对历史 Trace 补造能力选择。本次不调整情绪和澄清的决策规则。
+
 ## 本地启动
 
 从仓库根目录执行：
@@ -246,6 +250,16 @@ python scripts/test_model_trace_summary.py
 单独部署 Agent 使用根目录 `deploy/manage.py`；同时部署网站与业务后端使用 `deploy/site/`。凭据放在源码之外。网站部署中 Agent 与业务容器共享网络命名空间，重建业务容器时要同时重建 Agent；上线前核对健康状态、作者权限、真实数据口径和回退版本。
 
 HTTP / SSE、存储、Trace 和模型适配的详细契约分别保存在本模块 `docs/` 中；本文覆盖常用启动与开发信息，只有修改对应模块时才需要查阅专题文档。
+
+系统提示词、工具/Skill/Agent 目录、本轮聚焦、记忆、页面参考、消息与压缩、运行状态和输出契约采用固定槽位的 [ContextEnvelope 动态上下文架构](docs/动态上下文架构.md)。模块可以缺省，顺序与职责保持固定；A2A 目录只在真实能力存在时启用。
+
+长期记忆的目标架构、前置节点与 Loop 接入、数据版本、读写工具、用户管理、Trace 和分期验收见 [多层记忆技术方案](docs/多层记忆技术方案.md)。该文档是待实施设计，不表示长期记忆已经上线。
+
+开发代码已有认证记忆管理 API、显式工具、独立召回、来源/版本失效、后台自动提取和管理 UI；`AGENT_MEMORY_ENABLED` 默认 false，完整质量验收及上线尚未完成。管理接口不接受客户端伪造 session/run/source 字段。启用需要 mysql 存储模式；暂停仍可查看或删除自己的记录，保存和更新仅 ON 模式允许。增删改与清空使用 `Idempotency-Key`，修改/删除必须提供 expectedVersion；列表以 beforeSequence 和 scope 分页。VIDEO 每次重新授权。自动提取还需用户独立开启，默认关闭。
+
+`AGENT_COMPACTION_ENABLED` 独立启用会话压缩，默认 false；复用现有 MySQL、outbox 与 memoryExecutor，不新增中间件。`AGENT_COMPACTION_TRIGGER_BYTES` 默认 5632，表示旧历史原始消息的序列化触发阈值，不能视作 token 数。较早完整轮次在后台生成最多约 3.5 KiB 的结构化摘要，模型上下文选中的摘要含元数据总量不超过 4 KiB；近期至少两轮继续使用原文，来源失效会阻止摘要和后续派生回答被使用。详见[压缩设计与实现记录](docs/上下文压缩调研与实施方案.md)。
+
+隔离 MySQL 测试使用 `AGENT_MEMORY_IT=true`、`AGENT_MEMORY_JDBC_URL`、`AGENT_MEMORY_DB_USER` 和可选 `AGENT_MEMORY_DB_PASSWORD`，仅接受名称以 `_it` 结尾的独立数据库。真实模型压缩验证另用 `AGENT_COMPACTION_REAL=true`、`AGENT_COMPACTION_REAL_URL`、`AGENT_COMPACTION_REAL_MODEL` 和 `AGENT_COMPACTION_REAL_KEY`，只使用虚构会话；调用正常模型适配、上下文协议与 Trace，质量样例不替代上线评测。
 
 ## 智能评论与智能弹幕
 

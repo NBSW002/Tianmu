@@ -1,8 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTracePresentation, buildTraceOverview, cardHighlight, defaultExpandedStages, layoutPresentation, modelInvocations } from '../src/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, cardHighlight, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
+
+test('compaction reports actual range and byte savings without inventing absent values',()=>{
+  const value=compactionDetails({name:'agent.context.compact',attributes:{'compaction.covered_from':1,'compaction.covered_through':8,'compaction.source_messages':8,'compaction.input_bytes':7000,'compaction.output_bytes':1400,'compaction.saved_bytes':5600,'compaction.trigger_reason':'HISTORY_BUDGET'}})
+  assert.equal(value.visible,true);assert.equal(value.through,8);assert.equal(value.savedBytes,5600)
+  assert.equal(compactionDetails({}).visible,false);assert.equal(compactionDetails({name:'agent.context.compact'}).inputBytes,null)
+})
+
+test('context slots retain canonical order and absent capabilities are not fabricated',()=>{
+  const result=contextDetails({attributes:{'context.schema_version':'1.0','context.projection_version':'chat_native_v1','context.present_slots':['current_context','memory_context','system_prompt','unknown'],'context.slot_bytes':['current_context=120','memory_context=80','unknown=999','<script>']}})
+  assert.deepEqual(result.slots.map(s=>s.name),['system_prompt','memory_context','current_context'])
+  assert.equal(result.slots[1].bytes,80)
+  assert.equal(result.slots.some(s=>s.name==='agent_catalog'),false)
+  assert.equal(contextDetails({}).visible,false)
+})
 
 test('entry recognition forks into three real model spans and joins before the clarification tool', () => {
   const [trace] = parseTraceFile(JSON.stringify(demoFiles.find(d => d.title === '前置处理 · 澄清工具')))
@@ -29,6 +43,18 @@ test('entry recognition forks into three real model spans and joins before the c
 })
 
 const node = (id, name, kind, offsetMs, durationMs, extra = {}) => ({ id, name, kind, offsetMs, durationMs, status: 'SUCCEEDED', attributes: {}, ...extra })
+test('intent cards show capability selection before payloads load and expand the actual candidate snapshot', () => {
+  const raw=node('intent','agent.prepare.intent','MODEL',0,10,{attributes:{'preparation.intent':'DANMAKU_REPORT','preparation.intent_primary':'audience-report','preparation.intent_related':['video-content','comment-analysis'],'preparation.intent_candidates':['audience-report','video-content','comment-analysis']}})
+  const card=buildTracePresentation([raw]).cards[0]
+  assert.equal(card.summary,'观众反馈报告')
+  assert.equal(intentDetails(card).candidates.length,3)
+  assert.deepEqual(intentDetails(card).related.map(item=>item.label),['视频内容理解','评论分析'])
+  raw.input={intentCandidates:[{id:'audience-report',label:'自定义报告名称',description:'来自本轮能力快照',skill:'audience-report',requiredConditions:['视频对象']}]}
+  const loaded=buildTracePresentation([raw]).cards[0]
+  assert.equal(intentDetails(loaded).primary.label,'自定义报告名称')
+  assert.equal(intentDetails(loaded).candidates[0].description,'来自本轮能力快照')
+  assert.equal(intentDetails(node('old','agent.prepare.intent','MODEL',0,1,{attributes:{'preparation.intent':'OTHER'}})).visible,false)
+})
 
 test('model details list every call in its round, resolve Skill and retain provider members without duplicate cards', () => {
   const p = buildTracePresentation([

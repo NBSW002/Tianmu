@@ -1,6 +1,7 @@
 
 
 import { terminal, progressLabel, reportPath } from './protocol.mjs';
+import { notifyMemoryChanged } from '../lib/memory-events.mjs';
 
 /** Owns subscription/polling lifecycle; UI state is supplied by the conversation view. */
 export function createRunMonitor({ getAgentRun, readAgentEvents, applySnapshot, notice }) {
@@ -53,6 +54,7 @@ function start(turn) {
           if (event.type === 'TEXT_DELTA' && typeof data.text === 'string') turn.streamingText = (turn.streamingText || '') + data.text;
           if (event.type === 'MODEL_SELECTED') turn.modelLabel = data.label || data.model;
           if (event.type === 'PROGRESS') {
+            if (data.stage === 'tool_completed' && ['remember_memory','forget_memory'].includes(data.tool)) notifyMemoryChanged('agent');
             turn.events.push({
               sequence: seq,
               label: progressLabel(data),

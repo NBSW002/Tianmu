@@ -124,7 +124,8 @@ class TransformHookTest {
             var reduced=apply(fixture,TransformPoint.CONTEXT,base);assertTrue(reduced.availableTools().isEmpty());assertEquals(exchanges,reduced.exchanges());
             var messages=new com.tianmu.agent.model.HarnessContextBuilder(new ObjectMapper(),com.tianmu.agent.model.ContextPolicy.defaults()).build("rules",reduced);
             assertEquals("original",messages.stream().filter(m->m.get("role").equals("tool")).findFirst().orElseThrow().get("tool_call_id"));
-            assertEquals("finish",messages.get(messages.size()-1).get("content"));
+            assertTrue(messages.stream().filter(m->"system".equals(m.get("role"))).anyMatch(m->m.get("content").toString().contains("<output_contract>") && m.get("content").toString().contains("finish")));
+            assertEquals("tool",messages.get(messages.size()-1).get("role"));
         }
     }
     @Test void rewrittenToolArgumentsStillPassThroughMandatoryPermissionChecks() {

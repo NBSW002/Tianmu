@@ -41,7 +41,7 @@ public final class DeepSeekHarnessModel implements ModelPort {
                     if(!"function".equals(text(nativeCall,"type")) || id.length()>160 || !id.matches("[A-Za-z0-9_.:-]+") || !ids.add(id)
                             || context.availableTools().stream().noneMatch(t->t.name().equals(name)))throw new IllegalArgumentException("Unknown native tool");
                     var args=client.toolArguments(text(call,"arguments"));
-                    parsed.add(new ToolCall(name,mapper.convertValue(args,new com.fasterxml.jackson.core.type.TypeReference<Map<String,Object>>(){}),id,group));
+                    parsed.add(new ToolCall(name,mapper.convertValue(args,new com.fasterxml.jackson.core.type.TypeReference<Map<String,Object>>(){}),id,group,result.path("content").asText("")));
                 }
                 return new Decision(Kind.TOOL,parsed.get(0),null,null,parsed.subList(1,parsed.size()));
             }

@@ -10,7 +10,21 @@ public final class PreparationTypes {
     public enum Emotion { NEUTRAL, POSITIVE, NEGATIVE, UNKNOWN }
     public enum Intent { VIDEO_METRIC, DANMAKU_REPORT, KNOWLEDGE, OTHER, UNKNOWN }
     public enum Route { FAQ, CLARIFY, HARNESS }
-    public record Input(String query, LocalDate businessDate, AccessScope scope, MemoryTypes.View memory, java.time.Instant requestedAt) {
+    public record IntentCandidate(String id, String label, String description, String boundary, String skill,
+                                  Set<String> tools, List<String> requiredConditions, Intent category) {
+        public IntentCandidate { tools=Set.copyOf(tools);requiredConditions=List.copyOf(requiredConditions); }
+    }
+    public record IntentRecognition(Intent intent, String primary, List<String> related, List<IntentCandidate> candidates) {
+        public IntentRecognition {
+            intent=Objects.requireNonNull(intent);related=List.copyOf(related);candidates=List.copyOf(candidates);
+            if (related.size()>4 || new HashSet<>(related).size()!=related.size() || primary!=null && related.contains(primary)
+                    || primary!=null && !primary.matches("[a-z][a-z0-9_-]{0,79}")) throw new IllegalArgumentException("Invalid capability selection");
+        }
+    }
+    public record Input(String query, LocalDate businessDate, AccessScope scope, MemoryTypes.View memory, java.time.Instant requestedAt,
+                        List<IntentCandidate> intentCandidates) {
+        public Input { intentCandidates=intentCandidates==null?List.of():List.copyOf(intentCandidates); }
+        public Input(String query, LocalDate date, AccessScope scope, MemoryTypes.View memory, java.time.Instant at) { this(query,date,scope,memory,at,List.of()); }
         public String targetedQuery() { return memory.environment()==null ? query : memory.environment().forParsing(query); }
         public Input(String query, LocalDate date, AccessScope scope, MemoryTypes.View memory) { this(query, date, scope, memory, date.atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant()); }
         public Input(String query, LocalDate date, AccessScope scope) { this(query, date, scope, MemoryTypes.View.empty()); }
@@ -53,7 +67,10 @@ public final class PreparationTypes {
         }
     }
     public record PreparedRequest(String originalQuery, String query, Emotion emotion, Set<String> degradedStages, Set<String> skippedStages, Intent intent,
-                                  TaskTypes.Specification specification) {
+                                  TaskTypes.Specification specification, IntentRecognition recognition) {
+        public PreparedRequest(String original, String query, Emotion emotion, Set<String> degraded, Set<String> skipped, Intent intent, TaskTypes.Specification specification) {
+            this(original,query,emotion,degraded,skipped,intent,specification,null);
+        }
         public PreparedRequest(String originalQuery, String query, Emotion emotion, Set<String> degraded, Set<String> skipped, Intent intent) {
             this(originalQuery, query, emotion, degraded, skipped, intent, null);
         }

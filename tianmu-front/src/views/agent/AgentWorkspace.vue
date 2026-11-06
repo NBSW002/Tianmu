@@ -29,6 +29,7 @@
       <header class="workspace-header">
         <div class="assistant-identity"><span class="brand-symbol"><EchoMark /></span><strong>个人助手</strong></div>
         <div class="workspace-header-actions">
+          <button ref="memoryToggle" type="button" class="header-action" aria-label="管理个人记忆" title="个人记忆" @click="memoryOpen = true"><TraceIcon name="layers" :size="18" /></button>
           <button ref="historyToggle" type="button" class="history-toggle" aria-label="打开会话历史" aria-controls="assistant-conversations" :aria-expanded="navigationOpen" @click="toggleNavigation"><TraceIcon name="list" :size="18" /></button>
           <button type="button" class="header-action" aria-label="新对话" title="新对话" :disabled="busy" @click="newAnalysis"><TraceIcon name="plus" :size="18" /></button>
           <button v-if="embedded" type="button" class="header-action" aria-label="展开个人助手" title="展开助手" @click="$emit('expand')"><TraceIcon name="fit" :size="18" /></button>
@@ -36,6 +37,7 @@
           <router-link v-else class="back-video" :to="form.videoId ? '/video/' + form.videoId : '/'">返回{{ form.videoId ? '视频' : '网站' }} ↗</router-link>
         </div>
       </header>
+      <MemoryManager v-if="memoryOpen" :video-id="form.videoId" @close="closeMemory" />
       <VideoContentIndex v-if="form.videoId && !contextPending" :key="form.videoId" :video-id="form.videoId" :video-title="contextTitle" @remove="form.videoId = ''" />
       <div ref="conversationElement" class="conversation-scroll" :style="fadeStyle" @scroll.passive="trackConversationScroll" @wheel.passive="markConversationIntent" @touchstart.passive="markConversationIntent" @keydown="markConversationIntent">
         <div ref="conversationContent" class="workspace-content">
@@ -102,6 +104,7 @@
                   >
                 </div>
                 <p v-if="turn.streamingText && !isTerminal(turn.snapshot?.status)" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
+                <MemoryUsage v-if="validRunId(turn.runId) && isTerminal(turn.snapshot?.status)" :run-id="turn.runId" />
 
                 <div
                   v-if="!isTerminal(turn.snapshot?.status)"
@@ -256,6 +259,8 @@ import { getAssistantModels } from '@/api/agent';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import RoomAudience from '@/components/agent/RoomAudience.vue';
 import QaKnowledge from '@/components/agent/QaKnowledge.vue';
+import MemoryManager from '@/components/agent/MemoryManager.vue';
+import MemoryUsage from '@/components/agent/MemoryUsage.vue';
 import CreatorDraft from '@/components/agent/CreatorDraft.vue';
 import { createCompositionGuard } from '@/agent/composer-input.mjs';
 import { isLogCommand, logReply } from '@/agent/local-commands.mjs';
@@ -356,6 +361,8 @@ async function refreshModels() {
 }
 refreshModels();
 const toolsOpen = ref(false);
+const memoryOpen=ref(false), memoryToggle=ref(null);
+function closeMemory(){memoryOpen.value=false;nextTick(()=>memoryToggle.value?.focus());}
 
 const router = useRouter(),
   route = useRoute(),

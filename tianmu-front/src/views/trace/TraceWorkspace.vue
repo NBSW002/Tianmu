@@ -11,7 +11,7 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -68,6 +68,9 @@ const selected = computed(() => presentation.value.allCards.get(selectedId.value
 const selectedSource = computed(() => presentation.value.rawById.get(selected.value?.sourceId))
 const selectedMembers = computed(() => (selected.value?.memberIds || []).filter(id => id !== selected.value.sourceId).map(id => presentation.value.rawById.get(id)).filter(Boolean))
 const invocations = computed(() => modelInvocations(selected.value, presentation.value))
+const intentSelection = computed(() => intentDetails(selected.value))
+const contextSelection = computed(() => contextDetails(selected.value))
+const compactionSelection = computed(() => compactionDetails(selected.value))
 const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
 function toggleGroup(id) {
   const next = new Set(expanded.value)
@@ -234,6 +237,33 @@ function downloadExample() {
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
             <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
+            <section v-if="compactionSelection.visible" class="intent-selection" aria-label="上下文压缩范围">
+              <h3>压缩范围</h3>
+              <p v-if="compactionSelection.trigger">{{ compactionSelection.trigger }}</p>
+              <p v-if="compactionSelection.from != null">消息序号 {{ compactionSelection.from }}–{{ compactionSelection.through }} · {{ compactionSelection.messages }} 条</p>
+              <p v-if="compactionSelection.inputBytes != null">{{ compactionSelection.inputBytes }} B → {{ compactionSelection.outputBytes }} B，节省 {{ compactionSelection.savedBytes }} B</p>
+              <p v-if="compactionSelection.prompt">策略 {{ compactionSelection.prompt }}</p>
+              <p>原始消息保留；摘要只覆盖标明的范围，失效来源不会继续使用。</p>
+            </section>
+            <section v-if="contextSelection.visible" class="intent-selection" aria-label="上下文模块装配">
+              <h3>上下文结构</h3>
+              <p>协议 {{ contextSelection.version }} · {{ contextSelection.projection }}</p>
+              <ol><li v-for="slot in contextSelection.slots" :key="slot.name">{{ slot.label }}<small v-if="slot.bytes != null"> · {{ slot.bytes }} B</small></li></ol>
+              <p>仅列出本次实际装配的模块；正文依当前权限查看。</p>
+            </section>
+            <section v-if="['intent','merge'].includes(selected.cardKind) && intentSelection.visible" class="intent-selection" aria-label="意图能力选择">
+              <h3>能力识别</h3>
+              <p>主目标：<strong>{{ intentSelection.primary?.label || '未选择具体能力（兼容识别器）' }}</strong></p>
+              <p v-if="intentSelection.related.length">关联目标：{{ intentSelection.related.map(item => item.label).join('、') }}</p>
+              <details><summary>本轮候选能力 · {{ intentSelection.candidates.length }}</summary>
+                <article v-for="candidate in intentSelection.candidates" :key="candidate.id" :class="{ chosen: candidate.id === intentSelection.primary?.id }">
+                  <h4>{{ candidate.label }}<small v-if="candidate.id === intentSelection.primary?.id">主目标</small><small v-else-if="intentSelection.related.some(item => item.id === candidate.id)">关联目标</small></h4>
+                  <p v-if="candidate.description">{{ candidate.description }}</p><p v-if="candidate.boundary">{{ candidate.boundary }}</p>
+                  <p v-if="candidate.skill">Skill：{{ candidate.skill }}</p>
+                  <p v-if="candidate.requiredConditions?.length">功能所需条件：{{ candidate.requiredConditions.join('、') }}</p>
+                </article>
+              </details>
+            </section>
             <section v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
               <h3>本轮调用 <span>{{ invocations.length }} 项</span></h3>
               <p v-if="!invocations.length" class="invocation-empty">{{ ['FINAL_ANSWER', 'ANSWER'].includes(selected.attributes?.['model.decision']) ? '本轮直接生成回答' : '尚无工具或 Skill 调用记录' }}</p>
@@ -297,6 +327,14 @@ html.trace-workspace-page #app { max-width: none; background: var(--workbench-pa
 .projection-notice { margin: 0; padding: 8px 20px; font-size: 12px; color: var(--workbench-ink); background: var(--workbench-paper); }
 .semantic-result { padding: 12px; border-radius: 8px; background: var(--workbench-paper); color: var(--workbench-accent); font-size: 13px; }
 .invocation-section { margin: 20px 0; }
+.intent-selection { margin: 20px 0; font-size: 12px; }
+.intent-selection h3 { font-size: 13px; font-weight: 500; }
+.intent-selection p { margin: 6px 0; overflow-wrap: anywhere; }
+.intent-selection strong { font-weight: 500; color: var(--workbench-accent); }
+.intent-selection summary { cursor: pointer; color: var(--workbench-muted); }
+.intent-selection article { border-bottom: 1px solid var(--workbench-border); padding: 10px 0; }
+.intent-selection h4 { font-size: 12px; font-weight: 500; margin: 0; display: flex; align-items: center; gap: 8px; }
+.intent-selection h4 small,.intent-selection .chosen h4 { color: var(--workbench-accent); font-weight: 400; }
 .invocation-section h3 { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; }
 .invocation-section h3 span,.invocation-empty { color: var(--workbench-muted); font-size: 12px; }
 .invocation-card { padding: 12px; margin-top: 10px; border-radius: 10px; background: var(--workbench-paper); border: 1px solid var(--workbench-border); }

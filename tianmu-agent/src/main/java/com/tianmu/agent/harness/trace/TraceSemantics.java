@@ -37,12 +37,15 @@ public final class TraceSemantics {
             });
             attrs.put("preparation.emotion", prepared.request().emotion().name());
             attrs.put("preparation.intent", prepared.request().intent().name());
+            if(prepared.request().recognition()!=null)attrs.putAll(intentSelection(prepared.request().recognition()));
             attrs.put("preparation.skipped_stages", prepared.request().skippedStages().stream().sorted().toList());
             attrs.put("preparation.degraded_stages", prepared.request().degradedStages().stream().sorted().toList());
             attrs.put("preparation.degraded_count", prepared.request().degradedStages().size());
             if (prepared.faq() != null) attrs.putAll(faq(prepared.faq()));
         } else if (value instanceof Emotion emotion) {
             attrs.put("preparation.emotion", emotion.name());
+        } else if (value instanceof IntentRecognition recognition) {
+            attrs.putAll(intentSelection(recognition));
         } else if (value instanceof Intent intent) {
             attrs.put("preparation.intent", intent.name());
         } else if (value instanceof Understanding understood) {
@@ -63,6 +66,13 @@ public final class TraceSemantics {
             attrs.put("context.observation_count", model.observations().size());
         }
         return attrs;
+    }
+    private static Map<String,Object> intentSelection(IntentRecognition selection) {
+        Map<String,Object> attrs=new HashMap<>();attrs.put("preparation.intent",selection.intent().name());
+        attrs.put("preparation.intent_candidates",selection.candidates().stream().map(IntentCandidate::id).toList());
+        attrs.put("preparation.intent_selection",selection.primary()==null?"LEGACY":"CANDIDATE");
+        if(selection.primary()!=null)attrs.put("preparation.intent_primary",selection.primary());
+        attrs.put("preparation.intent_related",selection.related());return attrs;
     }
     public static Map<String, Object> faq(FaqAnswer faq) {
         return Map.of("faq.hit", true, "faq.id", faq.id(), "faq.version", faq.version());
