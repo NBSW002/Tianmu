@@ -1,9 +1,9 @@
 <template>
   <el-carousel v-if="carousels.length" class="featured-carousel" height="100%" trigger="click" arrow="always"
-    :interval="5000" :autoplay="carousels.length > 1 && !reducedMotion" :pause-on-hover="true" aria-label="推荐视频轮播">
-    <el-carousel-item v-for="item in carousels" :key="item.videoId">
+    :interval="5000" :autoplay="carousels.length > 1 && !reducedMotion" :pause-on-hover="true" aria-label="推荐视频轮播" @change="prepareSlide">
+    <el-carousel-item v-for="(item, index) in carousels" :key="item.videoId">
       <router-link class="carousel-inner" :to="`/video/${item.videoId}`">
-        <img :src="mediaUrl(item.coverUrl)" :alt="item.title" @error="useFallbackImage" />
+        <img v-if="preparedSlides.has(index)" :src="mediaUrl(item.coverUrl)" :alt="item.title" decoding="async" :fetchpriority="index === 0 ? 'high' : 'low'" @error="useFallbackImage" />
         <div class="carousel-footer"><span class="carousel-label">精选推荐</span><div class="carousel-title">{{ item.title }}</div></div>
       </router-link>
     </el-carousel-item>
@@ -15,7 +15,7 @@ import { mediaUrl } from "@/lib/media";
 import videoPlaceholder from "@/assets/img/bilibili/video-placeholder.png";
 export default {
   name: "CarouselIndex",
-  data: () => ({ reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches }),
+  data: () => ({ reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches, preparedSlides: new Set([0, 1]) }),
   props: { videos: { type: Array, default: () => [] } },
   computed: {
     carousels() {
@@ -29,6 +29,10 @@ export default {
   },
   methods: {
     mediaUrl,
+    prepareSlide(index) {
+      this.preparedSlides.add(index);
+      this.preparedSlides.add((index + 1) % this.carousels.length);
+    },
     useFallbackImage(event) { event.target.onerror = null; event.target.src = videoPlaceholder; },
   },
 };

@@ -10,14 +10,14 @@
   </section></Transition>
 </template>
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EchoMark from './EchoMark.vue'
 import '@/assets/css/assistant-theme.css'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useAssistantStore } from '@/store/assistant'
 import { getAssistantCapabilities } from '@/api/agent'
-import AgentWorkspace from '@/views/agent/AgentWorkspace.vue'
+const AgentWorkspace = defineAsyncComponent(() => import('@/views/agent/AgentWorkspace.vue'))
 function dismiss(event) { if (!event.isComposing && event.keyCode !== 229) assistant.open = false }
 const route = useRoute(), router = useRouter(), users = useUserStore(), assistant = useAssistantStore()
 const readable = ref(false), creator = ref(false), checking = ref(false), capabilityError = ref(''), mounted = ref(false)

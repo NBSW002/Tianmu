@@ -156,6 +156,7 @@ export default {
           url: this.videoUrl,
           contextmenu: [],
           ...this.option,
+          moreVideoAttr: { preload: 'metadata', playsInline: true },
           poster: this.poster,
           container: this.$refs.artRef,
         }));
