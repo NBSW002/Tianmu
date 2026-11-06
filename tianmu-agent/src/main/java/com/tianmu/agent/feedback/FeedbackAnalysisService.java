@@ -192,8 +192,9 @@ public final class FeedbackAnalysisService {
         store.planLevel(job.id(),job.version(),level+1,inputs);
     }
     private Instant retryAt(FeedbackJobStore.Work work){
-        long wait=Math.min(30,work.attempts()*2L)*1000;
-        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.retry_wait_ms",wait));
+        boolean retryable=work.attempts()<3;
+        long wait=retryable?Math.min(30,work.attempts()*2L)*1000:0;
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.retry_wait_ms",wait,"execution.retryable",retryable));
         return Instant.now().plusMillis(wait);
     }
     private static String topicKey(Topic t){return t.id().substring(t.id().lastIndexOf(':')+1);}

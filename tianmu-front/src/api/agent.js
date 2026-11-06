@@ -80,7 +80,7 @@ export async function getAgentTrace(traceId, signal) {
 }
 
 export async function getTracePayload(runId, reference, signal) {
-  if (!/^[a-f0-9]{16}\/(input|output)\/[1-9]\d{0,6}\/[a-f0-9]{64}$/.test(reference))
+  if (!/^[a-f0-9]{16}\/(input|output|error|provider_output)\/[1-9]\d{0,6}\/[a-f0-9]{64}$/.test(reference))
     throw new Error('节点正文引用无效')
   return (await request(`${runPath(runId)}/trace-payloads/${reference}`, { signal })).json()
 }

@@ -4,7 +4,7 @@ import { computed, nextTick, shallowRef, watch } from 'vue'
 import { VueFlow, Handle, Position, MarkerType } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import { formatDuration, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { cardTitle } from '@/trace/trace-presentation.mjs'
+import { cardTitle, cardHighlight } from '@/trace/trace-presentation.mjs'
 import TraceIcon from './TraceIcon.vue'
 
 const props = defineProps({ trace: { type: Object, required: true }, graph: { type: Object, required: true }, expanded: { type: Set, required: true }, selectedId: String, mode: String })
@@ -19,25 +19,31 @@ const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
 })))
 const nodeIcon = (node) => node.kind === 'MODEL' ? 'model' : node.kind === 'TOOL' ? 'tool' : 'stage'
 let fitTicket = 0
-async function fit() {
+async function fit(readable = true) {
   const flow = instance.value, ticket = ++fitTicket
   if (!flow) return
-  await flow.fitView({ padding: 0.16, maxZoom: 1, duration: 0 })
+  await flow.fitView({ padding: 0.05, maxZoom: 1, duration: 0 })
   if (ticket !== fitTicket || flow !== instance.value) return
   const viewport = flow.getViewport(), canvas = panel.value?.querySelector('.graph-canvas')
   if (!canvas || !nodes.value.length) return
+  if (readable !== false && viewport.zoom < 0.8) {
+    const ys = nodes.value.map(node => node.position.y)
+    flow.setViewport({ x: 28, y: canvas.clientHeight * 0.38 - (Math.min(...ys) + Math.max(...ys) + 48) / 2, zoom: 1 }, { duration: 0 })
+    return
+  }
   const top = Math.min(...nodes.value.map(node => node.position.y * viewport.zoom + viewport.y))
   // Place the complete flow slightly above the canvas centre, leaving room
   // towards the timeline without clipping the highest parallel branch.
   const lift = Math.max(0, Math.min(64, canvas.clientHeight * 0.12, top - 24))
   flow.setViewport({ ...viewport, y: viewport.y - lift }, { duration: 0 })
 }
-const fitAnimated = fit
+const fitAnimated = () => fit(false)
 // A readable starting scale, even for thousands of spans. Resizing panes must
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
 const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })
 function ready(flow) { instance.value = flow; nextTick(fit) }
-const nodeTone = node => node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
+const nodeTone = node => ['faq','intent','emotion','clarification','merge','background','work'].includes(node.cardKind) ? node.cardKind : node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
+const stackCount = node => node.children?.length || node.repeatCount || 0
 function choose(node) { emit('select', node.data.id) }
 watch(() => props.selectedId, async () => {
   await nextTick()
@@ -47,7 +53,7 @@ watch(() => props.selectedId, async () => {
   const viewport = flow.getViewport()
   const x = node.position.x * viewport.zoom + viewport.x
   const y = node.position.y * viewport.zoom + viewport.y
-  if (x < 0 || x + 148 * viewport.zoom > panel.value.clientWidth || y < 48 || y + 40 * viewport.zoom > panel.value.clientHeight) {
+  if (x < 0 || x + 136 * viewport.zoom > panel.value.clientWidth || y < 24 || y + 48 * viewport.zoom > panel.value.clientHeight) {
     flow.setViewport({ ...viewport, x: 36 - node.position.x * viewport.zoom, y: 48 - node.position.y * viewport.zoom }, { duration: 0 })
   }
 })
@@ -56,7 +62,7 @@ watch(() => props.selectedId, async () => {
 <template>
   <section ref="panel" class="trace-graph-panel">
     <div v-if="mode === 'graph'" class="graph-titlebar">
-      <span class="time-direction" title="从左到右按开始时间排列；上下分支表示时间重叠，展开的下层表示内部步骤。虚线为顺序，实线为已记录的模型调用工具。">时间 →<small>上下分叉 · 并行执行</small></span>
+      <span class="time-direction" title="从左到右展示执行阶段；上下分支表示日志中的并行步骤。阶段可展开，原始时间保留在下方时间线。">执行主线 →<small>展开阶段查看步骤</small></span>
       <div class="graph-legend"><span><i class="model-dot" />模型</span><span><i class="tool-dot" />工具</span><span><i class="stage-dot" />判断 / 任务</span></div>
     </div>
     <div v-if="mode === 'graph'" class="graph-canvas">
@@ -67,10 +73,11 @@ watch(() => props.selectedId, async () => {
         @pane-ready="ready" @nodes-initialized="fit" @node-click="({ node }) => choose(node)"
       >
         <template #node-trace="{ data, selected }">
-          <div class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) || data.failureIds?.length }, `tone-${nodeTone(data)}`]" :data-testid="`trace-node-${data.id}`">
+          <div class="trace-node" :title="data.summary" :class="[{ 'is-selected': selected, 'is-stack': data.children?.length && !expanded.has(data.id), 'is-failed': ['FAILED','TIMED_OUT'].includes(data.status) }, `tone-${nodeTone(data)}`]" :data-testid="`trace-node-${data.id}`">
             <Handle type="target" :position="Position.Left" :connectable="false" />
             <span class="node-name" :aria-label="`${cardTitle(data)}，${statusLabel(data.status)}`">{{ cardTitle(data) }}</span>
-            <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${expanded.has(data.id) ? '收起' : '展开'} ${cardTitle(data)}`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '收起' : `${data.repeatCount} 步 · 展开` }}</button>
+            <span class="node-highlight" :title="cardHighlight(data)">{{ cardHighlight(data) }}</span>
+            <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${data.collapseId || expanded.has(data.id) ? '收起' : '展开'} ${data.collapseId ? '执行阶段' : cardTitle(data)}`" :title="data.collapseId || expanded.has(data.id) ? '收起阶段' : `包含 ${stackCount(data)} 个步骤，点击展开`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '−' : `×${stackCount(data)}` }}</button>
 
             <Handle type="source" :position="Position.Right" :connectable="false" />
           </div>
@@ -161,21 +168,32 @@ watch(() => props.selectedId, async () => {
 .graph-controls button:hover {box-shadow:var(--workbench-ring-shadow);}
 .graph-controls button:focus-visible,.cluster-toggle:focus-visible,.node-table button:focus-visible {outline-color:var(--workbench-focus);}
 .graph-canvas :deep(.vue-flow__node:focus-visible){outline-color:var(--workbench-focus);}
-/* Compact title-only nodes; timing and payloads belong in the inspector. */
+/* Warm, compact two-line cards; detailed timing and payloads stay in the inspector. */
 .graph-titlebar {padding:10px 16px;border-bottom:0;}
 .time-direction small {margin-left:8px;}
 .graph-canvas {background:var(--workbench-paper);min-height:240px;}
-.trace-node {width:148px;height:36px;display:flex;align-items:center;justify-content:center;padding:7px 10px;border:1px solid transparent;border-radius:8px;box-shadow:none;box-sizing:border-box;}
-.node-name {font-size:13px;font-weight:500;line-height:20px;}
+.trace-node {width:136px;height:48px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:5px 10px;gap:2px;border:1px solid transparent;border-radius:7px;box-shadow:none;box-sizing:border-box;}
+.node-name {font-size:13px;font-weight:500;line-height:18px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.node-highlight {font-size:11px;line-height:16px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.82;}
 .trace-node.tone-model {background:var(--workbench-soft);color:#83462f;}
-.trace-node.tone-tool {background:var(--workbench-success-soft);color:#40583b;}
-.trace-node.tone-stage {background:var(--workbench-sidebar);color:#655744;}
+.trace-node.tone-tool {background:var(--workbench-success-soft);color:var(--workbench-success);}
+.trace-node.tone-stage {background:var(--workbench-sidebar);color:var(--workbench-charcoal);}
 .trace-node.is-selected,.trace-node.is-stack.is-selected {border-color:currentColor;box-shadow:0 0 0 1px currentColor;}
 .trace-node.is-failed {border-color:var(--workbench-error);}
 .trace-node:hover {border-color:currentColor;}
 .trace-node :deep(.vue-flow__handle) {opacity:0;}
 .trace-node.is-stack {box-shadow:2px 3px 0 -1px var(--workbench-paper),2px 3px 0 0 var(--workbench-border);}
-.cluster-toggle {top:-22px;right:0;font-size:11px;padding:2px 6px;}
+.trace-node.tone-faq {background:var(--workbench-raised);color:var(--workbench-muted);border-color:var(--workbench-border);}
+.trace-node.tone-intent {background:var(--workbench-soft);color:#83462f;}
+.trace-node.tone-emotion {background:var(--workbench-sidebar);color:var(--workbench-charcoal);}
+.trace-node.tone-clarification {background:var(--workbench-warning-soft);color:var(--workbench-warning);}
+.trace-node.tone-merge {background:#e2dfd3;color:var(--workbench-charcoal);}
+.trace-node.tone-background {background:#eee8dd;color:#71604c;}
+.trace-node.tone-work {background:#f0ece3;color:var(--workbench-muted);}
+.trace-node.is-failed {border-color:var(--workbench-error);}
+.trace-node.is-selected,.trace-node.is-stack.is-selected {border-color:var(--workbench-ring-deep);box-shadow:var(--workbench-ring-shadow);}
+.cluster-toggle {top:-9px;right:-8px;font-size:10px;font-weight:500;padding:1px 5px;min-width:27px;height:18px;line-height:14px;border:0;border-radius:6px;background:var(--workbench-raised);color:var(--workbench-muted);box-shadow:var(--workbench-ring-shadow);font-variant-numeric:tabular-nums;}
+.cluster-toggle:hover {background:var(--workbench-sidebar);color:var(--workbench-ink);}
+.trace-node.is-failed {border-color:var(--workbench-error);}
 .graph-controls {bottom:12px;right:12px;}
-@media(pointer:coarse){.trace-node{height:44px;}}
 </style>

@@ -113,7 +113,7 @@ public final class HarnessSession {
             Map<String, Object> finish = new HashMap<>(usage.totals());
             finish.put("run.background_model_calls", snapshot.backgroundModelCalls());
             finish.put("budget.scope", "FOREGROUND");
-            if(initialModelCalls>0)finish.put("usage.scope", "RUN_PROCESS_SEGMENT");
+            finish.put("usage.scope", initialModelCalls>0 ? "RUN_PROCESS_SEGMENT" : "RUN");
             finish.putAll(budget.attributes());
             long reported = ((Number) finish.get("usage.reported_calls")).longValue();
             long expected = Math.max(0,totalModelCalls-initialModelCalls);

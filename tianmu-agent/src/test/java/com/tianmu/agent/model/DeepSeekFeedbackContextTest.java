@@ -86,7 +86,9 @@ class DeepSeekFeedbackContextTest {
         extraFields=Map.of("topics",List.of(Map.of("key","T1","title","a","observation","a","recommendation",""),
                 Map.of("key","T2","title","b","observation","b","recommendation",""),Map.of("key","T3","title","c","observation","c","recommendation","")),
                 "assignments",Map.of("C1","T1","C2","T2"));
-        assertEquals("INVALID_ANALYSIS",assertThrows(AgentException.class,()->model.analyzePipeline(input,control())).code());
+        var invalid=assertThrows(AgentException.class,()->model.analyzePipeline(input,control()));
+        assertEquals("INVALID_ANALYSIS",invalid.code());assertTrue(invalid.getMessage().contains("TOPIC_LIMIT_EXCEEDED"));
+        assertTrue(invalid.getMessage().contains("max_topics=2"));
     }
     @Test void pipelineIgnoresProviderCountersAndDerivesCoverageOnlyFromAcceptedMembers(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory){
         var child=new Topic("batch:T1","反馈","意见","",List.of("G1"),13,2);

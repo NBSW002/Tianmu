@@ -29,8 +29,8 @@ public final class TraceNode {
     public static void failure(Span span, RuntimeException error) {
         String code = error instanceof AgentException a ? a.code() : "INTERNAL_ERROR";
         String status = code.contains("TIMEOUT") || code.contains("DEADLINE") ? "TIMED_OUT" : code.contains("CANCEL") ? "CANCELLED" : "FAILED";
-        TraceAttributes.apply(span, Map.of("node.status", status, "error.code", code, "exception.type", error.getClass().getSimpleName(),
-                "execution.retryable", Set.of("TOOL_CALL_TIMEOUT", "TOOL_TEMPORARY_ERROR").contains(code)));
+        TraceAttributes.apply(span, Map.of("node.status", status, "error.code", code, "exception.type", error.getClass().getSimpleName()));
+        // The owning execution policy decides retryability; a generic trace helper cannot.
         try (var scope = span.makeCurrent()) {
             TraceDetails.capture("error", Map.of("code", code, "type", error.getClass().getSimpleName(), "message", error.getMessage() == null ? "" : error.getMessage()), "ERROR");
         }

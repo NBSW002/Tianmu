@@ -43,7 +43,8 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         try {
             // Flash may echo the JSON-mode format marker. It is fixed protocol metadata, not evidence.
             boolean formatMarker=body.size()==3 && body.path("type").isTextual() && "json_object".equals(body.path("type").asText());
-            if(!body.isObject() || !(body.size()==2 || formatMarker) || !body.path("topics").isArray() || body.path("topics").size()>maxTopics || !body.path("assignments").isObject())throw new IllegalArgumentException();
+            if(!body.isObject() || !(body.size()==2 || formatMarker) || !body.path("topics").isArray() || !body.path("assignments").isObject())throw new IllegalArgumentException("INVALID_SCHEMA");
+            if(body.path("topics").size()>maxTopics)throw new IllegalArgumentException("TOPIC_LIMIT_EXCEEDED");
             if(formatMarker)com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("model.response_repaired",true));
             var rows=new LinkedHashMap<String,com.fasterxml.jackson.databind.JsonNode>();var members=new LinkedHashMap<String,List<String>>();
             for(var row:body.get("topics")){
@@ -74,7 +75,11 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             // Every supplied assignment still passes the planner's exact coverage/identity checks.
             rows.forEach((key,row)->{if(!members.get(key).isEmpty())out.add(new Proposal(key,row.get("title").asText(),row.get("observation").asText(),row.get("recommendation").asText(),members.get(key)));});
             return List.copyOf(out);
-        } catch(RuntimeException invalid){throw new AgentException("INVALID_ANALYSIS","Provider returned an invalid bounded classification");}
+        } catch(RuntimeException invalid){
+            String reason=Set.of("INVALID_SCHEMA","TOPIC_LIMIT_EXCEEDED").contains(Objects.toString(invalid.getMessage(),""))?invalid.getMessage():"INVALID_TOPIC_OR_ASSIGNMENT";
+            com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("model.validation_error",reason));
+            throw new AgentException("INVALID_ANALYSIS","Provider analysis validation failed: "+reason+" (max_topics="+maxTopics+")");
+        }
     }
     public String pipelinePolicyHash(){return pipelineHash;}
     public List<Proposal> analyzePipeline(Input input,CallControl control){

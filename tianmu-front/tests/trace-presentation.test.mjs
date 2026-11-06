@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTracePresentation, layoutPresentation } from '../src/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, cardHighlight, layoutPresentation } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
 
@@ -14,8 +14,8 @@ test('entry recognition forks into three real model spans and joins before the c
   assert.equal(new Set(branches.map(n => n.position.y)).size, 3)
   assert.equal(faq.position.y, get('emotion').position.y)
   assert.equal(merge.position.y, get('emotion').position.y)
-  assert.equal(get('intent').position.y, get('emotion').position.y - 88)
-  assert.equal(get('clarification').position.y, get('emotion').position.y + 88)
+  assert.equal(get('intent').position.y, get('emotion').position.y - 76)
+  assert.equal(get('clarification').position.y, get('emotion').position.y + 76)
   for (const branch of branches) {
     assert.equal(branch.data.kind, 'MODEL')
     assert.ok(graph.edges.some(e => e.source === faq.id && e.target === branch.id))
@@ -29,6 +29,69 @@ test('entry recognition forks into three real model spans and joins before the c
 })
 
 const node = (id, name, kind, offsetMs, durationMs, extra = {}) => ({ id, name, kind, offsetMs, durationMs, status: 'SUCCEEDED', attributes: {}, ...extra })
+
+test('overview collapses execution and delivery while expansion preserves original calls', () => {
+  const p=buildTracePresentation([
+    node('faq','agent.prepare.faq','STAGE',0,1,{attributes:{'faq.hit':false}}),
+    node('decision','agent.model','MODEL',2,3),
+    node('tool','agent.tool','TOOL',5,2,{tool:'analyze_video_content'}),
+    node('background','feedback.work','STAGE',8,20,{attributes:{'analysis.job_id':'job'}}),
+    node('ready','feedback.deliver','DELIVERY',30,1),node('answer','agent.deliver','DELIVERY',32,1),node('finish','finish','STAGE',34,1),
+  ])
+  const overview=buildTraceOverview(p)
+  assert.deepEqual(overview.cards.map(c=>c.cardKind),['faq','execution','background','delivery_group'])
+  assert.equal(cardHighlight(overview.cards[0]),'未命中')
+  assert.equal(cardHighlight(overview.cards[1]),'视频')
+  assert.equal(cardHighlight(overview.cards[3]),'报告已返回')
+  const execution=overview.cards[1]
+  assert.deepEqual(execution.children.map(c=>c.id),['decision','tool'])
+  const expanded=layoutPresentation(overview,new Set([execution.id]))
+  assert.ok(expanded.nodes.some(n=>n.id==='decision'));assert.ok(expanded.nodes.some(n=>n.id==='tool'))
+  assert.ok(overview.allCards.has('answer'));assert.ok(overview.rawById.has('finish'))
+  assert.equal(p.cards.length,7)
+})
+
+test('clarification stays directly visible and failed final outcomes are not labelled delivered', () => {
+  const p=buildTraceOverview(buildTracePresentation([
+    node('clarify','agent.tool','TOOL',0,1,{tool:'ask_clarification'}),
+    node('finish','finish','STAGE',2,1,{attributes:{'run.status':'FAILED'}}),
+  ]))
+  assert.equal(p.cards[0].cardKind,'tool');assert.equal(cardHighlight(p.cards[0]),'等待用户补充')
+  assert.equal(p.cards[1].status,'FAILED');assert.ok(!cardHighlight(p.cards[1]).includes('已返回'))
+})
+
+test('retry outcome replaces an earlier attempt without hiding its error records', () => {
+  const work=(id,attempt,status,start)=>node(id,'feedback.work','STAGE',start,4,{status,parentId:'run',attributes:{'analysis.job_id':'job','analysis.work_id':'work','execution.attempt':attempt,'analysis.phase':'MERGING'}})
+  const raw=[work('first',1,'FAILED',0),node('error','feedback.model','MODEL',1,2,{status:'FAILED',parentId:'first'}),work('retry',2,'SUCCEEDED',6)]
+  const job=buildTracePresentation(raw).cards[0]
+  assert.equal(job.status,'SUCCEEDED');assert.equal(job.failureIds.length,1);assert.ok(job.memberIds.includes('error'));assert.match(job.summary,/重试后成功/)
+  raw.push(node('another','feedback.work','STAGE',12,3,{status:'FAILED',parentId:'run',attributes:{'analysis.job_id':'job','analysis.work_id':'other'}}))
+  assert.equal(buildTracePresentation(raw).cards[0].status,'FAILED')
+})
+
+test('delivery nodes and actual provider usage survive semantic projection', () => {
+  const p=buildTracePresentation([
+    node('outer','agent.model','MODEL',0,5),node('provider','model.request','MODEL',1,3,{parentId:'outer',inputTokens:10,outputTokens:3,totalTokens:13,model:'flash'}),
+    node('report','feedback.deliver','DELIVERY',6,1),node('answer','agent.deliver','DELIVERY',8,1),node('finish','finish','STAGE',10,1),
+  ])
+  assert.deepEqual(p.cards.map(c=>c.cardKind),['model','report_delivery','delivery','finish'])
+  assert.equal(p.cards[0].totalTokens,13);assert.equal(p.cards[0].model,'flash')
+})
+
+test('interleaved spans do not push a delayed parallel sibling into another column', () => {
+  const p = buildTracePresentation([
+    node('faq', 'agent.prepare.faq', 'STAGE', 0, 1),
+    node('intent', 'agent.prepare.intent', 'MODEL', 2, 9, { parentId: 'entry' }),
+    node('other', 'agent.tool', 'TOOL', 3, 0.2, { parentId: 'other-scope' }),
+    node('emotion', 'agent.prepare.emotion', 'MODEL', 4, 8, { parentId: 'entry' }),
+    node('clarify', 'agent.prepare.clarification', 'MODEL', 5, 8, { parentId: 'entry' }),
+  ])
+  const g = layoutPresentation(p)
+  const branches = g.nodes.filter(n => ['intent','emotion','clarify'].includes(n.id))
+  assert.equal(new Set(branches.map(n => n.position.x)).size, 1)
+  assert.equal(new Set(branches.map(n => n.position.y)).size, 3)
+  assert.equal(branches.find(n => n.id === 'emotion').data.offsetMs, 4)
+})
 
 test('linear tree keeps separate decisions, forks parallel work and rejoins before tools', () => {
   const raw = [
@@ -70,7 +133,7 @@ test('parallel jobs retain their lanes when a stack expands inline', () => {
   const first = graph.nodes.find(n => n.id === 'w0')
   const second = graph.nodes.find(n => n.id === p.cards[1].id)
   assert.equal(first.position.x, second.position.x)
-  assert.equal(Math.abs(second.position.y - first.position.y), 88)
+  assert.equal(Math.abs(second.position.y - first.position.y), 76)
   assert.equal(first.data.collapseId, p.cards[0].id)
   assert.equal(graph.nodes.length, 2)
 })

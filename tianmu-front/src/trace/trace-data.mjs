@@ -93,6 +93,8 @@ function normalizeTrace(spans, traceId, meta) {
       inputState: a['detail.input_state'] || (inline.input != null || span.input != null ? 'COMPLETE' : 'NOT_CAPTURED'),
       outputState: a['detail.output_state'] || (inline.output != null || span.output != null ? 'COMPLETE' : 'NOT_CAPTURED'),
       inputRef: a['detail.input_ref'], outputRef: a['detail.output_ref'],
+      error: inline.error ?? null, errorRef: a['detail.error_ref'], errorState: a['detail.error_state'],
+      provider_output: inline.provider_output ?? null, provider_outputRef: a['detail.provider_output_ref'], provider_outputState: a['detail.provider_output_state'],
       attributes: a,
     }
   }).sort((a, b) => (a.offsetMs ?? Infinity) - (b.offsetMs ?? Infinity))
@@ -109,15 +111,17 @@ function normalizeTrace(spans, traceId, meta) {
     }
   }
   const modelNodes = nodes.filter((n) => n.kind === 'MODEL' || n.type === 'llm_inference' || (n.model && (n.inputTokens != null || n.outputTokens != null)))
+  const isBelow = (node, parent) => { let p = byId.get(node.parentId); while (p) { if (p.id === parent.id) return true; p = byId.get(p.parentId) } return false }
+  const calls = modelNodes.filter(n => n.attributes['model.dispatched'] !== false && !modelNodes.some(child => child !== n && isBelow(child, n)))
   const sumTokens = (key) => {
     if (summary) return finite(summary.attributes[`usage.${key}`])
-    const provided = modelNodes.map((n) => n[key === 'input_tokens' ? 'inputTokens' : 'outputTokens']).filter((v) => v != null)
+    const provided = calls.map((n) => n[key === 'input_tokens' ? 'inputTokens' : 'outputTokens']).filter((v) => v != null)
     return provided.length ? provided.reduce((a, b) => a + b, 0) : null
   }
   const inputTokens = sumTokens('input_tokens'), outputTokens = sumTokens('output_tokens')
   return {
     id: traceId, runId: attrs['run.id'] || nodes.find((n) => n.attributes['run.id'])?.attributes['run.id'] || traceId,
-    title: meta.title || attrs['task.name'] || root.name,
+    title: meta.title || attrs['task.name'] || (root.name === 'agent.run' ? '本次运行' : root.name),
     source: meta.sourceName, demo: meta.demo,
     model: [...new Set(modelNodes.map((n) => n.model).filter(Boolean))].join(' / ') || '未提供',
     status: finish?.attributes?.['run.status'] || attrs['run.status'] || root.attributes?.['node.status'] || nodeStatus(root),
@@ -127,7 +131,7 @@ function normalizeTrace(spans, traceId, meta) {
     endMs: end == null ? null : Number(end) / 1e6,
     inputTokens, outputTokens,
     totalTokens: inputTokens != null && outputTokens != null ? inputTokens + outputTokens : null,
-    usageComplete: summary ? summary.attributes['usage.complete'] === true : modelNodes.length > 0 && modelNodes.every((n) => n.inputTokens != null && n.outputTokens != null),
+    usageComplete: summary ? summary.attributes['usage.complete'] === true : calls.length > 0 && calls.every((n) => n.inputTokens != null && n.outputTokens != null),
     nodes,
   }
 }

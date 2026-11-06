@@ -11,7 +11,7 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, layoutPresentation, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, layoutPresentation, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -62,7 +62,7 @@ onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort()
 
 const trace = computed(() => traces.value.find((item) => item.id === activeId.value) || traces.value[0])
 const expanded = ref(new Set())
-const presentation = computed(() => buildTracePresentation(trace.value.nodes))
+const presentation = computed(() => buildTraceOverview(buildTracePresentation(trace.value.nodes)))
 const graph = computed(() => layoutPresentation(presentation.value, expanded.value))
 const selected = computed(() => presentation.value.allCards.get(selectedId.value) || (presentation.value.rawById.has(selectedId.value) ? presentNode(presentation.value.rawById.get(selectedId.value)) : null))
 const selectedSource = computed(() => presentation.value.rawById.get(selected.value?.sourceId))
@@ -120,7 +120,7 @@ watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCl
   onCleanup(() => controller.abort())
   payloadLoading.value = true
   try {
-    const results = await Promise.allSettled(['input', 'output'].map(async (direction) => {
+    const results = await Promise.allSettled(['input', 'output', 'error', 'provider_output'].map(async (direction) => {
       const reference = node[`${direction}Ref`]
       if (node[direction] != null || !reference || reference === 'UNAVAILABLE') return
       const data = await getTracePayload(node.attributes['run.id'] || current.runId, reference, controller.signal)
@@ -229,7 +229,7 @@ function downloadExample() {
           <div class="inspector-heading">节点详情</div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
-            <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">第 {{ selected.turn }} 轮</span></div>
+            <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
             <p v-if="selected.sourceNote || selected.legacy" class="projection-notice">{{ selected.sourceNote || '历史记录缺少任务 ID，按同一运行的父级范围归组；内部阶段可能未记录。' }}</p>
             <section v-if="selectedMembers.length" class="member-section"><h3>内部记录 · {{ selectedMembers.length }}</h3><button v-for="member in selectedMembers" :key="member.id" type="button" @click="selectNode(member.id)"><span>{{ nodeDisplayName(member) }}</span><small :class="{ error: ['FAILED', 'TIMED_OUT'].includes(member.status) }">{{ statusLabel(member.status) }} · {{ formatDuration(member.durationMs) }}</small></button></section>
@@ -237,6 +237,8 @@ function downloadExample() {
             <p v-if="payloadLoading || payloadError" class="payload-state" role="status">{{ payloadError || '正在加载节点正文…' }}</p>
             <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
             <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
+            <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
+            <details v-if="selectedSource && selected.provider_outputRef"><summary>模型原始返回</summary><TraceCode title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" /></details>
             <section class="metadata-section"><h3>节点属性</h3><dl class="node-metadata"><div><dt>{{ selected.synthetic ? '展示分组 ID' : 'Span ID' }}</dt><dd>{{ selected.id }}</dd></div><div><dt>Parent Span ID</dt><dd>{{ selected.parentId || '根节点' }}</dd></div><div><dt>开始时间 · 北京</dt><dd>{{ date(selected.startMs) }} {{ clock(selected.startMs) }}</dd></div><div><dt>模型</dt><dd>{{ selected.model || '—' }}</dd></div><div><dt>原始名称</dt><dd>{{ selected.name }}</dd></div></dl></section>
             <TraceCode v-if="selectedSource" title="原始属性" :value="selected.attributes" state="COMPLETE" />
           </div>
