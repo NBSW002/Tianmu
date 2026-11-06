@@ -37,7 +37,7 @@ class ContextConversationTest {
         while(!AgentTypes.terminal(run.snapshot().status()) && System.nanoTime()<until)Thread.sleep(10);
         assertEquals(Status.SUCCEEDED,run.snapshot().status(),run.snapshot().errorCode());return run.snapshot();
     }
-    @Test void currentVideoAndFollowupGoalReachHarnessWithoutPreparationModelOrSyntheticUserText() throws Exception {
+    @Test void currentVideoAndFollowupGoalReachHarnessAfterParallelRecognitionWithoutSyntheticUserText() throws Exception {
         when(pages.page(eq(1001L),any())).thenReturn(new VideoPagePort.Page("1001","动物 · 鸭子",32000));
         var seen=new ArrayList<ModelContext>();
         when(model.decide(any(),any())).thenAnswer(call->{
@@ -53,7 +53,7 @@ class ContextConversationTest {
         });
         var first=send("下一个视频给我一点灵感",null);
         var second=send("就是现在的视频",first.sessionId());
-        assertEquals(0,first.preparationCalls());assertEquals(0,second.preparationCalls());
+        assertEquals(3,first.preparationCalls());assertEquals(3,second.preparationCalls());
         assertEquals(2,seen.size());assertEquals("conversation",second.task().specification().type());
     }
     @Test void focusSwitchesTopicsAndDoesNotCarryAnOldVideoGoalIntoAnotherPage() {
@@ -102,6 +102,6 @@ class ContextConversationTest {
         var first=send("最初的灵感问题",null);
         send("聊聊拍摄角度",first.sessionId());send("再聊光线",first.sessionId());
         var recalled=send("找回更早的灵感",first.sessionId());
-        assertEquals(2,recalled.modelCalls());assertEquals(0,recalled.preparationCalls());
+        assertEquals(2,recalled.modelCalls());assertEquals(3,recalled.preparationCalls());
     }
 }

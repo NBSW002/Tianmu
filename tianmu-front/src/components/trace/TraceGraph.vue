@@ -18,8 +18,21 @@ const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
   style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: undefined },
 })))
 const nodeIcon = (node) => node.kind === 'MODEL' ? 'model' : node.kind === 'TOOL' ? 'tool' : 'stage'
-const fitAnimated = () => instance.value?.fitView({ padding: 0.16, maxZoom: 1, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220 })
-const fit = () => instance.value?.fitView({ padding: 0.16, maxZoom: 1, duration: 0 })
+let fitTicket = 0
+async function fit() {
+  const flow = instance.value, ticket = ++fitTicket
+  if (!flow) return
+  await flow.fitView({ padding: 0.16, maxZoom: 1, duration: 0 })
+  if (ticket !== fitTicket || flow !== instance.value) return
+  const viewport = flow.getViewport(), canvas = panel.value?.querySelector('.graph-canvas')
+  if (!canvas || !nodes.value.length) return
+  const top = Math.min(...nodes.value.map(node => node.position.y * viewport.zoom + viewport.y))
+  // Place the complete flow slightly above the canvas centre, leaving room
+  // towards the timeline without clipping the highest parallel branch.
+  const lift = Math.max(0, Math.min(64, canvas.clientHeight * 0.12, top - 24))
+  flow.setViewport({ ...viewport, y: viewport.y - lift }, { duration: 0 })
+}
+const fitAnimated = fit
 // A readable starting scale, even for thousands of spans. Resizing panes must
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
 const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })

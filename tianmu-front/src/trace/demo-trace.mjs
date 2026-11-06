@@ -92,4 +92,25 @@ function parallelExample(compact = false) {
   return { demo: true, title: '报告分析 · 并行与重复步骤', spans, details }
 }
 
-export const demoFiles = [example(), example(true), parallelExample(), parallelExample(true)]
+// Explicitly synthetic entry-pipeline examples, separate from real exported traces.
+function preparationExample(clarify = false) {
+  const traceId = clarify ? 'f6e75df847f14db79df00f92b1ac2406' : 'e5e75df847f14db79df00f92b1ac2405'
+  const spans = [], details = {}
+  const add = (n, parent, name, type, kind, offset, duration, attributes = {}, output = {}) => {
+    spans.push({ traceId, spanId: id(n), parentSpanId: parent ? id(parent) : null, name,
+      startTimeUnixNano: String(start + BigInt(offset) * 1000000n), endTimeUnixNano: String(start + BigInt(offset + duration) * 1000000n),
+      status: 'UNSET', attributes: { 'node.type': kind, 'span.type': type, 'node.status': 'SUCCEEDED', ...attributes } })
+    details[id(n)] = { input: { example: true, query: clarify ? '帮我分析一下' : '还是不明白，解释一下构图' }, output }
+  }
+  add(70, null, 'agent.run', 'receive_query', 'REQUEST', 0, 900, { 'run.status': clarify ? 'NEEDS_INPUT' : 'SUCCEEDED', 'node.status': clarify ? 'NEEDS_INPUT' : 'SUCCEEDED' })
+  add(71, 70, 'agent.preparation', 'pre_route', 'ROUTING', 0, 350)
+  add(72, 71, 'agent.prepare.faq', 'faq_lookup', 'ROUTING', 0, 20, { 'faq.hit': false })
+  add(73, 71, 'agent.prepare.intent', 'intent_recognition', 'MODEL', 30, 220, { 'preparation.method': 'MODEL', 'preparation.intent': clarify ? 'OTHER' : 'KNOWLEDGE' }, { intent: clarify ? 'OTHER' : 'KNOWLEDGE' })
+  add(74, 71, 'agent.prepare.emotion', 'emotion_recognition', 'MODEL', 30, 280, { 'preparation.method': 'MODEL', 'preparation.emotion': clarify ? 'NEUTRAL' : 'NEGATIVE' }, { emotion: clarify ? 'NEUTRAL' : 'NEGATIVE' })
+  add(75, 71, 'agent.prepare.clarification', 'clarification_check', 'MODEL', 30, 260, { 'preparation.method': 'MODEL', 'clarification.required': clarify }, { needsClarification: clarify })
+  add(76, 71, 'agent.prepare.merge', 'preparation_merge', 'ROUTING', 320, 10, { 'request.route': clarify ? 'CLARIFY' : 'HARNESS' }, { route: clarify ? 'CLARIFY' : 'HARNESS' })
+  if (clarify) add(77, 70, 'agent.tool', 'tool_call', 'TOOL', 360, 10, { 'tool.name': 'ask_clarification', 'tool.success': true, 'clarification.required': true }, { terminalClarification: '你希望分析哪个视频，还是想讨论一个具体问题？' })
+  else add(77, 70, 'agent.model', 'llm_inference', 'MODEL', 360, 450, { 'model.decision': 'FINAL_ANSWER' }, { answer: '可以从主体、留白和视线方向理解构图。' })
+  return { demo: true, title: clarify ? '前置处理 · 澄清工具' : '前置处理 · 三路并行', spans, details }
+}
+export const demoFiles = [example(), example(true), parallelExample(), parallelExample(true), preparationExample(), preparationExample(true)]

@@ -42,32 +42,34 @@ class EntryArchitectureTest {
             assertEquals(0, run.snapshot().totalModelCalls()); assertNull(run.task());
         }
     }
-    @Test void clarificationCancelsOptionalEmotionBeforeReturning() throws Exception {
+    @Test void clarificationBoundsAndCancelsUnfinishedEmotionBeforeReturning() throws Exception {
         CountDownLatch siblings = new CountDownLatch(1), release = new CountDownLatch(1);
         AtomicInteger cancelled = new AtomicInteger(); ExecutorService worker = Executors.newSingleThreadExecutor();
         try (var f = new HarnessLifecycleTest.Fixture(); var prep = new PreparationService((i, c) -> Optional.empty(), new PreparationFlowTest.Model() {
             void block(CallControl c) { c.cancellation().onCancel(cancelled::incrementAndGet); siblings.countDown(); waitFor(release); }
             public Emotion emotion(Input i, CallControl c) { block(c); return Emotion.NEUTRAL; }
             public Understanding understand(Input i, CallControl c) { waitFor(siblings); return Understanding.clarify("Which video?"); }
-        }, policy(), f.harness)) {
+        }, new PreparationPolicy(Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(150)), f.harness)) {
             RunState run = f.run(); Future<?> task = worker.submit(() -> execute(f, prep, run));
             assertTrue(siblings.await(1, TimeUnit.SECONDS)); task.get(1, TimeUnit.SECONDS);
             assertEquals(Status.NEEDS_INPUT, run.snapshot().status()); assertEquals(1, cancelled.get());
             assertEquals(0, run.snapshot().modelCalls()); assertNull(run.task());
+            assertTrue(run.preparedRequest().degradedStages().contains("emotion"));
+            assertEquals("ask_clarification", run.execution().exchanges().get(0).call().name());
         } finally { release.countDown(); worker.shutdownNow(); }
     }
-    @Test void unfinishedEmotionDoesNotHoldUpHarness() throws Exception {
+    @Test void unfinishedEmotionIsBoundedAndRecordedAsDegraded() throws Exception {
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         ExecutorService worker = Executors.newSingleThreadExecutor();
         try (var f = new HarnessLifecycleTest.Fixture(); var prep = new PreparationService((i, c) -> Optional.empty(), new PreparationFlowTest.Model() {
             public Emotion emotion(Input i, CallControl c) { entered.countDown(); waitFor(release); return Emotion.NEGATIVE; }
             public Understanding understand(Input i, CallControl c) { waitFor(entered); return accepted(i, i.query()); }
-        }, policy(), f.harness)) {
+        }, new PreparationPolicy(Duration.ofMillis(200), Duration.ofSeconds(2), Duration.ofMillis(150)), f.harness)) {
             RunState run = f.run(); Future<?> task = worker.submit(() -> execute(f, prep, run));
             assertTrue(entered.await(1, TimeUnit.SECONDS)); task.get(1, TimeUnit.SECONDS);
             assertEquals(Route.HARNESS, run.snapshot().route()); assertNotNull(run.task());
             assertEquals(Emotion.UNKNOWN, run.preparedRequest().emotion());
-            assertTrue(run.preparedRequest().skippedStages().contains("emotion"));
+            assertTrue(run.preparedRequest().degradedStages().contains("emotion"));
         } finally { release.countDown(); worker.shutdownNow(); }
     }
     @Test void understandingTimeoutAsksForClarificationWithoutEnteringHarness() {

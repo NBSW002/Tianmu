@@ -12,7 +12,7 @@ public final class TraceSemantics {
                 "run.turn_seq", run.turnSeq, "tenant.id", run.owner.tenantId(), "actor.id", run.owner.userId());
     }
     public static Map<String, Object> result(SpanType type, Object value) {
-        if (type == SpanType.CLARIFICATION_CHECK && value instanceof Optional<?> optional)
+        if ((type == SpanType.CLARIFICATION_CHECK || type == SpanType.TASK_READINESS) && value instanceof Optional<?> optional)
             return Map.of("clarification.required", optional.filter(Clarification.class::isInstance).map(Clarification.class::cast).map(Clarification::required).orElse(false));
         if (value instanceof Optional<?> && type != SpanType.FAQ_LOOKUP) return Map.of();
         return result(value);
@@ -43,6 +43,7 @@ public final class TraceSemantics {
             attrs.put("preparation.intent", intent.name());
         } else if (value instanceof Understanding understood) {
             attrs.put("model.decision", understood.needsClarification() ? "CLARIFY" : "PROCEED");
+            attrs.put("clarification.required", understood.needsClarification());
             attrs.put("query.rewritten", understood.rewrittenQuery() != null);
         } else if (value instanceof Optional<?> optional) {
             attrs.put("faq.hit", optional.filter(FaqAnswer.class::isInstance).isPresent());
@@ -51,6 +52,7 @@ public final class TraceSemantics {
             attrs.put("tool.success", !tool.data().containsKey("error_code"));
             attrs.put("tool.has_evidence", tool.evidenceId() != null);
             attrs.put("tool.terminal_delivery", tool.terminalAnswer() != null);
+            attrs.put("clarification.required", tool.terminalClarification() != null);
         } else if (value instanceof ModelContext model) {
             attrs.put("agent.available_tools", model.availableTools().stream().map(ToolDefinition::name).limit(32).toList());
             attrs.put("agent.available_tool_count", model.availableTools().size());

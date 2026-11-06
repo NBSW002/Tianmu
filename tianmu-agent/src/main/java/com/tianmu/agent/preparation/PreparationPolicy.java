@@ -6,11 +6,11 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 @ConfigurationProperties("agent.preparation")
 public record PreparationPolicy(@DefaultValue("300ms") Duration faqTimeout,
-                                @DefaultValue("2s") Duration understandingTimeout,
-                                @DefaultValue("300ms") Duration emotionTimeout,
-                                @DefaultValue("2s") Duration intentTimeout,
-                                @DefaultValue("true") boolean deterministicRouting,
-                                @DefaultValue("false") boolean emotionEnabled) {
+                                @DefaultValue("8s") Duration understandingTimeout,
+                                @DefaultValue("8s") Duration emotionTimeout,
+                                @DefaultValue("8s") Duration intentTimeout,
+                                @DefaultValue("false") boolean deterministicRouting,
+                                @DefaultValue("true") boolean emotionEnabled) {
     /** Retains the model-first behavior of explicitly constructed legacy pipelines. */
     public PreparationPolicy(Duration faq, Duration understanding, Duration emotion, Duration intent) { this(faq, understanding, emotion, intent, false, true); }
     public PreparationPolicy(Duration faq, Duration understanding, Duration emotion) { this(faq, understanding, emotion, understanding); }

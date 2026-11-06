@@ -39,12 +39,14 @@ public class RequestOrchestrator {
                 harness.stage(run, "agent.route", HookPoint.PRE_ROUTE, null, Map.of(), () -> true);
                 Result result = harness.stage(run, "agent.preparation", null, null, Map.of(), () -> {
                     com.tianmu.agent.harness.trace.TraceDetails.input(input);
-                    return preparation.prepare(run, input);
+                    Result prepared = preparation.prepare(run, input);
+                    if (prepared.route() == com.tianmu.agent.core.PreparationTypes.Route.FAQ) return prepared;
+                    return harness.stage(run, "agent.prepare.merge", null, null, Map.of("node.type", "ROUTING"), () -> prepared);
                 });
                 run.prepared(result);
                 switch (result.route()) {
                     case FAQ -> delivery.faq(run, result.faq());
-                    case CLARIFY -> delivery.clarification(run, result.clarification());
+                    case CLARIFY -> runtime.clarifyPrepared(run, result.clarification());
                     case HARNESS -> {
                         var task = harness.stage(run, "agent.assemble", null, null, Map.of(), () -> {
                             com.tianmu.agent.harness.trace.TraceDetails.input(Map.of("preparation", result, "memory", run.memory()));

@@ -1,6 +1,32 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildTracePresentation, layoutPresentation } from '../src/trace/trace-presentation.mjs'
+import { demoFiles } from '../src/trace/demo-trace.mjs'
+import { parseTraceFile } from '../src/trace/trace-data.mjs'
+
+test('entry recognition forks into three real model spans and joins before the clarification tool', () => {
+  const [trace] = parseTraceFile(JSON.stringify(demoFiles.find(d => d.title === '前置处理 · 澄清工具')))
+  const presentation = buildTracePresentation(trace.nodes)
+  const graph = layoutPresentation(presentation)
+  const get = kind => graph.nodes.find(n => n.data.cardKind === kind)
+  const faq = get('faq'), merge = get('merge')
+  const branches = ['intent', 'emotion', 'clarification'].map(get)
+  assert.equal(new Set(branches.map(n => n.position.y)).size, 3)
+  assert.equal(faq.position.y, get('emotion').position.y)
+  assert.equal(merge.position.y, get('emotion').position.y)
+  assert.equal(get('intent').position.y, get('emotion').position.y - 88)
+  assert.equal(get('clarification').position.y, get('emotion').position.y + 88)
+  for (const branch of branches) {
+    assert.equal(branch.data.kind, 'MODEL')
+    assert.ok(graph.edges.some(e => e.source === faq.id && e.target === branch.id))
+    assert.ok(graph.edges.some(e => e.source === branch.id && e.target === merge.id))
+  }
+  const tool = get('tool')
+  assert.equal(tool.data.tool, 'ask_clarification')
+  assert.ok(graph.edges.some(e => e.source === merge.id && e.target === tool.id))
+  assert.equal(graph.nodes.filter(n => n.data.cardKind === 'model').length, 0)
+  assert.equal(get('clarification').data.summary, '需要补充信息')
+})
 
 const node = (id, name, kind, offsetMs, durationMs, extra = {}) => ({ id, name, kind, offsetMs, durationMs, status: 'SUCCEEDED', attributes: {}, ...extra })
 

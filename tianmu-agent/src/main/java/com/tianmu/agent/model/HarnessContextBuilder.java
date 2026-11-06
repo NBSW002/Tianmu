@@ -62,7 +62,15 @@ public final class HarnessContextBuilder {
             control.append(section("environment",environment)).append('\n');
         }
         var focus=context.memory().focus();
-        String current=context.task()==null ? context.message():context.task().originalQuery();
+        String current=context.task()!=null ? context.task().originalQuery()
+                : context.preparation()!=null ? context.preparation().originalQuery() : context.message();
+        if(context.preparation()!=null) {
+            control.append(section("request_preparation",Map.of("intent",context.preparation().intent(),
+                    "emotion",context.preparation().emotion(),"degradedStages",context.preparation().degradedStages()))).append('\n');
+            if(!context.preparation().query().equals(current))
+                control.append(section("execution_query",context.preparation().query())).append('\n');
+            control.append("用户表达负向情绪时，先简短回应具体困难，再提供帮助；情绪判断只影响语气，不改变事实、任务条件或权限。\n");
+        }
         if(focus!=null && !focus.request().equals(current))control.append(section("current_focus",focus)).append('\n');
         if(context.task()!=null && !Set.of("conversation","unclassified").contains(context.task().specification().type()))
             control.append(section("confirmed_conditions",context.task().specification())).append('\n');

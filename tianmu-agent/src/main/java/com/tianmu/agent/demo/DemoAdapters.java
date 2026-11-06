@@ -32,9 +32,14 @@ public class DemoAdapters {
         return new PreparationModelPort() {
             public Intent intent(Input input, CallControl control) {
                 control.checkpoint();
-                if (DanmakuReportTask.requested(input.query())) return Intent.DANMAKU_REPORT;
-                String type=TaskMeaning.defaults().resolve(input.query(),input.businessDate(),input.requestedAt()).type();
-                return type.equals("danmaku.overview")?Intent.OTHER:input.query().contains("弹幕")?Intent.VIDEO_METRIC:Intent.UNKNOWN;
+                try {
+                    String type=TaskMeaning.defaults().resolve(input.query(),input.businessDate(),input.requestedAt(),input.memory()).type();
+                    return switch(type) {
+                        case "video.metric" -> Intent.VIDEO_METRIC;
+                        case "danmaku.overview", "danmaku.report", "audience.report", "comments.analysis" -> Intent.DANMAKU_REPORT;
+                        default -> input.query().contains("解释") ? Intent.KNOWLEDGE : Intent.OTHER;
+                    };
+                } catch(AgentException invalid) { return Intent.OTHER; }
             }
             public Emotion emotion(Input input, CallControl control) {
                 control.checkpoint();
@@ -43,14 +48,13 @@ public class DemoAdapters {
             public Understanding understand(Input input, CallControl control) {
                 control.checkpoint();
                 String text = input.query();
-                if (DanmakuReportTask.requested(text)) {
-                    try { return Understanding.proceed(DanmakuReportTask.specification(DanmakuReportTask.parse(text, input.businessDate(),input.requestedAt().atZone(ZoneId.of("Asia/Shanghai")))).conditions(), text); }
-                    catch (RuntimeException e) { return Understanding.clarify("请提供videoId和日期，例如：分析视频1001昨天的弹幕并生成报告；直播间ID也使用videoId。"); }
+                try {
+                    var task=TaskMeaning.defaults().resolve(text,input.businessDate(),input.requestedAt(),input.memory());
+                    return Understanding.proceed(task.conditions(),text.strip().replaceAll("\\s+", " "));
+                } catch(AgentException invalid) {
+                    if(!"AMBIGUOUS_ANALYSIS_SOURCES".equals(invalid.code()))throw invalid;
+                    return Understanding.clarify(invalid.getMessage());
                 }
-                if (!DanmakuTarget.matcher(text).find() || !text.contains("弹幕"))
-                    return Understanding.clarify("请提供videoId、日期和要查询的弹幕指标；可使用视频ID或直播间ID。");
-                return Understanding.proceed(TaskMeaning.defaults().resolve(text, input.businessDate(),input.requestedAt()).conditions(),
-                        text.strip().replaceAll("\\s+", " "));
             }
         };
     }

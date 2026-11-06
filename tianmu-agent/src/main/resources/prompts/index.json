@@ -21,12 +21,12 @@
   },
   {
     "id": "preparation.intent",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "path": "preparation/intent.md"
   },
   {
     "id": "preparation.understanding",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "path": "preparation/understanding.md"
   },
   {

@@ -59,7 +59,7 @@ class AgentRuntimeTest {
         assertEquals("danmaku.overview",snapshot.task().specification().type());
         var q=((com.tianmu.agent.core.TaskConditions.Report)snapshot.task().specification().typed()).query();
         assertTrue(q.allTime());assertEquals(com.tianmu.agent.core.DanmakuTypes.ALL_TIME_START,q.start());
-        assertEquals(0,snapshot.preparationCalls());assertFalse(snapshot.answer().evidenceIds().isEmpty());
+        assertEquals(3,snapshot.preparationCalls());assertFalse(snapshot.answer().evidenceIds().isEmpty());
     }
     @Test void serviceEntryPassesPreparedQueryToHarnessWithOwnedEvidence() throws Exception {
         String message = "  查询视频1001昨天的弹幕数  ";

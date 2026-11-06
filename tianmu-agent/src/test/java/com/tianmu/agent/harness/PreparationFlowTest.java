@@ -78,7 +78,8 @@ class PreparationFlowTest {
             assertEquals(Route.HARNESS, run.snapshot().route());
             assertTrue(run.snapshot().preparation().degradedStages().isEmpty());
             var spans = f.recording.spans.stream().filter(s -> s.getName().startsWith("agent.prepare.")).toList();
-            assertEquals(5, spans.size());
+            assertEquals(6, spans.size());
+            assertTrue(spans.stream().anyMatch(s -> s.getName().equals("agent.prepare.merge")));
             assertTrue(spans.stream().allMatch(s -> s.getTraceId().equals(run.snapshot().traceId())));
         }
     }
@@ -137,8 +138,8 @@ class PreparationFlowTest {
         })) {
             RunState run = f.run(); execute(f, prep, run, forbidden());
             assertEquals("Which video?", run.snapshot().clarification());
-            assertTrue(run.snapshot().preparation().degradedStages().isEmpty());
-            assertTrue(run.snapshot().preparation().skippedStages().contains("emotion"));
+            assertTrue(run.snapshot().preparation().degradedStages().contains("emotion"));
+            assertFalse(run.snapshot().preparation().skippedStages().contains("emotion"));
         } finally { release.countDown(); }
     }
     @Test void faqOutageFallsThroughButAuthorizationFailureDoesNot() {

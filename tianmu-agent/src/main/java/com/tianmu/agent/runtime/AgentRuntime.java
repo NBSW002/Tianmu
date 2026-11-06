@@ -68,6 +68,15 @@ public class AgentRuntime {
         if (run.task() != task) throw new IllegalStateException("Prepared task must be bound before execution");
         runLoop(run, task.query());
     }
+    /** The host exposes only this tool before task assembly; no loop/model turn is needed. */
+    void clarifyPrepared(RunState run, String question) {
+        if (run.task() != null || run.snapshot().route() != Route.CLARIFY)
+            throw new AgentException("INVALID_OPERATION_STATE", "No pending preparation clarification");
+        var allowed = tools.definitions(run).stream().filter(t -> t.name().equals("ask_clarification")).toList();
+        var context = new ModelContext(run.query(), run.businessDate, run.owner, Set.of(), List.of(), allowed,
+                0, false, "", run.preparedRequest(), null, run.memory());
+        executeTool(run, context, new ToolCall("ask_clarification", Map.of("question", question)), new Progress(), false);
+    }
     private void runLoop(RunState run, String message) {
         List<String> available = tools.definitions(run).stream()
                 .map(ToolDefinition::name).toList();
@@ -182,6 +191,8 @@ public class AgentRuntime {
                     Map.of("tool.name", name, "execution.attempt", attempt, "execution.retry_count", attempt - 1), () -> {
                 TraceDetails.input(call);
                 ToolCall actual = harness.transform(run, TransformPoint.TOOL_CALL, call);
+                if (context.availableTools().stream().noneMatch(tool -> tool.name().equals(actual.name())))
+                    throw new AgentException("TOOL_NOT_AVAILABLE", "Transformed tool is outside the exposed set");
                 executed.set(actual);
                 if (progress.successfulCalls.contains(new ToolCall(actual.name(),actual.arguments()))) throw new AgentException("NO_PROGRESS", "Repeated successful tool call");
                 ToolDispatcher.DispatchOutcome dispatched=allowCorrection?tools.dispatch(actual,run):new ToolDispatcher.Completed(tools.execute(actual,run));

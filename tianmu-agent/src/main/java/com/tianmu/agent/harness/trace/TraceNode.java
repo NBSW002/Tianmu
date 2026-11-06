@@ -11,7 +11,7 @@ public final class TraceNode {
         if (name.equals("agent.run")) return "REQUEST";
         if (name.startsWith("http.")) return "HTTP";
         if (name.startsWith("hook.")) return "HOOK";
-        if (name.contains("model") || name.matches("agent.prepare.(intent|emotion|understanding)")) return "MODEL";
+        if (name.contains("model") || name.matches("agent.prepare.(intent|emotion|understanding|clarification)")) return "MODEL";
         if (name.equals("agent.tool")) return "TOOL";
         if (name.equals("agent.skill")) return "SKILL";
         if (name.contains("context") || name.contains("assemble") || name.contains("memory")) return "CONTEXT";

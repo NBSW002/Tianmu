@@ -9,6 +9,18 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class HarnessContextBuilderTest {
+    @Test void mainModelReceivesEmotionAndValidatedExecutionQueryAlongsideOriginalWords() {
+        var preparation = new com.tianmu.agent.core.PreparationTypes.PreparedRequest("还是不明白构图", "用例子解释构图",
+                com.tianmu.agent.core.PreparationTypes.Emotion.NEGATIVE, Set.of(), Set.of(),
+                com.tianmu.agent.core.PreparationTypes.Intent.KNOWLEDGE);
+        var context = new ModelContext(preparation.query(), LocalDate.now(), new AccessScope("t","u",Set.of()),
+                Set.of(),List.of(),List.of(),6,false,"",preparation);
+        var messages = new HarnessContextBuilder(json,ContextPolicy.defaults()).build("rules", context);
+        String host = messages.stream().filter(m -> "system".equals(m.get("role"))).map(m -> m.get("content").toString()).reduce("",String::concat);
+        assertTrue(host.contains("NEGATIVE")); assertTrue(host.contains("KNOWLEDGE"));
+        assertTrue(host.contains("<execution_query>")); assertTrue(host.contains("用例子解释构图"));
+        assertTrue(host.contains("不改变事实、任务条件或权限"));
+    }
     final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
     MemoryTypes.Message m(UUID turn,long sequence,String role,String text) {return new MemoryTypes.Message(UUID.randomUUID(),turn,sequence,role,text,Instant.now());}
     ModelContext context(MemoryTypes.View memory,List<ToolResult> results,List<ToolExchange> exchanges) {

@@ -73,7 +73,8 @@ class BusinessTraceTest {
             assertEquals("OTHER", one(f, SpanType.INTENT_RECOGNITION).getAttributes().get(AttributeKey.stringKey("preparation.intent")));
             assertEquals("OTHER", one(f, SpanType.PRE_ROUTE).getAttributes().get(AttributeKey.stringKey("preparation.intent")));
             assertTrue(run.snapshot().preparationCalls() >= 2 && run.snapshot().preparationCalls() <= 3);
-            one(f, SpanType.QUERY_UNDERSTANDING);
+            one(f, SpanType.CLARIFICATION_CHECK);
+            one(f, SpanType.PREPARATION_MERGE);
             String exported = f.recording.spans.stream().map(s -> TraceEnvelope.from(s, "test", "test").toString()).toList().toString();
             assertFalse(exported.contains("SECRET_CLARIFICATION")); assertFalse(exported.contains(run.message));
         }

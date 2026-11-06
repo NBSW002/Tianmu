@@ -135,4 +135,4 @@ function normalizeTrace(spans, traceId, meta) {
 export const layoutTrace = (nodes) => buildTraceGraph(nodes).nodes
 
 // Keep names consistent across the graph, timeline and inspector; retain raw names in metadata.
-export const nodeDisplayName = (node) => ({ agent_start: '运行开始', pre_route: '请求路由', query_understanding: '理解问题', agent_loop: '执行循环', llm_inference: '模型调用', 'model.request': '模型请求', tool_call: '工具调用', answer_ready: '结果交付', error: '执行失败', finish: '结束' }[node.type] || node.label)
+export const nodeDisplayName = (node) => ({ agent_start: '运行开始', pre_route: '请求路由', intent_recognition: '意图识别', emotion_recognition: '情绪识别', clarification_check: '澄清识别', task_readiness: '条件校验', preparation_merge: '识别结果汇合', query_understanding: '理解问题', agent_loop: '执行循环', llm_inference: '模型调用', 'model.request': '模型请求', tool_call: '工具调用', answer_ready: '结果交付', error: '执行失败', finish: '结束' }[node.type] || node.label)

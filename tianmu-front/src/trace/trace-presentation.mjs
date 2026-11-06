@@ -1,6 +1,6 @@
 // A read-only projection: semantic cards retain source IDs; raw spans stay intact.
 // No model calls, fabricated durations, or name-only cross-task aggregation.
-const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识别', clarification: '澄清判断', model: '模型思考', tool: '工具调用', background: '后台任务', work: '后台步骤', diagnostic: '异常记录' }
+const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识别', clarification: '澄清识别', merge: '识别结果汇合', model: '模型思考', tool: '工具调用', background: '后台任务', work: '后台步骤', diagnostic: '异常记录' }
 const intentNames = { VIDEO_METRIC: '视频互动统计', DANMAKU_REPORT: '观众反馈报告', KNOWLEDGE: '知识问答', OTHER: '其他任务', UNKNOWN: '未确定' }
 const emotionNames = { NEUTRAL: '中性', POSITIVE: '正向', NEGATIVE: '负向', UNKNOWN: '未知' }
 const phaseNames = { COLLECT: '采集反馈', COLLECTING: '采集反馈', CLASSIFY: '反馈分类', CLASSIFYING: '反馈分类', MERGE: '合并结果', MERGING: '合并结果', READY: '分析就绪', WAITING_AUTH: '等待授权', FAILED: '分析失败', CANCELLED: '已取消' }
@@ -11,14 +11,15 @@ const end = n => Number.isFinite(n.offsetMs) && Number.isFinite(n.durationMs) ? 
 const compare = (a, b) => time(a) - time(b) || a.id.localeCompare(b.id)
 const statusOrder = ['FAILED', 'TIMED_OUT', 'CANCELLED', 'RUNNING', 'WAITING_OPERATION', 'NEEDS_INPUT', 'UNKNOWN', 'SUCCEEDED']
 export const cardTitle = n => n?.cardTitle || titles[n?.cardKind] || n?.label || n?.name || '节点'
-export const cardIcon = n => ({ faq: 'search', intent: 'route', emotion: 'emotion', clarification: 'question', model: 'model', tool: 'tool', background: 'layers', work: 'stage', diagnostic: 'info' }[n?.cardKind] || (n?.kind === 'MODEL' ? 'model' : n?.kind === 'TOOL' ? 'tool' : 'stage'))
+export const cardIcon = n => ({ faq: 'search', intent: 'route', emotion: 'emotion', clarification: 'question', merge: 'route', model: 'model', tool: 'tool', background: 'layers', work: 'stage', diagnostic: 'info' }[n?.cardKind] || (n?.kind === 'MODEL' ? 'model' : n?.kind === 'TOOL' ? 'tool' : 'stage'))
 
 export function semanticKind(n) {
   const t = n.type, name = n.name
   if (t === 'faq_lookup' || name === 'agent.prepare.faq') return 'faq'
   if (t === 'intent_recognition' || name === 'agent.prepare.intent') return 'intent'
   if (t === 'emotion_recognition' || name === 'agent.prepare.emotion') return 'emotion'
-  if (t === 'clarification_check' || name === 'agent.prepare.validate') return 'clarification'
+  if (t === 'clarification_check' || name === 'agent.prepare.validate' || name === 'agent.prepare.clarification') return 'clarification'
+  if (t === 'preparation_merge' || name === 'agent.prepare.merge') return 'merge'
   if (name === 'feedback.work') return 'work'
   if (n.kind === 'TOOL' || t === 'tool_call' || name === 'agent.tool' || t === 'read_skill') return 'tool'
   if (n.kind === 'MODEL' || t === 'llm_inference') return 'model'
@@ -33,6 +34,7 @@ export function cardSummary(n) {
   if (failures.has(n.status)) return a['error.code'] || ({ FAILED: '执行失败', TIMED_OUT: '执行超时', CANCELLED: '已取消' }[n.status])
   if (['SKIPPED', 'DISABLED'].includes(a['preparation.state'])) return skipReasons[a['preparation.reason']] || '本次未执行'
   switch (n.cardKind || semanticKind(n)) {
+    case 'merge': return ({ HARNESS: '条件已确认，进入 Agent', CLARIFY: '调用澄清工具，等待补充', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
     case 'intent': return intentNames[a['preparation.intent']] || '识别结果未记录'
     case 'emotion': return emotionNames[a['preparation.emotion']] || '识别结果未记录'
@@ -126,7 +128,7 @@ export function buildTracePresentation(raw) {
       card.memberIds = members.map(x => x.id)
       card.failureIds = members.filter(x => failures.has(x.status)).map(x => x.id)
       if (card.failureIds.length && !failures.has(card.status)) card.summary += ` · 内部 ${card.failureIds.length} 条异常`
-      const stage = ({ intent: 'intent', emotion: 'emotion' })[kind]
+      const stage = ({ intent: 'intent', emotion: 'emotion', clarification: 'understanding' })[kind]
       const preparation = ancestors(n).find(p => p.name === 'agent.preparation')
       if (stage && n.attributes?.['preparation.method'] === 'MODEL' && preparation?.attributes?.['preparation.skipped_stages']?.includes(stage)) {
         card.sourceNote = '模型分支已启动，本次准备结果未采用该分支结果。'
@@ -193,6 +195,25 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     }
     finished.forEach(n => frontier.delete(n.id))
     frontier.set(card.id, item); lanes[lane] = item; nodes.push(item); lastX = x
+  }
+  // Keep entry fan-out centred on its continuation, rather than attaching the
+  // whole graph to the top lane and letting every branch grow downwards.
+  const entryGroups = new Map()
+  for (const node of nodes.filter(n => ['intent', 'emotion', 'clarification'].includes(n.data.cardKind)
+      && n.data.attributes?.['preparation.method'] === 'MODEL' && !n.data.summaryOnly)) {
+    const key = node.data.parentId || 'entry'
+    if (!entryGroups.has(key)) entryGroups.set(key, [])
+    entryGroups.get(key).push(node)
+  }
+  for (const group of entryGroups.values()) {
+    if (group.length !== 3 || new Set(group.map(n => n.data.cardKind)).size !== 3) continue
+    if (Math.max(...group.map(n => time(n.data))) >= Math.min(...group.map(n => end(n.data)))) continue
+    const oldLanes = new Set(group.map(n => n.position.y))
+    const middle = [...oldLanes].reduce((sum, y) => sum + y, 0) / oldLanes.size
+    for (const node of nodes) if (!group.includes(node) && node.position.y === group[0].position.y) node.position.y = middle
+    group.find(n => n.data.cardKind === 'intent').position.y = middle - 88
+    group.find(n => n.data.cardKind === 'emotion').position.y = middle
+    group.find(n => n.data.cardKind === 'clarification').position.y = middle + 88
   }
   return { nodes, edges }
 }

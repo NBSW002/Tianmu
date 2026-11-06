@@ -58,7 +58,8 @@ public class PreparationService implements AutoCloseable {
         calls.shutdown(); calls = executor; ownsExecutor = false;
     }
     public Result prepare(RunState run, String query) {
-        Input input = new Input(run.message, run.businessDate, run.owner, run.memory().withContext(run.pageContext(),run.memory().focus()), run.createdAt);
+        if (repository != null) run.memory(harness.stage(run, "agent.memory.load", null, null, Map.of(), () -> repository.memory(run)));
+        Input input = new Input(query, run.businessDate, run.owner, run.memory().withContext(run.pageContext(),run.memory().focus()), run.createdAt);
         Set<String> degraded = new LinkedHashSet<>(), skipped = new LinkedHashSet<>();
         Instant faqDeadline = deadline(run, policy.faqTimeout());
         Branch<Optional<FaqAnswer>> lookup = submit(run, "faq", faqDeadline, input, c -> faq.find(input, c));
@@ -68,12 +69,12 @@ public class PreparationService implements AutoCloseable {
         finally { dispose(lookup); }
         run.checkpoint();
         if (hit.isPresent()) {
-            skip(run, "intent", "FAQ_HIT"); skip(run, "validate", "FAQ_HIT"); skipEmotion(run, "FAQ_HIT");
+            skip(run, "intent", "FAQ_HIT"); skip(run, policy.deterministicRouting() ? "validate" : "clarification", "FAQ_HIT");
+            skipEmotion(run, "FAQ_HIT");
             return new Result(Route.FAQ,
                 new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, Set.of("intent", "understanding", "emotion")), hit.get(), null);
         }
 
-        if (repository != null) run.memory(harness.stage(run, "agent.memory.load", null, null, Map.of(), () -> repository.memory(run)));
         var page = run.pageContext();
         if (page != null) {
             if (!run.owner.readableVideoIds().contains(Long.parseLong(page.videoId()))) throw new AgentException("FORBIDDEN","Current page outside scope");
@@ -103,26 +104,34 @@ public class PreparationService implements AutoCloseable {
         if (run.memory().focus()!=null && !Objects.equals(run.memory().focus().referenceVideoId(),focus.referenceVideoId()))
             run.memory(new com.tianmu.agent.core.MemoryTypes.View(run.memory().version(),"",List.of(),true,run.memory().boundary(),page,focus));
         else run.memory(run.memory().withContext(page,focus));
-        if (repository != null) repository.focus(run,focus);
         String analysisQuery=discovery.isPresent() && page!=null?VideoDiscovery.analysisText(query):query;
         Input contextInput = new Input(analysisQuery, run.businessDate, run.owner, run.memory(), run.createdAt);
         run.emit("PROGRESS", Map.of("stage", "preparing"));
-        if(discovery.isPresent() && page==null || VideoDiscovery.historicalReport(query) && !com.tianmu.agent.core.DanmakuTarget.matcher(query).find()){
+        boolean resourceLookup = discovery.isPresent() && page==null || VideoDiscovery.historicalReport(query) && !com.tianmu.agent.core.DanmakuTarget.matcher(query).find();
+        if(policy.deterministicRouting() && resourceLookup){
             skipped.addAll(Set.of("intent","understanding","emotion","rewrite"));
             skip(run, "intent", "RESOURCE_LOOKUP"); skip(run, "validate", "RESOURCE_LOOKUP"); skipEmotion(run, "RESOURCE_LOOKUP");
             return new Result(Route.HARNESS,new PreparedRequest(run.message,query,Emotion.UNKNOWN,degraded,skipped,Intent.OTHER,
                     new com.tianmu.agent.core.TaskTypes.Specification("resource.lookup",Map.of("selection_required",discovery.isPresent() && page==null && VideoDiscovery.requiresSelection(query),"report_reference_required",VideoDiscovery.historicalReport(query)),Map.of())),null,null);
         }
-        com.tianmu.agent.core.TaskTypes.Specification specification;
-        try { specification = meaning.resolve(run.query(), run.businessDate, run.createdAt,run.memory()); }
+        com.tianmu.agent.core.TaskTypes.Specification resolved;
+        Clarification meaningClarification = null;
+        try { resolved = meaning.resolve(run.query(), run.businessDate, run.createdAt,run.memory()); }
         catch (AgentException error) {
             if (!"AMBIGUOUS_ANALYSIS_SOURCES".equals(error.code())) throw error;
-            skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
-            harness.stage(run, "agent.prepare.validate", null, null, rule(), () -> Optional.of(new Clarification(true, error.getMessage())));
-            skip(run, "intent", "CLARIFICATION_REQUIRED"); skipEmotion(run, "CLARIFICATION_REQUIRED");
-            return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, skipped), null, error.getMessage());
+            if(policy.deterministicRouting()) {
+                skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
+                harness.stage(run, "agent.prepare.validate", null, null, rule(), () -> Optional.of(new Clarification(true, error.getMessage())));
+                skip(run, "intent", "CLARIFICATION_REQUIRED"); skipEmotion(run, "CLARIFICATION_REQUIRED");
+                return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, Emotion.UNKNOWN, degraded, skipped), null, error.getMessage());
+            }
+            meaningClarification = new Clarification(true,error.getMessage());
+            resolved = new com.tianmu.agent.core.TaskTypes.Specification("unclassified",Map.of(),Map.of());
         }
-        if (!specification.equals(meaning.resolve(query, run.businessDate, run.createdAt,run.memory())))
+        final var specification = resourceLookup ? new com.tianmu.agent.core.TaskTypes.Specification("resource.lookup",
+                Map.of("selection_required",discovery.isPresent() && page==null && VideoDiscovery.requiresSelection(query),
+                        "report_reference_required",VideoDiscovery.historicalReport(query)),Map.of()) : resolved;
+        if (!resourceLookup && meaningClarification == null && !specification.equals(meaning.resolve(query, run.businessDate, run.createdAt,run.memory())))
             throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Input transformation changed the task conditions");
         String validationQuery=analysisQuery;
         var currentFocus=run.memory().focus();
@@ -130,8 +139,10 @@ public class PreparationService implements AutoCloseable {
                 && com.tianmu.agent.application.ConversationFocus.continuation(query))
             validationQuery=currentFocus.request()+"，"+com.tianmu.agent.core.DanmakuTarget.matcher(query).replaceAll("");
         var validationInput=new Input(validationQuery,run.businessDate,run.owner,run.memory(),run.createdAt);
-        Optional<Clarification> required = harness.stage(run, "agent.prepare.validate", null, null, rule(),
-                () -> validators.stream().map(v -> v.validate(validationInput)).flatMap(Optional::stream).filter(Clarification::required).findFirst());
+        final var ruleClarification = meaningClarification;
+        Optional<Clarification> required = harness.stage(run, policy.deterministicRouting() ? "agent.prepare.validate" : "agent.prepare.readiness", null, null, rule(),
+                () -> ruleClarification != null ? Optional.of(ruleClarification) : resourceLookup ? Optional.empty()
+                        : validators.stream().map(v -> v.validate(validationInput)).flatMap(Optional::stream).filter(Clarification::required).findFirst());
         if (policy.deterministicRouting()) {
             if (required.isPresent()) {
                 skipped.addAll(Set.of("intent", "understanding", "emotion", "rewrite"));
@@ -158,7 +169,7 @@ public class PreparationService implements AutoCloseable {
         Instant intentEnd = deadline(run, policy.intentTimeout());
         Instant emotionEnd = deadline(run, policy.emotionTimeout());
         // All branches read the same immutable snapshot. Only this coordinator merges results.
-        Branch<Understanding> understanding = submit(run, "understanding", end, contextInput, c -> model.understand(contextInput, c));
+        Branch<Understanding> understanding = submit(run, "clarification", end, contextInput, c -> model.clarification(contextInput, c));
         Branch<Intent> intent = submit(run, "intent", intentEnd, contextInput, c -> model.intent(contextInput, c));
         if (!policy.emotionEnabled()) skipEmotion(run, "CONFIG_DISABLED");
         Branch<Emotion> emotion = policy.emotionEnabled() ? submit(run, "emotion", emotionEnd, contextInput, c -> model.emotion(contextInput, c)) : null;
@@ -178,7 +189,7 @@ public class PreparationService implements AutoCloseable {
             } else if (!result.needsClarification() && !validIntent(specification.type(), recognized)) {
                 degraded.add("intent");
                 result = Understanding.clarify("任务意图与查询条件存在冲突，请明确要查询的视频、日期和指标。");
-            } else if (!result.needsClarification() && !validConditions(specification.conditions(), result.conditions())) {
+            } else if (!resourceLookup && !result.needsClarification() && !validConditions(specification.conditions(), result.conditions())) {
                 degraded.add("understanding");
                 result = Understanding.clarify("查询条件存在冲突，请明确要查询的视频、日期和指标。");
             }
@@ -189,7 +200,7 @@ public class PreparationService implements AutoCloseable {
             }
             String rewritten = result.rewrittenQuery();
             if (!safeRewrite(query, rewritten)
-                    || !specification.equals(meaning.resolve(rewritten, run.businessDate, run.createdAt,run.memory()))) {
+                    || !resourceLookup && !specification.equals(meaning.resolve(rewritten, run.businessDate, run.createdAt,run.memory()))) {
                 degraded.add("rewrite"); rewritten = query;
             }
             Emotion feeling = readyEmotion(run, emotion, emotionEnd, degraded, skipped);
@@ -212,14 +223,15 @@ public class PreparationService implements AutoCloseable {
     }
     private boolean validIntent(String type, Intent intent) {
         return switch (type) {
-            case "danmaku.report", "audience.report" -> intent == Intent.DANMAKU_REPORT;
+            case "danmaku.report", "audience.report", "comments.analysis", "danmaku.overview" -> intent == Intent.DANMAKU_REPORT;
+            case "resource.lookup" -> intent != Intent.UNKNOWN;
             case "video.metric" -> intent == Intent.VIDEO_METRIC;
             default -> intent != Intent.VIDEO_METRIC && intent != Intent.DANMAKU_REPORT;
         };
     }
     private void bindFocus(RunState run,com.tianmu.agent.core.TaskTypes.Specification specification) {
         var focus=run.memory().focus();
-        if(focus==null || specification.analysis()==null)return;
+        if(focus==null)return;
         var updated=new com.tianmu.agent.core.MemoryTypes.Focus(focus.request(),focus.sourceRunId(),focus.referenceVideoId(),specification);
         run.memory(run.memory().withContext(run.memory().environment(),updated));
         if(repository!=null)repository.focus(run,updated);
@@ -240,7 +252,6 @@ public class PreparationService implements AutoCloseable {
     }
     private Emotion readyEmotion(RunState run, Branch<Emotion> branch, Instant end, Set<String> degraded, Set<String> skipped) {
         if (branch == null) { skipped.add("emotion"); return Emotion.UNKNOWN; }
-        if (!branch.future().isDone()) { skipped.add("emotion"); return Emotion.UNKNOWN; }
         try { return await(run, branch, end); }
         catch (PreparationUnavailable e) { degraded.add("emotion"); return Emotion.UNKNOWN; }
     }
@@ -267,7 +278,8 @@ public class PreparationService implements AutoCloseable {
                     completedAt.set(Instant.now());
                     return result;
                 } catch (AgentException e) {
-                    if (!Set.of("CANCELLED", "DEADLINE_EXCEEDED").contains(e.code())) run.fail(e.code());
+                    if (!Set.of("CANCELLED", "DEADLINE_EXCEEDED", "MODEL_UNAVAILABLE", "MODEL_ERROR", "MODEL_CALL_TIMEOUT",
+                            "INVALID_MODEL_RESPONSE", "INVALID_DECISION").contains(e.code())) run.fail(e.code());
                     throw e;
                 }
             });
@@ -296,7 +308,11 @@ public class PreparationService implements AutoCloseable {
         } catch (ExecutionException e) {
             run.checkpoint();
             // Authorization and policy failures must never be silently degraded.
-            if (e.getCause() instanceof AgentException a) throw a;
+            if (e.getCause() instanceof AgentException a) {
+                if (Set.of("MODEL_UNAVAILABLE", "MODEL_ERROR", "MODEL_CALL_TIMEOUT", "INVALID_MODEL_RESPONSE", "INVALID_DECISION").contains(a.code()))
+                    throw new PreparationUnavailable();
+                throw a;
+            }
             throw new PreparationUnavailable();
         } catch (TimeoutException | CancellationException e) {
             run.checkpoint(); throw new PreparationUnavailable();
