@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.*;
 @Service @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("${agent.memory.enabled:false} or ${agent.compaction.enabled:false}")
 public final class MemoryBackground {
     @org.springframework.beans.factory.annotation.Autowired(required=false) private CompactionService compaction;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private MemoryConsolidation consolidation;
     @org.springframework.beans.factory.annotation.Value("${agent.memory.enabled:false}") private boolean memoryEnabled;
     private final JdbcTemplate db;
     private final TransactionTemplate tx;
@@ -43,6 +44,7 @@ public final class MemoryBackground {
         if(compaction!=null)compaction.enqueue(transaction,owner,session,run);
         if(!memoryEnabled)return;
         var model=models.getIfAvailable();if(model==null)return;
+        if(consolidation!=null){consolidation.enqueue(transaction,owner,session,run,model.version());return;}
         var accounts=transaction.queryForList("SELECT a.consent_epoch,a.erase_epoch FROM agent_memory_account a WHERE a.tenant_id=? AND a.owner_user_id=? AND a.mode='ON' AND a.auto_extract=1 AND EXISTS(SELECT 1 FROM agent_run r WHERE r.tenant_id=a.tenant_id AND r.owner_user_id=a.owner_user_id AND r.run_id=? AND r.status='SUCCEEDED')",owner.tenantId(),owner.userId(),run.toString());
         if(accounts.isEmpty())return;var a=accounts.get(0);var payload=new LinkedHashMap<String,Object>();payload.put("consent",a.get("consent_epoch"));payload.put("erase",a.get("erase_epoch"));payload.put("model",model.version());
         var span=Span.current().getSpanContext();if(span.isValid())payload.put("traceparent","00-"+span.getTraceId()+"-"+span.getSpanId()+"-"+span.getTraceFlags().asHex());
@@ -54,10 +56,11 @@ public final class MemoryBackground {
             if(compaction==null)throw new AgentException("MEMORY_DISABLED","Compaction worker is disabled");
             var check=new LinkedHashMap<>(event);check.put("consent_epoch",payload.path("consent").asLong());check.put("erase_epoch",payload.path("erase").asLong());compaction.catchUp(check);return;
         }
-        boolean compact="MEMORY_COMPACT".equals(event.get("destination"));
-        String generation=compact?com.tianmu.agent.adapters.storage.FileObjectStore.hash((payload.path("fingerprint").asText()+":"+payload.path("consent").asLong()+":"+payload.path("erase").asLong()).getBytes(java.nio.charset.StandardCharsets.UTF_8)):"";
-        db.update("INSERT INTO agent_memory_job(job_id,tenant_id,owner_user_id,session_id,run_id,consent_epoch,erase_epoch,model_version,trace_parent,job_type,plan_json,generation_key,available_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE job_id=job_id",UUID.randomUUID().toString(),event.get("tenant_id"),event.get("owner_user_id"),event.get("session_id"),event.get("run_id"),payload.path("consent").asLong(),payload.path("erase").asLong(),payload.path("model").asText(),payload.path("traceparent").asText(null),compact?"COMPACT":"EXTRACT",payload.toString(),generation);
+        boolean compact="MEMORY_COMPACT".equals(event.get("destination"));boolean consolidate="MEMORY_CONSOLIDATE".equals(event.get("destination"));
+        String generation=compact?com.tianmu.agent.adapters.storage.FileObjectStore.hash((payload.path("fingerprint").asText()+":"+payload.path("consent").asLong()+":"+payload.path("erase").asLong()).getBytes(java.nio.charset.StandardCharsets.UTF_8)):consolidate?MemoryConsolidation.hash(payload.path("policy").asText()+":"+payload.path("consent").asLong()+":"+payload.path("erase").asLong()):"";
+        db.update("INSERT INTO agent_memory_job(job_id,tenant_id,owner_user_id,session_id,run_id,consent_epoch,erase_epoch,model_version,trace_parent,job_type,plan_json,generation_key,available_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE job_id=job_id",UUID.randomUUID().toString(),event.get("tenant_id"),event.get("owner_user_id"),event.get("session_id"),event.get("run_id"),payload.path("consent").asLong(),payload.path("erase").asLong(),payload.path("model").asText(),payload.path("traceparent").asText(null),compact?"COMPACT":consolidate?"CONSOLIDATE":"EXTRACT",payload.toString(),generation);
     }
+    public void observe(JdbcTemplate transaction,AccessScope owner,UUID session,UUID run){if(consolidation!=null)consolidation.observe(transaction,owner,session,run);}
     private JsonNode decode(Object value){try{return json.readTree(value.toString());}catch(Exception e){throw new AgentException("STORAGE_CORRUPT","Invalid memory job payload");}}
     @Scheduled(scheduler="maintenanceScheduler",fixedDelay=2000)
     public void tick(){if(!busy.compareAndSet(false,true))return;try{executor.execute(()->{try{var job=claim();if(job!=null){current.set(job);work(job);}}finally{current.set(null);busy.set(false);}});}catch(java.util.concurrent.RejectedExecutionException e){busy.set(false);}}
@@ -94,6 +97,10 @@ public final class MemoryBackground {
             }
             if(!memoryEnabled){finish(job,"CANCELLED","MEMORY_DISABLED");TraceAttributes.apply(span,Map.of("node.status","CANCELLED"));return;}
             if(model==null || !model.version().equals(job.get("model_version")))throw new AgentException("MODEL_REVISION_UNAVAILABLE","Memory model revision changed");
+            if("CONSOLIDATE".equals(job.get("job_type"))){
+                if(consolidation==null)throw new AgentException("MEMORY_DISABLED","Consolidation is disabled");
+                consolidation.work(job,model);TraceNode.success(span);span.setStatus(StatusCode.OK);return;
+            }
             var rows=db.queryForList("SELECT r.request_json,r.access_scope_json FROM agent_run r JOIN agent_session s ON s.tenant_id=r.tenant_id AND s.session_id=r.session_id JOIN agent_memory_account a ON a.tenant_id=r.tenant_id AND a.owner_user_id=r.owner_user_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.run_id=? AND r.status='SUCCEEDED' AND r.data_expires_at>UTC_TIMESTAMP(6) AND s.status='OPEN' AND s.expires_at>UTC_TIMESTAMP(6) AND a.mode='ON' AND a.auto_extract=1 AND a.consent_epoch=? AND a.erase_epoch=?",tenant,owner,run.toString(),job.get("consent_epoch"),job.get("erase_epoch"));
             if(rows.isEmpty()){finish(job,"CANCELLED","MEMORY_SOURCE_UNAVAILABLE");return;}
             var row=rows.get(0);String text=decode(row.get("request_json")).path("message").asText();
@@ -123,9 +130,11 @@ public final class MemoryBackground {
         }catch(Exception e){
             String code=e instanceof AgentException a?a.code():e instanceof org.springframework.dao.DataAccessException?"STORAGE_UNAVAILABLE":"MEMORY_EXTRACTION_FAILED";
             boolean retry=Set.of("MODEL_UNAVAILABLE","MODEL_CALL_TIMEOUT","MODEL_ERROR","MEMORY_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(code) && ((Number)job.get("attempts")).intValue()<4;
-            finish(job,retry?"PENDING":Set.of("MEMORY_CONTEXT_INVALIDATED","MEMORY_SOURCE_UNAVAILABLE").contains(code)?"CANCELLED":"DEAD",code);span.setStatus(StatusCode.ERROR,code);
+            if(consolidation!=null && "CONSOLIDATE".equals(job.get("job_type")) && Set.of("MEMORY_CONTEXT_INVALIDATED","MEMORY_SOURCE_UNAVAILABLE").contains(code))consolidation.cancel(job,code);
+            else finish(job,retry?"PENDING":Set.of("MEMORY_CONTEXT_INVALIDATED","MEMORY_SOURCE_UNAVAILABLE").contains(code)?"CANCELLED":"DEAD",code);
+            span.setStatus(StatusCode.ERROR,code);
             TraceAttributes.apply(span,Map.of("node.status",Set.of("MEMORY_CONTEXT_INVALIDATED","MEMORY_SOURCE_UNAVAILABLE").contains(code)?"CANCELLED":"FAILED","error.code",code));
         }finally{span.end();}
     }
-    public List<Map<String,Object>> jobs(AccessScope owner,UUID run){return db.queryForList("SELECT job_id,state,attempts,model_calls,model_version,error_code,trace_id,created_at FROM agent_memory_job WHERE tenant_id=? AND owner_user_id=? AND run_id=? ORDER BY created_at LIMIT 20",owner.tenantId(),owner.userId(),run.toString());}
+    public List<Map<String,Object>> jobs(AccessScope owner,UUID run){return db.queryForList("SELECT j.job_id,j.job_type,j.state,j.attempts,j.model_calls,j.model_version,j.error_code,j.trace_id,j.created_at,w.decision_counts FROM agent_memory_job j LEFT JOIN agent_memory_window w ON w.tenant_id=j.tenant_id AND w.owner_user_id=j.owner_user_id AND w.job_id=j.job_id WHERE j.tenant_id=? AND j.owner_user_id=? AND j.run_id=? ORDER BY j.created_at LIMIT 20",owner.tenantId(),owner.userId(),run.toString());}
 }

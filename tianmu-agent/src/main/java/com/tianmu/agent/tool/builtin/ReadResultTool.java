@@ -11,6 +11,8 @@ public class ReadResultTool implements AgentTool {
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper()
             .findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     public String name() { return "read_result"; }
+    public boolean batchable(){return true;}
+    public boolean parallelSafe(){return true;}
     public int order() { return 30; }
     public Exposure exposure() { return Exposure.GENERAL; }
     public ToolResult execute(ToolCall call, ToolContext context) {

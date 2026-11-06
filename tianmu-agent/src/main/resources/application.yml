@@ -31,6 +31,12 @@ agent:
   memory:
     # Personal memory is gated until lifecycle and real-model quality acceptance pass.
     enabled: ${AGENT_MEMORY_ENABLED:false}
+    consolidation:
+      enabled: ${AGENT_MEMORY_CONSOLIDATION_ENABLED:false}
+  tools:
+    parallel:
+      enabled: ${AGENT_TOOLS_PARALLEL_ENABLED:false}
+      per-run: ${AGENT_TOOLS_PARALLEL_PER_RUN:2}
   compaction:
     enabled: ${AGENT_COMPACTION_ENABLED:false}
     trigger-bytes: ${AGENT_COMPACTION_TRIGGER_BYTES:5632}

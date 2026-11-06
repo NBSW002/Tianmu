@@ -90,7 +90,7 @@ class DeepSeekAdapterTest {
         assertEquals(2114367144786530304L,((Number)decision.call().arguments().get("video_id")).longValue());
         assertEquals("provider-call-731",decision.call().providerCallId());
         assertEquals("analyze_video_content",requests.get(0).path("tools").get(0).path("function").path("name").asText());
-        assertFalse(requests.get(0).has("response_format"));assertFalse(requests.get(0).path("parallel_tool_calls").asBoolean());
+        assertFalse(requests.get(0).has("response_format"));assertTrue(requests.get(0).path("parallel_tool_calls").asBoolean());
         nativeAnswer=null;answer=request->"已读取，这是基于画面的建议。";
         var result=new ToolResult(decision.call().name(),Map.of("summary","鸭子"),"ev_1");
         var finalDecision=model.decide(nativeContext(List.of(result),List.of(new ToolExchange(decision.call(),result))),control());

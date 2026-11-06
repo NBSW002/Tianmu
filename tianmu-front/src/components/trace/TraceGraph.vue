@@ -47,7 +47,7 @@ const fitAnimated = () => fit(false)
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
 const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })
 function ready(flow) { instance.value = flow; nextTick(fit) }
-const nodeTone = node => ['faq','intent','emotion','clarification','merge','background','work','memory','compaction'].includes(node.cardKind) ? node.cardKind : node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
+const nodeTone = node => ['memory_restore','memory_write'].includes(node.cardKind) ? 'memory' : ['faq','intent','emotion','clarification','merge','background','work','memory','compaction'].includes(node.cardKind) ? node.cardKind : node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
 const stackCount = node => node.children?.length || node.repeatCount || 0
 function choose(node) { emit('select', node.data.id) }
 watch(() => props.selectedId, async () => {

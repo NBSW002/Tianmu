@@ -13,6 +13,8 @@ public class QueryVideoMetricsTool implements AgentTool {
     private final BusinessQueryPort queries;
     public QueryVideoMetricsTool(BusinessQueryPort queries) { this.queries = queries; }
     public String name() { return "query_video_metrics"; }
+    public boolean batchable(){return true;}
+    public boolean parallelSafe(){return true;}
     public ToolResult execute(ToolCall call, ToolContext context) {
         long videoId = ToolArguments.integer(call, "video_id");
         MetricQuery query = new MetricQuery(videoId, LocalDate.parse(ToolArguments.text(call, "date")), ToolArguments.text(call, "metric"));

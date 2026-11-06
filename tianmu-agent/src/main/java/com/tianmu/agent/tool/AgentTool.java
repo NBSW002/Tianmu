@@ -13,6 +13,8 @@ public interface AgentTool {
     default boolean canActivateSkills() { return false; }
     /** Independent reads or host-fenced source submissions may share one model turn. */
     default boolean batchable() { return false; }
+    /** Host promises that the handler uses only the isolated read context. */
+    default boolean parallelSafe(){return false;}
     default ToolDefinition describe(ToolDefinition declared, SkillCatalog skills) { return declared; }
     ToolResult execute(ToolCall call, ToolContext context);
 }

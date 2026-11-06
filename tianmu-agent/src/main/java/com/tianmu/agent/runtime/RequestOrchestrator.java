@@ -65,7 +65,13 @@ public class RequestOrchestrator {
         catch (Exception e) { run.fail("INTERNAL_ERROR"); }
     }
     public void resume(RunState run){
-        try{harness.execute(run,()->{if(run.snapshot().status()!=Status.RUNNING || run.task()==null)throw new AgentException("INVALID_OPERATION_STATE","No resumable prepared task");if(memoryRecall!=null){memoryRecall.begin(run);memoryRecall.recall(run);}if(compaction!=null){compaction.begin(run);compaction.apply(run);}assembler.verify(run.task());runtime.runPrepared(run,run.task());});}
+        try{harness.execute(run,()->{
+            if(run.snapshot().status()!=Status.RUNNING || run.task()==null)throw new AgentException("INVALID_OPERATION_STATE","No resumable prepared task");
+            boolean direct=AgentRuntime.directReportReady(run);
+            if(memoryRecall!=null){memoryRecall.begin(run);if(direct)memoryRecall.verify(run);else memoryRecall.restore(run);}
+            if(compaction!=null){compaction.begin(run);if(!direct)compaction.apply(run);}
+            assembler.verify(run.task());runtime.runPrepared(run,run.task());
+        });}
         catch(AgentException e){run.fail(e.code());}catch(Exception e){run.fail("INTERNAL_ERROR");}
     }
 }

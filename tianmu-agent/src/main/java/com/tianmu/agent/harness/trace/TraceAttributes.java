@@ -27,6 +27,8 @@ public final class TraceAttributes {
             "context.format", "context.history_messages", "context.classified_batches_released", "context.report_inputs_released", "context.projection_bytes_saved",
             "context.schema_version", "context.projection_version", "context.present_slots", "context.slot_bytes",
             "memory.candidate_count", "memory.selected_count", "memory.context_bytes", "memory.snapshot_seq",
+            "memory.reused", "memory.restore_reason", "memory.added_count", "memory.updated_count", "memory.duplicate_count", "memory.conflict_count", "memory.source_messages", "memory.policy_version",
+            "tool.replay", "tool.error_code", "tool.batch_id", "tool.batch_count", "tool.batch_index", "tool.execution_mode",
             "memory.job_id", "compaction.covered_from", "compaction.covered_through", "compaction.source_messages", "compaction.input_bytes", "compaction.output_bytes", "compaction.saved_bytes", "compaction.trigger_reason", "compaction.prompt_version", "compaction.selected_segments", "compaction.context_bytes",
             "model.response_repaired", "model.validation_error",
             "model.tool_protocol", "model.tool_choice", "video.fact_strategy", "tool.handler_executed", "tool.validation_issue_count", "tool.argument_correction",

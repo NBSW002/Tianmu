@@ -98,7 +98,7 @@ public final class MysqlPersonalMemoryStore implements PersonalMemoryStore {
             if(rows.isEmpty())throw PersonalMemory.missing();return rows.get(0);
         });
     }
-    private static final String SELECT="SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id AND i.current_version=r.version WHERE r.tenant_id=? AND r.owner_user_id=? AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>?) AND EXISTS (SELECT 1 FROM agent_memory_dependency d JOIN agent_memory_source s ON s.tenant_id=d.tenant_id AND s.owner_user_id=d.owner_user_id AND s.source_id=d.source_id WHERE d.tenant_id=r.tenant_id AND d.owner_user_id=r.owner_user_id AND d.memory_id=r.memory_id AND d.version=r.version AND "+MemorySources.READABLE+")";
+    private static final String SELECT="SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id AND i.current_version=r.version WHERE r.tenant_id=? AND r.owner_user_id=? AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>?) AND "+MemorySources.REVISION_READABLE;
     private Entry entry(ResultSet r,int row) throws SQLException {
         var expiry=r.getTimestamp("expires_at");
         return new Entry(UUID.fromString(r.getString("memory_id")),r.getLong("version"),r.getLong("valid_from_seq"),new Content(new Scope(ScopeType.valueOf(r.getString("scope_type")),r.getString("scope_key")),Kind.valueOf(r.getString("kind")),r.getString("content"),expiry==null?null:expiry.toInstant()),r.getTimestamp("created_at").toInstant());
@@ -161,6 +161,9 @@ public final class MysqlPersonalMemoryStore implements PersonalMemoryStore {
         });
     }
     private void erase(AccessScope o,UUID id,long seq,long epoch) {
+        // Keep only opaque fact keys as tombstones; remove derived descriptive metadata.
+        db.update("UPDATE agent_memory_fact SET identity_json=JSON_OBJECT(),value_hash=REPEAT('0',64) WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",o.tenantId(),o.userId(),id.toString());
+        db.update("UPDATE agent_memory_candidate SET details_json=JSON_OBJECT() WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",o.tenantId(),o.userId(),id.toString());
         // Both source declarations and every historical body are erased in the same transaction.
         db.update("UPDATE agent_memory_source s JOIN agent_memory_dependency d ON d.tenant_id=s.tenant_id AND d.owner_user_id=s.owner_user_id AND d.source_id=s.source_id SET s.declaration='',s.content_hash=?,s.status='DELETED' WHERE d.tenant_id=? AND d.owner_user_id=? AND d.memory_id=?",hash(""),o.tenantId(),o.userId(),id.toString());
         db.update("UPDATE agent_memory_revision SET content='',valid_to_seq=COALESCE(valid_to_seq,?) WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",seq,o.tenantId(),o.userId(),id.toString());
@@ -184,6 +187,9 @@ public final class MysqlPersonalMemoryStore implements PersonalMemoryStore {
         return write(o,()->{
             Receipt prior=replay(o,key,fingerprint);if(prior!=null)return prior;
             long seq=advance(o,true),epoch=settings(o).eraseEpoch();
+            // Old epochs cannot publish; new consent may learn fresh facts after a reset.
+            db.update("DELETE FROM agent_memory_fact WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
+            db.update("DELETE FROM agent_memory_candidate WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
             // Set-based reset stays bounded even at the account quota and with many revisions.
             db.update("INSERT INTO agent_memory_tombstone(tenant_id,owner_user_id,target_id,erase_epoch,created_at) SELECT tenant_id,owner_user_id,memory_id,?,? FROM agent_memory_item WHERE tenant_id=? AND owner_user_id=? AND status='ACTIVE' ON DUPLICATE KEY UPDATE erase_epoch=VALUES(erase_epoch)",epoch,now(),o.tenantId(),o.userId());
             db.update("UPDATE agent_memory_source SET declaration='',content_hash=?,status='DELETED' WHERE tenant_id=? AND owner_user_id=?",hash(""),o.tenantId(),o.userId());

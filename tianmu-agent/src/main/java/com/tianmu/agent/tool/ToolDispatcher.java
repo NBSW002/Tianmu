@@ -84,6 +84,72 @@ public class ToolDispatcher {
         if(outcome instanceof Completed completed)return completed.result();
         throw new AgentException("INVALID_ARGUMENTS","Tool arguments do not match the declared schema");
     }
+    public boolean parallelSafe(ToolCall call,RunState run){
+        var tool=registry.admit(call.name(),run.execution().activeSkills(),snapshotTools(run));
+        if(!tool.parallelSafe())return false;
+        if(call.name().equals("read_result")){
+            var e=run.execution().evidence().get(Objects.toString(call.arguments().get("result_id"),""));
+            return e!=null && e.lookup()==null && e.feedback()==null;
+        }
+        return true;
+    }
+    public Branch branch(ToolCall call,RunState run){
+        if(!parallelSafe(call,run) || !permitted(call.name(),run))throw new AgentException("TOOL_CAPABILITY_DENIED","Tool is not an isolated read");
+        return new Branch(call,run,registry.admit(call.name(),run.execution().activeSkills(),snapshotTools(run)));
+    }
+    public final class Branch {
+        private final ToolCall call;private final RunState run;private final AgentTool tool;
+        private final com.tianmu.agent.runtime.store.InMemoryEvidenceStore delta=new com.tianmu.agent.runtime.store.InMemoryEvidenceStore();
+        private final Map<String,Evidence> evidence;
+        private final com.tianmu.agent.runtime.EvidenceContext policy;
+        private final ToolContext context;
+        Branch(ToolCall call,RunState run,AgentTool tool){
+            this.call=call;this.run=run;this.tool=tool;evidence=run.execution().evidence().snapshot();
+            var owner=run.owner;var task=run.task();var date=run.businessDate;
+            policy=new com.tianmu.agent.runtime.EvidenceContext(){
+                public UUID runId(){return run.id;}public AccessScope scope(){return owner;}public LocalDate businessDate(){return date;}
+                public com.tianmu.agent.core.TaskTypes.PreparedTask task(){return task;}
+                public com.tianmu.agent.runtime.store.EvidenceStore evidenceStore(){return delta;}
+                public void checkpoint(){run.checkpoint();}
+            };
+            context=new ToolContext(){
+                public UUID runId(){return run.id;}public AccessScope scope(){return owner;}public LocalDate businessDate(){return date;}
+                public void checkpoint(){run.checkpoint();}
+                public List<Map<String,String>> listSkills(){return List.of();}
+                public Skill activateSkill(String name){throw new AgentException("TOOL_CAPABILITY_DENIED","Parallel reads cannot activate skills");}
+                public List<ToolDefinition> definitionsForSkill(String name){return List.of();}
+                public Evidence evidence(String id){var e=evidence.get(id);if(e==null || !e.runId().equals(run.id) || !e.owner().equals(owner))throw new AgentException("RESULT_NOT_FOUND","Evidence outside snapshot");return e;}
+                public void checkQuery(MetricQuery q){business.checkQuery(policy,q);}
+                public Evidence registerEvidence(MetricData d){return business.registerEvidence(policy,d);}
+                public void checkDanmakuQuery(com.tianmu.agent.core.DanmakuTypes.Query q){business.checkDanmakuQuery(policy,q);}
+                public Evidence registerDanmakuEvidence(com.tianmu.agent.core.DanmakuTypes.Dataset d){return business.registerDanmakuEvidence(policy,d);}
+                public void checkVideoQuery(long id){business.checkVideoQuery(policy,id);}
+                public void checkVideoQuery(long id,Long a,Long b){business.checkVideoQuery(policy,id,a,b);}
+                public Evidence registerVideoEvidence(VideoContent.Facts f){return business.registerVideoEvidence(policy,f);}
+                public <T>T query(Function<CallControl,T> operation){return harness.toolCall(run,operation);}
+                public <T>T videoQuery(Function<CallControl,T> operation){return harness.videoToolCall(run,operation);}
+            };
+        }
+        public ToolResult execute(){
+            run.checkpoint();run.verifyMemory();
+            ToolArguments.validate(call,registry.definition(call.name()));
+            var result=tool.execute(call,context);validate(result);return result;
+        }
+        public void validate(ToolResult result){
+            if(result==null || !result.tool().equals(call.name()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null || result.data().containsKey("input_validation"))
+                throw new AgentException("INVALID_TOOL_RESULT","Parallel read cannot mutate delivery state");
+            if(result.evidenceId()!=null && !delta.snapshot().containsKey(result.evidenceId()) && !evidence.containsKey(result.evidenceId()))throw new AgentException("INVALID_EVIDENCE","Unknown branch evidence");
+        }
+        public void commit(ToolResult result){
+            run.checkpoint();run.verifyMemory();validate(result);
+            for(var e:delta.snapshot().values()){
+                if(e.data()!=null)business.checkQuery(run,new MetricQuery(e.data().videoId(),e.data().date(),e.data().metric()));
+                if(e.videoContent()!=null)business.checkVideoQuery(run,e.videoContent().videoId(),e.videoContent().startMs(),e.videoContent().endMs());
+                if(e.analysis()!=null)business.checkDanmakuQuery(run,e.analysis().query());
+                run.execution().evidence().put(e);
+            }
+        }
+    }
     /** Only this pre-handler branch can grant input correction; handler exceptions never become this outcome. */
     public DispatchOutcome dispatch(ToolCall call, RunState run) {
         run.checkpoint();

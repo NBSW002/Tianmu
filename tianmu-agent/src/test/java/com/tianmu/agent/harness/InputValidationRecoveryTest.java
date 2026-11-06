@@ -123,7 +123,7 @@ class InputValidationRecoveryTest {
             new AgentRuntime(context->{count.incrementAndGet();return new Decision(Kind.TOOL,
                     new ToolCall("read_result",transform?Map.of("result_id","first"):Map.of(),"p1","group"),null,null,
                     List.of(new ToolCall("read_result",Map.of("result_id","second"),"p2","group")));},tools,fixture.harness).execute(run);
-            assertEquals("INVALID_ARGUMENTS",run.snapshot().errorCode());assertEquals(1,count.get());assertEquals(transform?1:0,effects.get());
+            assertEquals("INVALID_ARGUMENTS",run.snapshot().errorCode());assertEquals(1,count.get());assertEquals(0,effects.get()); // Final whole-batch re-admission precedes every handler.
             assertTrue(run.execution().observations().stream().noneMatch(r->r.data().containsKey("input_validation")));
         }
     }

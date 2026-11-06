@@ -8,6 +8,8 @@ const phaseNames = { COLLECT: '采集反馈', COLLECTING: '采集反馈', CLASSI
 const toolNames = { query_danmaku_count: '查询弹幕数', read_danmaku: '读取弹幕', read_comments: '读取评论', read_skill: '读取 Skill', analyze_video_content: '分析视频', analyze_feedback: '分析反馈', create_feedback_report: '生成报告', read_report: '读取报告', search_feedback: '搜索反馈', ask_clarification: '请求澄清' }
 const failures = new Set(['FAILED', 'TIMED_OUT', 'CANCELLED'])
 titles.memory='记忆召回'
+titles.memory_restore='恢复固定记忆'
+titles.memory_write='整理长期记忆'
 titles.compaction='上下文压缩'
 Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', finish: '运行结束' })
 Object.assign(phaseNames, { ANALYZING: '分析反馈' })
@@ -61,7 +63,13 @@ function decisionCalls(node) {
 export function modelInvocations(node, presentation) {
   if (node?.cardKind !== 'model') return []
   const calls = decisionCalls(node)
-  const peers = [...presentation.allCards.values()].filter(card => !card.synthetic && card.parentId && card.parentId === node.parentId
+  const roundParent = card => {
+    let parent = presentation.rawById.get(card.parentId)
+    const seen = new Set()
+    while (parent?.name === 'agent.tool.batch' && !seen.has(parent.id)) { seen.add(parent.id); parent = presentation.rawById.get(parent.parentId) }
+    return parent?.id || card.parentId
+  }
+  const peers = [...presentation.allCards.values()].filter(card => !card.synthetic && card.parentId && roundParent(card) === roundParent(node)
     && card.turn === node.turn && card.attributes?.['run.id'] === node.attributes?.['run.id']
     && card.attributes?.['run.turn_seq'] === node.attributes?.['run.turn_seq'])
   const next = Math.min(Infinity, ...peers.filter(card => card.cardKind === 'model' && time(card) > time(node)).map(time))
@@ -113,6 +121,8 @@ export function semanticKind(n) {
   const t = n.type, name = n.name
   if (t === 'context_compact' || name === 'agent.context.compact') return 'compaction'
   if (t === 'memory_recall' || name === 'agent.memory.recall') return 'memory'
+  if (name === 'agent.memory.restore') return 'memory_restore'
+  if (name === 'agent.memory.extract') return 'memory_write'
   if (t === 'faq_lookup' || name === 'agent.prepare.faq') return 'faq'
   if (t === 'intent_recognition' || name === 'agent.prepare.intent') return 'intent'
   if (t === 'emotion_recognition' || name === 'agent.prepare.emotion') return 'emotion'
@@ -141,6 +151,8 @@ export function cardSummary(n) {
     case 'merge': return ({ HARNESS: '条件已确认，进入 Agent', CLARIFY: '调用澄清工具，等待补充', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
     case 'memory': return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
+    case 'memory_restore': return `恢复原快照 ${a['memory.selected_count'] || 0} 条 · 未重新检索`
+    case 'memory_write': return Number.isFinite(a['memory.candidate_count']) ? `新增 ${a['memory.added_count'] || 0} · 更新 ${a['memory.updated_count'] || 0} · 重复 ${a['memory.duplicate_count'] || 0} · 冲突 ${a['memory.conflict_count'] || 0}` : '从近期对话整理有来源的偏好与目标'
     case 'compaction': return Number.isFinite(a['compaction.source_messages']) ? `${a['compaction.source_messages']} 条消息 · 节省 ${a['compaction.saved_bytes'] || 0} B` : '整理旧历史，保留近期原文'
     case 'intent': return intentDetails(n).primary?.label || intentNames[a['preparation.intent']] || '识别结果未记录'
     case 'emotion': return emotionNames[a['preparation.emotion']] || '识别结果未记录'
@@ -293,8 +305,8 @@ export function buildTracePresentation(raw) {
   }
   cards.sort(compare)
   const notices = []
-  if (!cards.some(n => n.cardKind === 'emotion')) notices.push('情绪识别：未执行或未记录')
-  if (!cards.some(n => n.cardKind === 'clarification')) notices.push('澄清判断：无独立记录')
+  if (!cards.some(n => ['memory_write','compaction'].includes(n.cardKind)) && !cards.some(n => n.cardKind === 'emotion')) notices.push('情绪识别：未执行或未记录')
+  if (!cards.some(n => ['memory_write','compaction'].includes(n.cardKind)) && !cards.some(n => n.cardKind === 'clarification')) notices.push('澄清判断：无独立记录')
   if (!cards.length) notices.push('暂无业务节点，请查看原始节点')
   const allCards = new Map()
   const index = list => list.forEach(n => { allCards.set(n.id, n); if (n.children?.length) index(n.children) })
@@ -418,6 +430,21 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     group.find(n => n.data.cardKind === 'intent').position.y = middle - 76
     group.find(n => n.data.cardKind === 'emotion').position.y = middle
     group.find(n => n.data.cardKind === 'clarification').position.y = middle + 76
+  }
+  const toolBatches = new Map()
+  for (const node of nodes.filter(n => n.data.cardKind === 'tool')) {
+    const parent = presentation.rawById.get(node.data.parentId)
+    if (parent?.name !== 'agent.tool.batch' || parent.attributes?.['tool.execution_mode'] !== 'PARALLEL') continue
+    if (!toolBatches.has(parent.id)) toolBatches.set(parent.id, [])
+    toolBatches.get(parent.id).push(node)
+  }
+  for (const group of toolBatches.values()) {
+    if (group.length < 2 || Math.max(...group.map(n => time(n.data))) >= Math.min(...group.map(n => end(n.data)))) continue
+    const ids = new Set(group.map(n => n.id))
+    const incoming = [...new Set(edges.filter(e => ids.has(e.target) && !ids.has(e.source)).map(e => e.source))].map(id => nodes.find(n => n.id === id)).filter(Boolean)
+    const centre = incoming.length ? incoming.reduce((sum,n) => sum+n.position.y,0)/incoming.length : group.reduce((sum,n)=>sum+n.position.y,0)/group.length
+    group.sort((a,b)=>(a.data.attributes?.['tool.batch_index'] || 0)-(b.data.attributes?.['tool.batch_index'] || 0))
+      .forEach((node,index)=>{node.position.y=centre+(index-(group.length-1)/2)*76})
   }
   return { nodes, edges }
 }

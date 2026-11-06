@@ -246,3 +246,24 @@ test('FAQ skips and old missing records remain distinguishable from disabled con
   assert.equal(p.allCards.get('check').summary, '判断结果未记录')
   assert.ok(p.notices.includes('情绪识别：未执行或未记录'))
 })
+
+
+test('memory restore is not another recall and consolidation reports accepted decisions',()=>{
+  const nodes=[{id:'recall',name:'agent.memory.recall',offsetMs:0,durationMs:2,status:'SUCCEEDED',attributes:{'memory.selected_count':2}},{id:'restore',name:'agent.memory.restore',offsetMs:3,durationMs:2,status:'SUCCEEDED',attributes:{'memory.selected_count':2,'memory.reused':true}},{id:'write',name:'agent.memory.extract',offsetMs:6,durationMs:10,status:'SUCCEEDED',attributes:{'memory.candidate_count':4,'memory.added_count':1,'memory.updated_count':1,'memory.duplicate_count':2}}]
+  const p=buildTracePresentation(nodes)
+  assert.equal(p.cards.filter(c=>c.cardKind==='memory').length,1)
+  assert.equal(p.allCards.get('restore').cardKind,'memory_restore')
+  assert.match(p.allCards.get('restore').summary,/未重新检索/)
+  assert.match(p.allCards.get('write').summary,/新增 1 · 更新 1 · 重复 2/)
+})
+
+test('nested parallel tool batch remains linked to its actual model round',()=>{
+  const base={status:'SUCCEEDED',turn:1,attributes:{'run.id':'r','run.turn_seq':1}}
+  const nodes=[{...base,id:'loop',name:'agent.loop',offsetMs:0,durationMs:20},{...base,id:'m',name:'agent.model',kind:'MODEL',parentId:'loop',offsetMs:1,durationMs:2,output:{call:{name:'query_video_metrics',arguments:{video_id:1}},additionalCalls:[{name:'query_video_metrics',arguments:{video_id:2}}]}},{...base,id:'batch',name:'agent.tool.batch',parentId:'loop',offsetMs:4,durationMs:10,attributes:{...base.attributes,'tool.execution_mode':'PARALLEL'}},...[1,2].map(i=>({...base,id:`t${i}`,name:'agent.tool',kind:'TOOL',tool:'query_video_metrics',parentId:'batch',offsetMs:4,durationMs:i+3,input:{name:'query_video_metrics',arguments:{video_id:i}}}))]
+  const p=buildTracePresentation(nodes),calls=modelInvocations(p.allCards.get('m'),p)
+  assert.deepEqual(calls.map(c=>c.toolId),['t1','t2'])
+  assert.equal(calls.some(c=>c.id.startsWith('planned:')),false)
+  const graph=layoutPresentation(p),t=graph.nodes.filter(n=>n.data.cardKind==='tool')
+  assert.equal(t.length,2);assert.equal(t[0].position.x,t[1].position.x);assert.notEqual(t[0].position.y,t[1].position.y)
+  assert.equal((t[0].position.y+t[1].position.y)/2,graph.nodes.find(n=>n.id==='m').position.y)
+})

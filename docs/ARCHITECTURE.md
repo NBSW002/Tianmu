@@ -59,6 +59,8 @@ flowchart TB
 
 ## Agent 架构
 
+本次升级的统一实施入口为 [Agent 执行与记忆体系升级技术方案](../tianmu-agent/docs/Agent执行与记忆体系升级技术方案.md)，涵盖一次召回与恢复、参考成熟源码的原生工具并行和多轮自动记忆。实现沿用本站 Java Harness，不接入外部 Agent 框架。该方案尚待实施，不能据文档推定已部署。
+
 ### 动态上下文协议
 
 Agent 输入统一采用 [ContextEnvelope 1.0](../tianmu-agent/docs/动态上下文架构.md)：固定槽位依次为 system_prompt、tool_catalog、skill_catalog、agent_catalog、execution_context、focus、memory_context、environment_context、reference_context、current_context、runtime_state、output_contract。不存在的模块省略，其余相对顺序保持不变；agent_catalog 当前是可选扩展位，不代表已具备 A2A 调用能力。

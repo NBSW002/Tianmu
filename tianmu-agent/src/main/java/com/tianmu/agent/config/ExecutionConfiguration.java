@@ -38,6 +38,7 @@ public class ExecutionConfiguration {
     @Bean("sseExecutor") ThreadPoolTaskExecutor sse(ExecutionProperties p, MeterRegistry m) { return managed("agent-sse", p.sse(), m); }
     @Bean("terminationExecutor") ThreadPoolTaskExecutor termination(ExecutionProperties p, MeterRegistry m) { return managed("agent-termination", p.termination(), m); }
     @Bean("memoryExecutor") ThreadPoolTaskExecutor memory(MeterRegistry m) { return managed("agent-memory",new ExecutionProperties.Pool(1,1,4),m); }
+    @Bean("toolBatchWorkers") ThreadPoolTaskExecutor toolBatch(MeterRegistry m){return managed("agent-tool-batch",new ExecutionProperties.Pool(4,8,32),m);}
     @Bean("deadlineScheduler") ThreadPoolTaskScheduler scheduler() {
         var scheduler = new ThreadPoolTaskScheduler(); scheduler.setPoolSize(1);
         scheduler.setThreadNamePrefix("agent-deadline-"); scheduler.setRemoveOnCancelPolicy(true); return scheduler;

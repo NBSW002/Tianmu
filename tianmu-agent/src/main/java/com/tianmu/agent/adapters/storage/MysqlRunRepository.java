@@ -197,6 +197,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                         generation, turn + 1, id.toString(), stamp(now), stamp(expiry), owner.tenantId(), sid.toString());
                 db.update("INSERT INTO agent_message(tenant_id,owner_user_id,session_id,run_id,message_id,message_seq,role,kind,content,content_sha256,expires_at) VALUES(?,?,?,?,?,?,'USER','QUERY',?,?,?)",
                         owner.tenantId(), owner.userId(), sid.toString(), id.toString(), UUID.randomUUID().toString(), turn * 2 - 1, message, hash(message), stamp(expiry));
+                if(memoryBackground!=null)memoryBackground.observe(db,owner,sid,id);
                 insertEvent(m, 1, "PROGRESS", Map.of("stage", "queued", "run_id", id.toString()), false, now.plus(Duration.ofDays(7)));
                 if (reply != null) db.update("UPDATE agent_clarification SET status='RESUMED',resumed_by_run_id=?,resumed_at=UTC_TIMESTAMP(6),version=version+1 WHERE tenant_id=? AND run_id=? AND status='OPEN'", id.toString(), owner.tenantId(), reply.toString());
                 audit(m, "RUN_CREATED", "QUEUED");
@@ -473,7 +474,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         } catch (Exception e) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("outbox_unavailable type={}", e.getClass().getSimpleName()); }
     }
     private void warm(Map<String, Object> record) {
-        if(Set.of("MEMORY_EXTRACT","MEMORY_COMPACT","MEMORY_COMPACT_CHECK").contains(record.get("destination"))){if(memoryBackground==null)throw new AgentException("MEMORY_DISABLED","Memory worker is disabled");memoryBackground.accept(record);return;}
+        if(Set.of("MEMORY_EXTRACT","MEMORY_CONSOLIDATE","MEMORY_COMPACT","MEMORY_COMPACT_CHECK").contains(record.get("destination"))){if(memoryBackground==null)throw new AgentException("MEMORY_DISABLED","Memory worker is disabled");memoryBackground.accept(record);return;}
         if (!"MEMORY_REFRESH".equals(record.get("destination"))) throw new AgentException("OUTBOX_TARGET_UNSUPPORTED", "No registered handler for outbox target");
         // The cache is scoped by the saved authorization snapshot, preventing a narrowed scope from using a broader window.
         var runs = read(() -> db.queryForList("SELECT * FROM agent_run WHERE tenant_id=? AND run_id=?", record.get("tenant_id"), record.get("run_id")));

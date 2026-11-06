@@ -32,6 +32,12 @@ public class RunState implements EvidenceContext {
     private final String executionQuery;
     private final RunBackend backend;
     private MemoryTypes.View memory = MemoryTypes.View.empty();
+    private boolean memoryPacketReady;
+    private boolean memoryBoundaryReady;
+    public synchronized boolean memoryPacketReady(){return memoryPacketReady;}
+    public synchronized void memoryPacketReady(boolean value){memoryPacketReady=value;}
+    public synchronized boolean memoryBoundaryReady(){return memoryBoundaryReady;}
+    public synchronized void memoryBoundaryReady(boolean value){memoryBoundaryReady=value;}
     private volatile Runnable memoryGuard=()->{};
     private volatile Runnable memoryBarrier=()->{};
     private volatile Runnable projectionBarrier=()->{};

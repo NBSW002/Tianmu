@@ -13,6 +13,7 @@ public final class AnalyzeVideoContentTool implements AgentTool {
     public AnalyzeVideoContentTool(VideoAnalysisService video, com.fasterxml.jackson.databind.ObjectMapper json) { this.video=video; this.json=json; }
     public String name() { return "analyze_video_content"; }
     public boolean batchable() { return true; }
+    public boolean parallelSafe(){return true;}
     public ToolResult execute(ToolCall call, ToolContext context) {
         long id=ToolArguments.integer(call,"video_id");
         Long start=call.arguments().containsKey("start_ms")?ToolArguments.integer(call,"start_ms"):null;

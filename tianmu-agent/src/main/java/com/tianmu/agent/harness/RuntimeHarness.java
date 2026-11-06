@@ -77,6 +77,11 @@ public class RuntimeHarness implements AutoCloseable {
         return (name, value) -> TraceAttributes.apply(span, Map.of(name, value));
     }
     public void forget(UUID id) { sessions.remove(id); }
+    /** Batch prepare/commit hooks run on the coordinator, never concurrently in handlers. */
+    public void toolHook(RunState run,HookPoint point,Map<String,Object> attributes){
+        if(point!=HookPoint.PRE_TOOL && point!=HookPoint.POST_TOOL)throw new IllegalArgumentException("Not a tool hook");
+        start(run).fire(point,attributes);
+    }
     public void discard(UUID id) { HarnessSession session = sessions.remove(id); if (session != null) session.discard(); }
     @Override public void close() { if (ownsLoopControl) loopControl.close(); sessions.clear(); }
     public <T> T stage(RunState run, String name, HookPoint before, HookPoint after,

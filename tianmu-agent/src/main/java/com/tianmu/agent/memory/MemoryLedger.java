@@ -36,7 +36,7 @@ public final class MemoryLedger {
     public void begin(RunState run){var s=store.settings(run.owner);db.update("INSERT INTO agent_memory_run(tenant_id,owner_user_id,run_id,session_id,memory_seq,consent_epoch,erase_epoch,mode,selected_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE run_id=run_id",run.owner.tenantId(),run.owner.userId(),run.id.toString(),run.sessionId.toString(),s.sequence(),s.consentEpoch(),s.eraseEpoch(),s.mode().name(),"[]");}
     public Entry read(AccessScope o,UUID id,long version,long sequence){
         live(o,store.scope(o,id));
-        var rows=db.query("SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.memory_id=? AND r.version=? AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND r.content<>'' AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND EXISTS (SELECT 1 FROM agent_memory_dependency d JOIN agent_memory_source s ON s.tenant_id=d.tenant_id AND s.owner_user_id=d.owner_user_id AND s.source_id=d.source_id WHERE d.tenant_id=r.tenant_id AND d.owner_user_id=r.owner_user_id AND d.memory_id=r.memory_id AND d.version=r.version AND s.status='ACTIVE' AND (s.source_kind IN ('MANUAL','EXPLICIT_DECLARATION') OR (s.source_expires_at>UTC_TIMESTAMP(6) AND EXISTS (SELECT 1 FROM agent_run ar JOIN agent_session ss ON ss.tenant_id=ar.tenant_id AND ss.session_id=ar.session_id WHERE ar.tenant_id=s.tenant_id AND ar.owner_user_id=s.owner_user_id AND ar.run_id=s.origin_run_id AND ar.data_expires_at>UTC_TIMESTAMP(6) AND ss.status='OPEN' AND ss.expires_at>UTC_TIMESTAMP(6)))))",
+        var rows=db.query("SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.memory_id=? AND r.version=? AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND r.content<>'' AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.REVISION_READABLE,
             (r,n)->new Entry(id,r.getLong("version"),r.getLong("valid_from_seq"),new Content(new Scope(ScopeType.valueOf(r.getString("scope_type")),r.getString("scope_key")),Kind.valueOf(r.getString("kind")),r.getString("content"),r.getTimestamp("expires_at")==null?null:r.getTimestamp("expires_at").toInstant()),r.getTimestamp("created_at").toInstant()),o.tenantId(),o.userId(),id.toString(),version,sequence,sequence);
         if(rows.isEmpty())throw PersonalMemory.missing();var result=rows.get(0);live(o,result.content().scope());return result;
     }
@@ -58,6 +58,21 @@ public final class MemoryLedger {
         db.update("UPDATE agent_memory_run SET selected_json=?,consumed=? WHERE tenant_id=? AND owner_user_id=? AND run_id=?",encode(refs),refs.isEmpty()?0:1,run.owner.tenantId(),run.owner.userId(),run.id.toString());
     }
     public void recalled(RunState run){db.update("UPDATE agent_memory_run SET recalled=1 WHERE tenant_id=? AND owner_user_id=? AND run_id=?",run.owner.tenantId(),run.owner.userId(),run.id.toString());}
+    /** Initial references and the empty/non-empty recalled marker commit atomically. */
+    public List<Entry> commitRecall(RunState run,List<Entry> entries){return tx.execute(status->{
+        db.queryForList("SELECT memory_seq FROM agent_memory_account WHERE tenant_id=? AND owner_user_id=? FOR UPDATE",run.owner.tenantId(),run.owner.userId());
+        db.queryForList("SELECT run_id FROM agent_memory_run WHERE tenant_id=? AND owner_user_id=? AND run_id=? FOR UPDATE",run.owner.tenantId(),run.owner.userId(),run.id.toString());
+        var b=boundary(run.owner,run.id);if(b==null)throw invalidated();
+        if(b.recalled())return restoreInitial(run);
+        var now=store.settings(run.owner);
+        if(now.consentEpoch()!=b.consent() || now.eraseEpoch()!=b.erase() || now.mode()!=b.mode())throw invalidated();
+        for(var entry:entries)read(run.owner,entry.id(),entry.version(),b.sequence());
+        consume(run,entries,true);recalled(run);return List.copyOf(entries);
+    });}
+    public List<Entry> restoreInitial(RunState run){
+        guard(run);var b=boundary(run.owner,run.id);if(b==null || !b.recalled())throw invalidated();
+        return b.refs().stream().filter(Ref::initial).map(r->read(run.owner,r.id(),r.version(),r.sequence()==0?b.sequence():r.sequence())).toList();
+    }
     public List<UUID> sourceRefs(AccessScope owner,Entry entry){
         return db.query("SELECT d.source_id FROM agent_memory_dependency d JOIN agent_memory_source s ON s.tenant_id=d.tenant_id AND s.owner_user_id=d.owner_user_id AND s.source_id=d.source_id WHERE d.tenant_id=? AND d.owner_user_id=? AND d.memory_id=? AND d.version=? AND "+MemorySources.READABLE+" ORDER BY d.source_id",(r,n)->UUID.fromString(r.getString(1)),owner.tenantId(),owner.userId(),entry.id().toString(),entry.version());
     }
@@ -79,6 +94,13 @@ public final class MemoryLedger {
     }
     public void guard(RunState run){
         if(!historyAllowed(run.owner,run.id))throw invalidated();
+    }
+    /** Background readers reauthorize original resources without inheriting unrelated assistant claims. */
+    public void verifyOriginResources(AccessScope owner,UUID source){
+        var rows=db.queryForList("SELECT access_scope_json FROM agent_run WHERE tenant_id=? AND owner_user_id=? AND run_id=? AND data_expires_at>UTC_TIMESTAMP(6)",String.class,owner.tenantId(),owner.userId(),source.toString());
+        if(rows.isEmpty())throw invalidated();
+        try{var saved=json.readValue(rows.get(0),AccessScope.class);for(long video:saved.readableVideoIds())live(saved,new Scope(ScopeType.VIDEO,Long.toString(video)));}
+        catch(java.io.IOException e){throw invalidated();}
     }
     public boolean historyAllowed(AccessScope o,UUID run){
         if(!historyAllowed(db,json,o,run))return false;var b=boundary(o,run);if(b==null || !b.consumed())return true;
@@ -157,7 +179,7 @@ public final class MemoryLedger {
         try {
             var refs=json.readValue(row.get("selected_json").toString(),new TypeReference<List<Ref>>(){});
             for(var ref:refs){
-                var sources=db.queryForList("SELECT r.scope_type,r.scope_key FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id JOIN agent_memory_dependency d ON d.tenant_id=r.tenant_id AND d.owner_user_id=r.owner_user_id AND d.memory_id=r.memory_id AND d.version=r.version JOIN agent_memory_source s ON s.tenant_id=d.tenant_id AND s.owner_user_id=d.owner_user_id AND s.source_id=d.source_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.memory_id=? AND r.version=? AND r.content<>'' AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.READABLE,o.tenantId(),o.userId(),ref.id().toString(),ref.version());
+                var sources=db.queryForList("SELECT r.scope_type,r.scope_key FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id JOIN agent_memory_dependency d ON d.tenant_id=r.tenant_id AND d.owner_user_id=r.owner_user_id AND d.memory_id=r.memory_id AND d.version=r.version JOIN agent_memory_source s ON s.tenant_id=d.tenant_id AND s.owner_user_id=d.owner_user_id AND s.source_id=d.source_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.memory_id=? AND r.version=? AND r.content<>'' AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.READABLE+" AND "+MemorySources.REVISION_READABLE,o.tenantId(),o.userId(),ref.id().toString(),ref.version());
                 if(sources.isEmpty())return false;
                 for(var source:sources)if("VIDEO".equals(source.get("scope_type")) && !o.readableVideoIds().contains(Long.parseLong(source.get("scope_key").toString())))return false;
             }

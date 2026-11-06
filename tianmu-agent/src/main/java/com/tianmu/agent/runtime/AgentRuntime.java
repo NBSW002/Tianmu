@@ -20,6 +20,8 @@ import com.tianmu.agent.harness.trace.*;
 @Component
 public class AgentRuntime {
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryRecallService memoryRecall;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private ToolBatchExecutor toolBatches;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private ToolBatchLedger batchLedger;
     private static final Logger log = LoggerFactory.getLogger(AgentRuntime.class);
     private static final Set<String> RETRYABLE = Set.of("TOOL_CALL_TIMEOUT", "TOOL_TEMPORARY_ERROR");
     private final String finalizeDirective;
@@ -99,6 +101,12 @@ public class AgentRuntime {
             harness.marker(run, SpanType.AGENT_END, end);
         }
     }
+    static boolean directReportReady(RunState run){
+        var exchanges=run.execution().exchanges();if(exchanges.isEmpty())return false;
+        var last=exchanges.get(exchanges.size()-1).result();
+        return last.tool().equals("create_feedback_report") && last.pending()==null && "READY".equals(last.data().get("status"))
+                && last.evidenceId()!=null && run.execution().hasReport(last.evidenceId()) && last.data().containsKey("url");
+    }
     private void runLoopBody(RunState run, String message) {
         var exchanges=run.execution().exchanges();
         if(!exchanges.isEmpty()){
@@ -159,26 +167,67 @@ public class AgentRuntime {
             case TOOL -> {
                 if(decision.additionalCalls().isEmpty())yield executeTool(run,context,decision.call(),progress,true);
                 var batch=new ArrayList<ToolCall>();batch.add(decision.call());batch.addAll(decision.additionalCalls());
-                tools.checkBatch(batch,run);
-                boolean done=false;
-                // Read batches share a model turn but execute serially under the existing deadline/budget controls.
-                boolean sources=batch.stream().allMatch(c->Set.of("analyze_comments","analyze_danmaku").contains(c.name()));
-                for(var call:batch) { run.checkpoint();if(executeTool(run,context,call,progress,false,sources)){done=true;break;} }
-                if(sources){
-                    var pending=run.execution().exchanges().stream().map(e->e.result().pending()).filter(Objects::nonNull).distinct().toList();
-                    if(pending.size()>1)throw new AgentException("INVALID_TOOL_RESULT","Source calls must share a durable operation group");
-                    if(!pending.isEmpty()){run.waitFor(pending.get(0));done=true;}
-                }
-                yield done;
+                yield executeBatch(run,context,batch,progress);
             }
             case CLARIFY -> executeTool(run,context,new ToolCall("ask_clarification",Map.of("question",decision.clarification())),progress,true);
             case ANSWER -> { delivery.answer(run, decision.answer(), delivery.reserve(run), StopReason.ANSWER); yield true; }
         };
     }
+    private boolean executeBatch(RunState run,ModelContext context,List<ToolCall> requested,Progress progress){
+        return harness.stage(run,"agent.tool.batch",null,null,Map.of("tool.batch_count",requested.size()),()->{
+            tools.checkBatch(requested,run);
+            var calls=new ArrayList<ToolCall>();
+            for(var original:requested){
+                harness.toolHook(run,HookPoint.PRE_TOOL,Map.of("tool.name",original.name()));
+                var actual=harness.transform(run,TransformPoint.TOOL_CALL,original);
+                if(!Objects.equals(original.providerCallId(),actual.providerCallId()) || !Objects.equals(original.providerGroupId(),actual.providerGroupId()))throw new AgentException("INVALID_DECISION","Hook changed tool call identity");
+                if(progress.successfulCalls.contains(new ToolCall(actual.name(),actual.arguments())))throw new AgentException("NO_PROGRESS","Repeated successful tool call");
+                calls.add(actual);
+            }
+            for(var call:calls)if(context.availableTools().stream().noneMatch(tool->tool.name().equals(call.name())))throw new AgentException("TOOL_NOT_AVAILABLE","Transformed tool is outside the exposed set");
+            tools.checkBatch(calls,run); // transforms must not bypass frozen admission or execution-mode checks
+            boolean parallel=toolBatches!=null && toolBatches.accepts(calls,run,tools);
+            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.execution_mode",parallel?"PARALLEL":"SERIAL"));
+            if(batchLedger!=null)batchLedger.prepare(run,calls,parallel);
+            String batchId=ToolBatchLedger.id(run);
+            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.batch_id",batchId));
+            if(parallel){
+                var results=toolBatches.execute(run,calls,tools);
+                int callIndex=0;
+                for(var item:results){
+                    var result=harness.transform(run,TransformPoint.TOOL_RESULT,item.result());
+                    item.branch().validate(result);if(item.success())item.branch().commit(result);
+                    harness.toolHook(run,HookPoint.POST_TOOL,Map.of("tool.name",item.call().name(),"tool.success",item.success()));
+                    if(item.success())progress.success(item.call());
+                    if(batchLedger!=null)batchLedger.complete(run,callIndex,result,item.success());
+                    run.execution().observe(item.call(),result);
+                    run.emit("PROGRESS",Map.of("stage",item.success()?"tool_completed":"tool_failed","tool",item.call().name(),"batch_id",batchId,"call_id",item.call().providerCallId()==null?"native-"+callIndex:item.call().providerCallId(),"call_index",callIndex++));
+                }
+                return false;
+            }
+            boolean done=false;boolean sources=calls.stream().allMatch(c->Set.of("analyze_comments","analyze_danmaku").contains(c.name()));
+            for(int index=0;index<calls.size();index++){
+                var call=calls.get(index);done=executeTool(run,context,call,progress,false,sources,true);
+                var exchanges=run.execution().exchanges();
+                if(batchLedger!=null && run.snapshot().status()==Status.RUNNING && !exchanges.isEmpty()){
+                    var exchange=exchanges.get(exchanges.size()-1);
+                    if(exchange.call().equals(call))batchLedger.complete(run,index,exchange.result(),!exchange.result().data().containsKey("error_code"));
+                }
+                if(done)break;
+            }
+            if(sources){var pending=run.execution().exchanges().stream().map(e->e.result().pending()).filter(Objects::nonNull).distinct().toList();
+                if(pending.size()>1)throw new AgentException("INVALID_TOOL_RESULT","Source calls must share a durable operation group");
+                if(!pending.isEmpty()){run.waitFor(pending.get(0));done=true;}}
+            return done;
+        });
+    }
     private boolean executeTool(RunState run, ModelContext context, ToolCall call, Progress progress, boolean allowCorrection) {
         return executeTool(run,context,call,progress,allowCorrection,false);
     }
     private boolean executeTool(RunState run,ModelContext context,ToolCall call,Progress progress,boolean allowCorrection,boolean deferWait){
+        return executeTool(run,context,call,progress,allowCorrection,deferWait,false);
+    }
+    private boolean executeTool(RunState run,ModelContext context,ToolCall call,Progress progress,boolean allowCorrection,boolean deferWait,boolean prepared){
         if (call == null) throw new AgentException("INVALID_DECISION", "Missing tool call");
         if (context.availableTools().stream().noneMatch(tool -> tool.name().equals(call.name())))
             throw new AgentException("TOOL_NOT_AVAILABLE", "Tool is not exposed in the current model context");
@@ -189,10 +238,10 @@ public class AgentRuntime {
         var inputRejected = new java.util.concurrent.atomic.AtomicBoolean();
         try {
             int attempt = name.equals(progress.failingTool) ? progress.consecutiveFailures + 1 : 1;
-            result = harness.stage(run, "agent.tool", HookPoint.PRE_TOOL, HookPoint.POST_TOOL,
+            result = harness.stage(run, "agent.tool", prepared?null:HookPoint.PRE_TOOL, HookPoint.POST_TOOL,
                     Map.of("tool.name", name, "execution.attempt", attempt, "execution.retry_count", attempt - 1), () -> {
                 TraceDetails.input(call);
-                ToolCall actual = harness.transform(run, TransformPoint.TOOL_CALL, call);
+                ToolCall actual = prepared?call:harness.transform(run, TransformPoint.TOOL_CALL, call);
                 if (context.availableTools().stream().noneMatch(tool -> tool.name().equals(actual.name())))
                     throw new AgentException("TOOL_NOT_AVAILABLE", "Transformed tool is outside the exposed set");
                 executed.set(actual);

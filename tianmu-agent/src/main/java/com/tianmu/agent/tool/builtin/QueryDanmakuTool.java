@@ -14,6 +14,8 @@ public final class QueryDanmakuTool implements AgentTool {
     private final DanmakuQueryPort queries;
     public QueryDanmakuTool(DanmakuQueryPort queries) { this.queries = queries; }
     public String name() { return "query_danmaku"; }
+    public boolean batchable(){return true;}
+    public boolean parallelSafe(){return true;}
     public ToolResult execute(ToolCall call, ToolContext context) {
         Query query = new Query(ToolArguments.integer(call, "video_id"), LocalDateTime.parse(ToolArguments.text(call, "start")), LocalDateTime.parse(ToolArguments.text(call, "end")));
         context.checkDanmakuQuery(query);
