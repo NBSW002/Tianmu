@@ -5,7 +5,7 @@
       <div class="pic-box">
         <a :href="`/video/${item.videoId}`">
           <div class="pic">
-            <img v-if="item.coverUrl" :src="mediaUrl(item.coverUrl)" alt="" loading="lazy" decoding="async" fetchpriority="low" @error="useFallbackImage" />
+            <img v-if="item.coverUrl" :src="mediaUrl(item.coverUrl, 320)" alt="" loading="lazy" decoding="async" fetchpriority="low" @error="useFallbackImage" />
             <span class="duration">{{ handleDuration(item.duration) }}</span>
           </div></a
         >

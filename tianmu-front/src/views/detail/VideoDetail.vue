@@ -32,7 +32,7 @@
           ref="artplayerRef"
           v-if="videoDetail.fileUrl"
           :videoUrl="mediaVideoUrl(videoDetail.fileUrl)"
-          :poster="mediaUrl(videoDetail.coverUrl)"
+          :poster="mediaUrl(videoDetail.coverUrl, 960)"
           :videoId="videoDetail.videoId"
           @sendDanmu="sendDanmu"
           :onlineUserCount="onlineUserCount"

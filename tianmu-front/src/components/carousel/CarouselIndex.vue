@@ -3,7 +3,7 @@
     :interval="5000" :autoplay="carousels.length > 1 && !reducedMotion" :pause-on-hover="true" aria-label="推荐视频轮播" @change="prepareSlide">
     <el-carousel-item v-for="(item, index) in carousels" :key="item.videoId">
       <router-link class="carousel-inner" :to="`/video/${item.videoId}`">
-        <img v-if="preparedSlides.has(index)" :src="mediaUrl(item.coverUrl)" :alt="item.title" decoding="async" :fetchpriority="index === 0 ? 'high' : 'low'" @error="useFallbackImage" />
+        <img v-if="preparedSlides.has(index)" :src="mediaUrl(item.coverUrl, 960)" :alt="item.title" decoding="async" :fetchpriority="index === 0 ? 'high' : 'low'" @error="useFallbackImage" />
         <div class="carousel-footer"><span class="carousel-label">精选推荐</span><div class="carousel-title">{{ item.title }}</div></div>
       </router-link>
     </el-carousel-item>

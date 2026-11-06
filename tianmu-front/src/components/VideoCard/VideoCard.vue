@@ -23,7 +23,7 @@
           <!-- 视频封面 -->
           <div class="video-card__image--wrap">
             <picture class="video-card__cover">
-              <img :src="mediaUrl(item.coverUrl)" :alt="item.title" loading="lazy" decoding="async" @error="useFallbackImage" />
+              <img :src="mediaUrl(item.coverUrl, 640)" :alt="item.title" loading="lazy" decoding="async" @error="useFallbackImage" />
             </picture>
           </div>
           <!-- 播放数、弹幕数、时长 -->

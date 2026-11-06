@@ -6,6 +6,7 @@ import com.orangecode.tianmu.model.entity.Video;
 import com.orangecode.tianmu.service.FileService;
 import com.orangecode.tianmu.service.UserService;
 import com.orangecode.tianmu.service.VideoService;
+import com.orangecode.tianmu.application.MediaThumbnails;
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
 import io.minio.MinioClient;
@@ -57,11 +58,14 @@ public class MediaController {
     @Resource private UserService userService;
     @Resource private VideoService videoService;
     @Resource private MinioClient minioClient;
+    @Resource private MediaThumbnails thumbnails;
     @Value("${minio.bucket-name}") private String bucketName;
 
     @GetMapping("/{objectName:.+}")
-    public ResponseEntity<StreamingResponseBody> image(@PathVariable String objectName) {
+    public ResponseEntity<StreamingResponseBody> image(@PathVariable String objectName,
+            @org.springframework.web.bind.annotation.RequestParam(value = "w", required = false) Integer width) {
         if (!OBJECT_NAME.matcher(objectName).matches()) throw notFound();
+        if (width != null && !MediaThumbnails.WIDTHS.contains(width)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         int dot = objectName.lastIndexOf('.');
         String hash = objectName.substring(0, dot);
         String objectPath = "/" + bucketName + "/" + objectName;
@@ -80,6 +84,15 @@ public class MediaController {
         }
 
         MediaType type = CONTENT_TYPES.get(objectName.substring(dot + 1).toLowerCase(Locale.ROOT));
+        // Existing WebP/AVIF files already use a compact format; the JDK metadata
+        // reader used to bound PNG/JPEG/GIF decoding does not support them.
+        if (width != null && !type.equals(MediaType.parseMediaType("image/webp")) && !type.equals(MediaType.parseMediaType("image/avif"))) {
+            byte[] resized = thumbnails.get(bucketName + "/" + objectName + ":" + stat.etag() + ":" + stat.size(), width, stat.size(),
+                    () -> minioClient.getObject(GetObjectArgs.builder().bucket(bucketName).object(objectName).build()));
+            if (resized != null) return ResponseEntity.ok().contentType(MediaType.parseMediaType("image/webp"))
+                    .contentLength(resized.length).cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePublic())
+                    .header("X-Content-Type-Options", "nosniff").body(output -> output.write(resized));
+        }
         StreamingResponseBody body = output -> {
             try (GetObjectResponse input = minioClient.getObject(GetObjectArgs.builder()
                     .bucket(bucketName).object(objectName).build())) {
