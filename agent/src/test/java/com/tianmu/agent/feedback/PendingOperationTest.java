@@ -12,6 +12,11 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PendingOperationTest {
+    @Test void storedOperationTimestampCannotExtendTheRunsDeadline(){
+        var deadline=Instant.parse("2026-11-08T00:00:00.123456400Z");var rounded=Instant.parse("2026-11-08T00:00:00.123457Z");
+        assertEquals(deadline,com.tianmu.agent.core.PendingOperation.bounded(UUID.randomUUID(),"feedback-materials",rounded,deadline).deadline());
+        assertEquals(deadline.minusSeconds(1),com.tianmu.agent.core.PendingOperation.bounded(UUID.randomUUID(),"feedback-materials",deadline.minusSeconds(1),deadline).deadline());
+    }
     @Test void sourceGroupRestoresBothProviderCallsAndRejectsPartialCompletion() throws Exception {
         var r=run();var op=new PendingOperation(UUID.randomUUID(),"feedback-sources",r.deadline());
         for(String name:List.of("analyze_comments","analyze_danmaku"))r.execution().observe(new ToolCall(name,Map.of(),"provider-"+name),new ToolResult(name,Map.of("status","PENDING"),null,null,op));

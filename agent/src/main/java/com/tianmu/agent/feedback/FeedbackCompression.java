@@ -11,7 +11,7 @@ import java.util.*;
 /** Pure task-member clustering and representative selection. Full membership never enters model projection. */
 public final class FeedbackCompression {
     public static final String VERSION="feedback-representatives-v1";
-    public static final String FIVE_VERSION="feedback-five-buckets-v2";
+    public static final String FIVE_VERSION=FeedbackAnalysis.FIVE_BUCKET_VERSION;
     public static boolean representativeVersion(String version){return VERSION.equals(version) || FIVE_VERSION.equals(version);}
     public record Excluded(String id,String reason) {}
     public record SourceMaterial(Source source,List<Unit> eligible,List<Excluded> excluded) {

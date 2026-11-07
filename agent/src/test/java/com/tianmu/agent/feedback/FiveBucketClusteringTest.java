@@ -61,4 +61,5 @@ class FiveBucketClusteringTest {
         }
         assertEquals(rows.size(),result.unclassified().size()+result.buckets().stream().mapToInt(List::size).sum());
     }
+
 }

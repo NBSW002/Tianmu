@@ -6,6 +6,7 @@ import java.util.*;
 
 /** Versioned analysis assets. An asset reference is not a grant to read its contents. */
 public final class FeedbackAnalysis {
+    public static final String FIVE_BUCKET_VERSION="feedback-five-buckets-v2";
     private FeedbackAnalysis() {}
     public enum Source { COMMENT, DANMAKU }
     public enum Grounding { FEEDBACK_ONLY, VIDEO_GROUNDED }
@@ -88,7 +89,7 @@ public final class FeedbackAnalysis {
                 if(observationCounts.size()>10000 || observationCounts.stream().anyMatch(n->n<0 || n>10))
                     throw new IllegalArgumentException("Invalid observation index");
             }
-            if (roots.size() > 1 || request == null || snapshot == null || model == null || policyHash == null
+            if (request == null || roots.size() > (FIVE_BUCKET_VERSION.equals(request.rulesVersion())?5:1) || roots.stream().distinct().count()!=roots.size() || snapshot == null || model == null || policyHash == null
                     || request.grounding() == Grounding.VIDEO_GROUNDED && (video == null || video.videoId() != request.query().videoId())
                     || request.grounding() == Grounding.FEEDBACK_ONLY && video != null) throw new IllegalArgumentException("Invalid analysis asset");
         }

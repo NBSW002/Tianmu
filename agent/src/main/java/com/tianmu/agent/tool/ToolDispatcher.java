@@ -305,7 +305,7 @@ public class ToolDispatcher {
             var job=feedback.submit(run.id,run.owner,request,video,run.deadline());
             if(job.phase()==com.tianmu.agent.core.FeedbackAnalysis.Phase.READY){var asset=feedback.asset(job.id(),run.owner,request);var ev=bindFeedback(run,asset);return new ToolResult(tool.name(),Map.of("status","READY","evidence_id",ev.id(),"summary",feedback.read(asset,"summary",0,1)),ev.id());}
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Analysis cannot be started in this state");
-            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-analysis",job.deadline()));
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,com.tianmu.agent.core.PendingOperation.bounded(job.id(),"feedback-analysis",job.deadline(),run.deadline()));
         }
         public ToolResult prepareFeedback(com.tianmu.agent.core.FeedbackAnalysis.Source source,String videoEvidenceId){
             if(preparation==null || !tool.name().equals(com.tianmu.agent.application.FeedbackSourceEvidence.tool(source)))throw new AgentException("TOOL_CAPABILITY_DENIED","Source preparation unavailable");
@@ -320,7 +320,7 @@ public class ToolDispatcher {
             var job=preparation.request(run.id,run.owner,request,video,run.deadline(),source);
             if(preparation.ready(job.id(),source))return com.tianmu.agent.application.FeedbackSourceEvidence.bind(run,job,preparation.result(job.id(),run.owner,source,run.callControl()));
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Source preparation cannot proceed");
-            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-sources",job.deadline()));
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,com.tianmu.agent.core.PendingOperation.bounded(job.id(),"feedback-sources",job.deadline(),run.deadline()));
         }
         public ToolResult prepareFeedbackMaterials(){
             if(preparation==null || !tool.name().equals("prepare_feedback_materials"))throw new AgentException("TOOL_CAPABILITY_DENIED","Material preparation unavailable");
@@ -328,7 +328,7 @@ public class ToolDispatcher {
             var job=preparation.requestMaterials(run.id,run.owner,request,run.deadline());
             if(preparation.materialsReady(job.id()))return com.tianmu.agent.application.FeedbackMaterialEvidence.bind(run,job,preparation.materials(job.id(),run.owner,run.callControl()));
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Material preparation cannot proceed");
-            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-materials",job.deadline()));
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,com.tianmu.agent.core.PendingOperation.bounded(job.id(),"feedback-materials",job.deadline(),run.deadline()));
         }
         public ToolResult generateFeedbackReport(String materialsId,String videoEvidenceId){
             if(preparation==null || !preparation.compressionEnabled() || !tool.name().equals("generate_feedback_report"))throw new AgentException("TOOL_CAPABILITY_DENIED","Representative reports unavailable");
@@ -339,7 +339,7 @@ public class ToolDispatcher {
             VideoContent.Facts video=null;if(videoEvidenceId!=null){video=evidence(videoEvidenceId).videoContent();if(video==null)throw new AgentException("INVALID_EVIDENCE","Expected current video evidence");business.checkVideoQuery(run,video.videoId(),video.startMs(),video.endMs());}
             job=preparation.startCompressedReport(job.id(),run.owner,video,run.callControl());
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()) && job.phase()!=com.tianmu.agent.core.FeedbackAnalysis.Phase.READY)throw new AgentException("ANALYSIS_NOT_READY","Report cannot proceed");
-            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"representative-report",job.deadline()));
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,com.tianmu.agent.core.PendingOperation.bounded(job.id(),"representative-report",job.deadline(),run.deadline()));
         }
         public ToolResult createPreparedReport(String comment,String danmaku){
             if(preparation==null || !tool.name().equals("create_feedback_report") || analysisContract()==null || !analysisContract().reportRequired())throw new AgentException("TOOL_CAPABILITY_DENIED","Report was not requested");
@@ -361,7 +361,7 @@ public class ToolDispatcher {
                         new Answer((asset.model().equals("demo-scripted-feedback")?"【模拟数据】":"")+"反馈报告已生成并保存。\n[查看 HTML 报告]("+report.url()+")（需登录鉴权）",List.of(ev.id())));
             }
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Report cannot proceed");
-            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-report",job.deadline()));
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,com.tianmu.agent.core.PendingOperation.bounded(job.id(),"feedback-report",job.deadline(),run.deadline()));
         }
         public Map<String,Object> readFeedback(Evidence evidence,String section,int offset,int limit){
             checkFeedback(evidence.feedback().request());var asset=feedback.asset(evidence.feedback().jobId(),run.owner,evidence.feedback().request());return feedback.read(asset,section,offset,limit);
