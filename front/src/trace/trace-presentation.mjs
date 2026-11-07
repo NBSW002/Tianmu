@@ -12,7 +12,7 @@ titles.memory_restore='恢复固定记忆'
 titles.memory_write='整理长期记忆'
 titles.compaction='上下文压缩'
 Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', finish: '运行结束' })
-Object.assign(phaseNames, { ANALYZING: '分析反馈' })
+Object.assign(phaseNames, { ANALYZING: '分析反馈', SNAPSHOT: '冻结反馈快照', COMMENT: '整理评论', DANMAKU: '整理弹幕', MATERIALS: '联合聚类与代表选择', REPORT_JSON: '校验并保存报告' })
 Object.assign(toolNames, { analyze_danmaku: '分析弹幕', analyze_comments: '分析评论' })
 Object.assign(toolNames, { prepare_feedback_materials: '聚类并选择代表反馈', generate_feedback_report: '分析代表并生成报告' })
 const time = n => Number.isFinite(n.offsetMs) ? n.offsetMs : Infinity
