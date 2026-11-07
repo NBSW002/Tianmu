@@ -12,6 +12,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void centeringFallsBackWhenOneNearMeanExpressionContainsMostOriginalFeedback(){
+        var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(2);when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());
+        FeedbackEmbedding embedding=new FeedbackEmbedding(){public String version(){return "fixture-weight";}public int dimension(){return 2;}public List<List<Float>> embed(List<String> texts,CallControl c){return texts.stream().map(t->t.startsWith("中心")?List.of(1f,0f):List.of(.9998f,Integer.parseInt(t.substring(t.lastIndexOf('号')+1))%2==0?.02f:-.02f)).toList();}};
+        var s=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);s.bucketPolicy(new FeedbackBucketProperties(5,.65,2,50,64,true,20,.01,.001,.30));
+        var rows=new ArrayList<Unit>();for(int i=1;i<=100;i++)rows.add(unit(i,Source.COMMENT,"中心观点原文",0L));for(int i=0;i<20;i++)rows.add(unit(i+101,Source.COMMENT,"旁支观点编号"+i,0L));
+        var c=control();var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var result=s.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(120,0,0,0,120),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertEquals(21,result.exactExpressions());assertEquals("RAW_COSINE",result.bucketMetric().mode());assertEquals("TOO_MANY_NEAR_MEAN_MEMBERS",result.bucketMetric().fallback());
+        assertTrue(result.unclassified().isEmpty());assertEquals(120,result.clusters().stream().mapToInt(x->x.members().size()).sum());
+    }
     @Test void fiveBucketProtocolHandlesSparseAndSingleSourceData(){
         var vectors=mock(FeedbackVectorIndex.class);var s=service(vectors);s.bucketPolicy(new FeedbackBucketProperties(5,.65,2,50,64));var c=control();
         var scope=new Request(request.query(),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);

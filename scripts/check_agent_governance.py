@@ -39,6 +39,12 @@ def catalog():
               "| `agent.feedback.compression.near-duplicate-similarity` | 0.96 | FeedbackCompression可选代表的近重复门槛，finite且[min-similarity,1]；FEEDBACK_NEAR_DUPLICATE_SIMILARITY。来源mandatory优先，进入材料policyHash。 |", ""]
     lines += ["## agent.feedback.buckets相似度", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.feedback.buckets.min-similarity` | 0.65 | 最终成员到桶中心的余弦下限；finite且0..1，进入冻结revision，启动生效；需在真实语料校准。YAML别名 `FEEDBACK_BUCKETS_MIN_SIMILARITY`；其他字段别名依次为 `FEEDBACK_BUCKETS_MAX`、`FEEDBACK_BUCKETS_MIN_MEMBERS`、`FEEDBACK_BUCKETS_MAX_ITERATIONS`、`FEEDBACK_BUCKETS_CANDIDATE_SAMPLES`。 |", ""]
+    lines += ["## agent.feedback.buckets任务中心化", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+              "| `agent.feedback.buckets.centering-enabled` | false | 可选任务内均值中心化；YAML别名 FEEDBACK_BUCKETS_CENTERING_ENABLED，记录实际模式和回退原因，进入协议revision。 |",
+              "| `agent.feedback.buckets.center-min-rms` | 0.01 | 向量残差均方根低于此值时全任务回退原始余弦；别名 FEEDBACK_BUCKETS_CENTER_MIN_RMS。 |",
+              "| `agent.feedback.buckets.center-min-residual` | 0.001 | 中心化后的单条残差范数下限；低于该值归未归类；别名 FEEDBACK_BUCKETS_CENTER_MIN_RESIDUAL。 |",
+              "| `agent.feedback.buckets.center-max-excluded-fraction` | 0.20 | 近均值表达组或其原始成员的比例超过该值时整体回退原始余弦；别名 FEEDBACK_BUCKETS_CENTER_MAX_EXCLUDED_FRACTION。 |",
+              "| `agent.feedback.buckets.centered-similarity` | 0.30 | 任务内中心化余弦门槛；别名 FEEDBACK_BUCKETS_CENTERED_SIMILARITY，与原始余弦门槛不能互换。 |", ""]
     lines += ["## agent.models", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.models.thinking-enabled` | true | DeepSeekProperties → DeepSeekClient；YAML环境别名 `AGENT_MODEL_THINKING_ENABLED`。启动绑定，主循环原生工具及后台反馈分析启用；短输出前置识别、记忆模型仍关闭。仅DeepSeek端点或deepseek模型名发送thinking协议。模式和协议版本进入模型revision，变更需排空在途Run；不是执行策略快照字段。旧Trace不补造思考。 |", ""]
     lines += ["## agent.models思考预算", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
