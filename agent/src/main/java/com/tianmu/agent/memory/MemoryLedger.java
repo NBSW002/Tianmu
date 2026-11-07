@@ -16,7 +16,10 @@ import java.util.*;
 
 /** Durable source and request boundaries. Stored snapshots contain references, never memory bodies. */
 public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSourceAuthority {
-    @Override public void verify(RunState run){guard(run);}
+    @Override public void verify(RunState run,AccessScope caller){
+        if(!run.owner.tenantId().equals(caller.tenantId()) || !run.owner.userId().equals(caller.userId()))throw new AgentException("FORBIDDEN","Trace source owner mismatch");
+        if(!historyAllowed(caller,run.id))throw invalidated();
+    }
     private final com.tianmu.agent.memory.MemoryRuntimeProperties governance;
     public record Ref(UUID id,long version,long sequence,boolean initial){public Ref(UUID id,long version){this(id,version,0,false);}}
     public record Boundary(long sequence,long consent,long erase,Mode mode,boolean consumed,boolean recalled,List<Ref> refs){}

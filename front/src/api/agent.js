@@ -1,11 +1,10 @@
-import { readStoredUser } from '@/lib/auth'
 import { useUserStore } from '@/store/user'
 import { reportPath, sseDecoder, validRunId } from '@/agent/protocol.mjs'
 import { readRunSnapshot } from '@/agent/run-clock.mjs'
 import { notifyMemoryChanged } from '@/lib/memory-events.mjs'
 
 export function agentUser() {
-  return readStoredUser()
+  return useUserStore().user
 }
 
 function authorization() {
@@ -29,15 +28,19 @@ async function request(path, options = {}) {
     if (error.name === 'AbortError') throw error
     throw new Error('无法连接助手服务，请检查网络后重试')
   }
+  if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
-    if (response.status === 401) useUserStore().logout()
+    if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    const changedSession = response.status === 401 && !useUserStore().expireSession(headers.Authorization)
+    const code = changedSession ? 'AUTH_SESSION_CHANGED' : data?.code
     const messages = {
       MODEL_CATALOG_INVALID: '模型配置更新无效，请联系管理员检查配置',
       MODEL_NOT_AVAILABLE: '所选模型已停用，请刷新模型列表后重新选择',
       MODEL_REVISION_UNAVAILABLE: '任务使用的模型版本已失效，请重新发起提问',
       VIDEO_CONTENT_UNAVAILABLE: '视频内容服务暂不可用，请稍后重试',
       UNAUTHORIZED: '登录已失效，请重新登录',
+      AUTH_SESSION_CHANGED: '登录信息已更新，请重试本次操作',
       AUTH_CONTEXT_EXPIRED: '登录已失效，请重新登录',
       FORBIDDEN: '你没有权限访问这项内容或执行此操作',
       RUN_NOT_FOUND: '任务不存在或已过期',
@@ -64,12 +67,12 @@ async function request(path, options = {}) {
       MEMORY_UNAVAILABLE: '记忆服务暂时不可用，请稍后重试',
     }
     const error = new Error(
-      messages[data.code] ||
+      messages[code] ||
         (response.status === 401
           ? '登录已失效，请重新登录'
           : '暂时没能完成请求，请稍后重试')
     )
-    error.code = data.code
+    error.code = code
     error.status = response.status
     throw error
   }

@@ -3,10 +3,12 @@ import { fetchFocus, fetchUnfocus } from "@/api/user";
 import { ElMessage } from "element-plus";
 import { TIANMU_USER, TIANMU_LOGIN } from "@/lib/config"
 import { hasAuthToken, readStoredUser } from "@/lib/auth"
+import { shouldExpireSession } from '@/lib/auth-session.mjs'
 export const useUserStore = defineStore("user", {
   state: () => ({
     // 当前用户
     user: readStoredUser(),
+    sessionExpired: false,
     // 控制登录注册对话框的显示与隐藏
     dialogVisible: false,
   }),
@@ -17,15 +19,28 @@ export const useUserStore = defineStore("user", {
   actions: {
     login(user) {
       // 登录后，持久化用户信息
-      this.user = user;
       localStorage.setItem(TIANMU_USER, JSON.stringify(user));
-      console.log("login", this.user);
+      this.sessionExpired = false;
+      this.user = user;
     },
     logout() {
       // 退出登录，清除用户信息
-      this.user = {};
+      this.sessionExpired = false;
       localStorage.removeItem(TIANMU_USER);
       localStorage.removeItem(TIANMU_LOGIN);
+      this.user = {};
+    },
+    expireSession(failedToken) {
+      if (!shouldExpireSession(failedToken, this.user.token, readStoredUser().token)) return false;
+      this.sessionExpired = true;
+      localStorage.removeItem(TIANMU_USER);
+      localStorage.removeItem(TIANMU_LOGIN);
+      this.user = {};
+      return true;
+    },
+    syncStoredUser(raw) {
+      this.sessionExpired = false;
+      this.user = readStoredUser(raw);
     },
     async handleFocusAction(userId, creatorId, focusType) {
       try {

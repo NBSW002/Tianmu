@@ -20,12 +20,13 @@ public final class TraceDetailController {
     public ResponseEntity<byte[]> get(@PathVariable UUID runId, @PathVariable String spanId, @PathVariable String direction,
             @PathVariable long bytes, @PathVariable String sha, @RequestHeader(value="Authorization", required=false) String auth) {
         if (auth == null || !auth.startsWith("Bearer ")) throw new AgentException("UNAUTHORIZED", "Bearer authentication required");
-        var run=runs.load(runId, identity.forRun(auth.substring(7), runId));
+        var caller=identity.forRun(auth.substring(7), runId);
+        var run=runs.load(runId, caller);
         byte[] payload=details.read(runId,spanId,direction,bytes,sha);
         if(details.requiresSourceGuard(payload)) {
             var authority=sourceAuthorities==null?null:sourceAuthorities.getIfAvailable();
             if(authority==null)throw new AgentException("MEMORY_SOURCE_UNAVAILABLE","Trace source authorization is unavailable");
-            authority.verify(run);
+            authority.verify(run,caller);
         }
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).cacheControl(CacheControl.noStore())
                 .header("X-Content-Type-Options", "nosniff").body(payload);

@@ -1,11 +1,11 @@
 <template>
   <button v-if="allowedPage && !visible && !fullPage" title="打开个人助手" class="assistant-launcher" @click="assistant.show()" aria-label="打开个人助手"><EchoMark /></button>
   <Transition name="assistant-panel" :css="allowedPage"><section ref="panel" v-show="visible" class="assistant-host" :style="fullPage ? undefined : drawerStyle" :class="{ 'assistant-full': fullPage, 'assistant-drawer': !fullPage }" aria-label="个人助手" @keydown.esc="dismiss">
-    <template v-if="!users.isLogin"><div class="assistant-login"><h2>你的个人助手</h2><p>登录后开始对话，历史记录仅对你可见。</p><button @click="users.updateDialogVisible(true)">登录</button><button @click="assistant.open = false">收起</button></div></template>
+    <template v-if="!users.isLogin"><div class="assistant-login"><h2>你的个人助手</h2><p>{{ users.sessionExpired ? '登录状态已失效，请重新登录后继续。' : '登录后开始对话，历史记录仅对你可见。' }}</p><button @click="users.updateDialogVisible(true)">登录</button><button @click="assistant.open = false">收起</button></div></template>
     <template v-else>
       <p v-if="capabilityError" class="assistant-access-note" role="alert">{{ capabilityError }} <button @click="refreshCapabilities">重试</button></p>
       <p v-else-if="pageVideo && !readable && !checking" class="assistant-access-note">当前视频不可供助手读取，可继续通用对话。</p>
-      <AgentWorkspace v-if="mounted" :key="accountKey" managed :embedded="!fullPage" :creator="creator" :context-pending="checking || !!capabilityError" :video-title="pageMetadata.title || ''" :playback-ms="pageMetadata.playbackMs" :video-id="readable ? pageVideo : ''" @close="assistant.open = false" @expand="router.push({ path: '/agent', query: pageVideo ? { videoId: pageVideo } : {} })" />
+      <AgentWorkspace v-if="mounted" :key="ownerKey" managed :embedded="!fullPage" :creator="creator" :context-pending="checking || !!capabilityError" :video-title="pageMetadata.title || ''" :playback-ms="pageMetadata.playbackMs" :video-id="readable ? pageVideo : ''" @close="assistant.open = false" @expand="router.push({ path: '/agent', query: pageVideo ? { videoId: pageVideo } : {} })" />
     </template>
   </section></Transition>
 </template>
@@ -16,6 +16,8 @@ import '@/assets/css/assistant-theme.css'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useAssistantStore } from '@/store/assistant'
+import { principalKey } from '@/lib/auth-session.mjs'
+import { watchAssistantIdentity } from '@/lib/assistant-session.mjs'
 import { getAssistantCapabilities } from '@/api/agent'
 const AgentWorkspace = defineAsyncComponent(() => import('@/views/agent/AgentWorkspace.vue'))
 function dismiss(event) { if (!event.isComposing && event.keyCode !== 229) assistant.open = false }
@@ -24,6 +26,7 @@ const readable = ref(false), creator = ref(false), checking = ref(false), capabi
 const fullPage = computed(() => route.name === 'AgentWorkspace')
 const allowedPage = computed(() => route.name !== 'TraceWorkspace')
 const visible = computed(() => allowedPage.value && (fullPage.value || assistant.open))
+const ownerKey = computed(() => principalKey(users.user))
 const accountKey = computed(() => String(users.user.userId || '') + ':' + String(users.user.token || ''))
 const pageVideo = computed(() => String(route.params.videoId || (fullPage.value ? route.query.videoId || '' : '')))
 const pageMetadata = computed(() => assistant.page?.videoId === pageVideo.value ? assistant.page : {})
@@ -74,7 +77,7 @@ async function refreshCapabilities() {
   } catch (error) { if (current === ticket) capabilityError.value = error.message }
   finally { if (current === ticket) checking.value = false }
 }
-watch(accountKey, () => { assistant.reset(); mounted.value = false }, { flush: 'sync' })
+watchAssistantIdentity(users, assistant, () => { mounted.value = false })
 watch([pageVideo, accountKey], refreshCapabilities, { immediate: true })
 watch([visible, accountKey], () => { if (visible.value && users.isLogin) mounted.value = true }, { immediate: true })
 watch(() => route.query.assistant, value => { if (value === '1') assistant.show() }, { immediate: true })

@@ -70,7 +70,8 @@ class MemoryRuntimeIntegrationTest {
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM agent_memory_source WHERE tenant_id=? AND declaration<>''",Integer.class,owner.tenantId()));
     }
     @Test void reasoningPayloadRequiresLiveMemoryAuthorityAndRejectsForgottenSource() throws Exception {
-        var saved=store.create(owner,new Content(Scope.user(),PersonalMemory.Kind.PREFERENCE,"先说明数据来源",null),"reasoning-root");
+        owner=new AccessScope(owner.tenantId(),owner.userId(),owner.videoIds(),UUID.randomUUID().toString());
+        var saved=store.create(owner,new Content(new Scope(ScopeType.VIDEO,"1001"),PersonalMemory.Kind.PREFERENCE,"先说明数据来源",null),"reasoning-root");
         var consumer=run("解释一下结果");ledger.begin(consumer);
         ledger.consume(consumer,List.of(ledger.read(owner,saved.id(),1,ledger.boundary(owner,consumer.id).sequence())));
         String reference;
@@ -83,7 +84,12 @@ class MemoryRuntimeIntegrationTest {
             reference=((io.opentelemetry.sdk.trace.ReadableSpan)span).toSpanData().getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("detail.reasoning_ref"));
         }
         assertNotNull(reference);var ref=reference.split("/");
-        var endpoint=new com.tianmu.agent.api.TraceDetailController(credential->owner,runs,traceDetails);
+        var fresh=new AccessScope(owner.tenantId(),owner.userId(),owner.videoIds(),UUID.randomUUID().toString());
+        when(videoPages.page(eq(1001L),any())).thenAnswer(inv->{
+            AccessScope scope=inv.getArgument(1);if(!fresh.authorizationRef().equals(scope.authorizationRef()))throw new AgentException("AUTH_CONTEXT_EXPIRED","Old credential reference expired");
+            return new com.tianmu.agent.query.VideoPagePort.Page("1001","测试视频",1000);
+        });
+        var endpoint=new com.tianmu.agent.api.TraceDetailController(credential->fresh,runs,traceDetails);
         var beans=new org.springframework.beans.factory.support.StaticListableBeanFactory();beans.addBean("authority",ledger);
         org.springframework.test.util.ReflectionTestUtils.setField(endpoint,"sourceAuthorities",beans.getBeanProvider(com.tianmu.agent.runtime.spi.TraceSourceAuthority.class));
         byte[] payload=endpoint.get(consumer.id,ref[0],ref[1],Long.parseLong(ref[2]),ref[3],"Bearer fixture").getBody();

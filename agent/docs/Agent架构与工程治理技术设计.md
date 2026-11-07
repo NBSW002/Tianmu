@@ -834,6 +834,10 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 
 120秒对照进一步暴露输出耗尽：第一批32.9秒正常返回，后续批次HTTP 200但finish_reason=length，8192个completion Token全部为reasoning，尚无最终JSON。为此将主循环thinking-effort（默认high）、后台analysis-thinking-effort（默认low）和analysis-max-tokens（默认16384，8192–32768 Token）纳入DeepSeekProperties启动配置；后台仍开启思考，预算包括思考与最终结果，调用/Token总上限不变。主循环模式及effort进入native-thinking-v2目录revision；后台baseUrl/model/mode/effort/maxTokens进入两种反馈policyHash，旧结果缓存与旧job不冒充新配置。finish_reason=length明确报MODEL_OUTPUT_LIMIT，在使用量结算及私有思考采集后失败，不再按同配置重复付费重试。配置边界见[配置目录](配置目录.md)。
 
+来源复验区分运行凭据与查看者凭据：TraceSourceAuthority接受已认证caller，核对tenant/user后使用当前caller复验记忆来源，避免重启或重新登录后用Run中旧authorizationRef错误拒绝仍有权的用户。运行中guard(run)保持原有语义。真实SQL用VIDEO来源和已失效旧ref复现，新ref可读、缺authority或来源删除仍拒绝。
+
+发送时退出的代码级复现确认两个触发点：旧请求晚到401无条件logout可清掉新会话，Host又把同账号token更新当作换账号关闭。Agent/业务请求现在捕获可见Pinia会话的token，仅当失败token仍对应当前state/storage时过期该会话；取消后的响应不更新认证状态。Host只按principal清理私有会话，同账号token更新保留正文和草稿并重接SSE，换账号或登出清空私有数据但保留已打开的面板，以登录界面承接。重登不自动重放提交请求；原idempotency请求语义保留。跨标签页同步走同一UserStore边界，不打印登录token。8项真实Store/HTTP边界及实际Workspace函数的受控测试、旧文件基线证据覆盖该行为；其中token更新保留正在加载的终态报告，不中止后留下空面板。Windows浏览器UI操作因工具无法可靠确认URL被中止，未声称完成实际GUI复现。
+
 截至2026-11-07，官方`deepseek-flash`对应DeepSeek-V4.1-Flash-1017，[官方模型表](https://api-docs.deepseek.com/quick_start/pricing/)与服务端/models列表已核对。目录展示名为V4.1-Flash-1017；线路继续使用官方别名deepseek-flash，不伪造服务商未提供的固定版本ID。
 
 16.1–16.6保留首轮实施和验收记录；后续策略快照、Context拆分、完成条件、操作恢复注册和Hook隔离的当前新增实现看16.7，不以历史“尚未实现”覆盖后续源码。

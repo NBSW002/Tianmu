@@ -4,7 +4,6 @@ import router from './router'
 import { createPinia } from 'pinia'
 import { useUserStore } from './store/user'
 import { TIANMU_USER } from "@/lib/config"
-import { readStoredUser } from "@/lib/auth"
 
 import ElementPlus from 'element-plus'
 import 'element-plus/theme-chalk/index.css'
@@ -41,6 +40,6 @@ app.mount('#app')
 window.addEventListener('storage', (event) => {
   if (event.key === TIANMU_USER) {
     const userStore = useUserStore(); // 替换成你的 store 实例
-    userStore.user = readStoredUser(event.newValue);
+    userStore.syncStoredUser(event.newValue);
   }
 });

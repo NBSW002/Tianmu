@@ -737,12 +737,16 @@ watch(
 );
 watch(
   () => userStore.user.token,
-  () => {
-    commandReplies.value = [];
+  (next, previous) => {
+    if (props.managed) {
+      runMonitor.stop();
+      if (next && previous && activeTurn.value?.runId && !terminal(activeTurn.value.snapshot?.status)) runMonitor.start(activeTurn.value);
+      return;
+    }
     stopMonitoring();
+    commandReplies.value = [];
     submitController?.abort();
     turns.value = [];
-    if (props.managed) return;
     if (props.embedded) emit('close');
     else router.replace('/');
   }
