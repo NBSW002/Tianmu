@@ -68,7 +68,7 @@ class RepresentativeReportHttpTest {
         assertTrue(run.task().resourceVersions().containsKey(com.tianmu.agent.application.TaskAssembler.COMPRESSION_RESOURCE));
         var receipt=run.execution().observations().stream().filter(r->r.tool().equals("generate_feedback_report")).findFirst().orElseThrow();
         String url=receipt.data().get("json_url").toString();
-        mvc.perform(get(url).header("Authorization","Bearer demo-alice")).andExpect(status().isOk()).andExpect(jsonPath("$.schemaVersion").value("feedback-report-json-v1")).andExpect(jsonPath("$.method.raw").value(noData?0:40)).andExpect(jsonPath("$.method.representatives").value(noData?0:2));
+        mvc.perform(get(url).header("Authorization","Bearer demo-alice")).andExpect(status().isOk()).andExpect(jsonPath("$.schemaVersion").value("feedback-report-json-v1")).andExpect(jsonPath("$.method.raw").value(noData?0:40)).andExpect(jsonPath("$.method.representatives").value(noData?0:3));
         mvc.perform(get(url)).andExpect(status().isUnauthorized());mvc.perform(get(url).header("Authorization","Bearer demo-bob")).andExpect(result->assertTrue(Set.of(403,404).contains(result.getResponse().getStatus())));
         mvc.perform(get(url.replace("rp_","rp_0000")).header("Authorization","Bearer demo-alice")).andExpect(result->assertTrue(Set.of(400,404).contains(result.getResponse().getStatus())));
         authorized.set(false);mvc.perform(get(url).header("Authorization","Bearer demo-alice")).andExpect(status().isForbidden());

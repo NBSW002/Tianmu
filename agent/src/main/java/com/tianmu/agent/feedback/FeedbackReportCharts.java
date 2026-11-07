@@ -30,7 +30,7 @@ final class FeedbackReportCharts {
         if(!other)h.append("<span class='bar-index'>").append(String.format(Locale.ROOT,"%02d",index)).append("</span>");
         h.append(e(title)).append("</span><span class='bar-value'>").append(count).append(" 条 <small>").append(String.format(Locale.ROOT,"%.1f",percent)).append("%</small></span></div><div class='bar-track' aria-hidden='true'><span style='width:").append(number(percent)).append("%'></span></div></li>");
     }
-    private static void playback(StringBuilder h,FeedbackPlaybackTrend trend){
+    static void playback(StringBuilder h,FeedbackPlaybackTrend trend){
         h.append("<figure class='chart-card trend-chart'><figcaption><p class='eyebrow'>播放位置</p><h3>弹幕集中在哪些片段</h3>");
         if(trend.plotted()==0){h.append("<p class='chart-empty'>暂无可绘制的弹幕播放位置。</p>");if(trend.omitted()>0)h.append("<p class='chart-note'>").append(trend.omitted()).append(" 条未定位，未画入趋势。</p>");h.append("</figcaption></figure>");return;}
         String interval=trend.bucketMs()<1000?trend.bucketMs()+"毫秒":trend.bucketMs()%60000==0?trend.bucketMs()/60000+"分钟":trend.bucketMs()/1000+"秒";

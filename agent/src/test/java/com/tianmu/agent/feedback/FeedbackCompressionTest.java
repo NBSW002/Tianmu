@@ -6,12 +6,35 @@ import com.tianmu.agent.core.AgentTypes.AccessScope;
 import com.tianmu.agent.core.FeedbackAnalysis.*;
 import com.tianmu.agent.runtime.control.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
 import java.time.*;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void sourceAggregateNeverPushesAnOtherwiseValidObjectOverItsSizeLimit(@TempDir Path directory){
+        var objects=new FeedbackObjects(new com.tianmu.agent.adapters.storage.FileObjectStore(directory),json);var excluded=new ArrayList<FeedbackCompression.Excluded>();
+        for(long i=0;i<18000;i++)excluded.add(new FeedbackCompression.Excluded("D:"+(1000000000000000000L+i),"SHORT_TEXT"));
+        var playback=new TreeMap<Long,Long>();for(long i=0;i<9999;i++)playback.put(i*1000,1L);
+        var source=new FeedbackPreparationService.SourcePart(Source.DANMAKU,List.of(),excluded,new FeedbackCompression.SourceStats(Map.of("2026-11-08",1L),playback,0));
+        assertTrue(objects.bytes(source)>1048576);var bounded=FeedbackPreparationService.boundedPart(objects,source);assertNull(bounded.stats());assertEquals(excluded,bounded.excluded());assertTrue(objects.bytes(bounded)<=1048576);
+        var material=new FeedbackCompression.Material(FeedbackCompression.FIVE_VERSION,FeedbackCompressionProperties.defaults(),"revision",new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(0,18000,0,0,0),new Counts(0,0,0,0,0),excluded,0,List.of(),List.of(),0,0,List.of(),List.of(),null,source.stats());
+        assertTrue(objects.bytes(material)>1048576);var reduced=FeedbackPreparationService.boundedMaterial(objects,material);assertNull(reduced.stats());assertEquals(excluded,reduced.excluded());assertTrue(objects.bytes(reduced)<=1048576);
+    }
+    @Test void fiveBucketSelectsThreeDistinctRepresentativesWhenAvailable(){
+        var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(3);when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());
+        FeedbackEmbedding embedding=new FeedbackEmbedding(){public String version(){return "fixture-three";}public int dimension(){return 3;}public List<List<Float>> embed(List<String> texts,CallControl c){return texts.stream().map(t->List.of(1f,0f,0f)).toList();}};
+        var s=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);var c=control();
+        var rows=List.of(unit(1,Source.COMMENT,"画面很清晰甲",10L),unit(2,Source.COMMENT,"画面很清晰乙",9L),unit(3,Source.COMMENT,"画面很清晰丙",8L));
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var result=s.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(3,0,0,0,3),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertEquals(1,result.clusters().size());assertEquals(3,result.representativeCount());var text=result.inputs().get(0).groups().get(0).text();assertTrue(text.contains("画面很清晰甲"));assertTrue(text.contains("画面很清晰乙"));assertTrue(text.contains("画面很清晰丙"));
+        var loose=new FeedbackCompressionProperties(true,3,15000,.90,32,.75,5,5,60,.96,300,600,32768,67108864,512);
+        var fiveTarget=new FeedbackCompression(embedding,vectors,loose,json);var more=new ArrayList<>(rows);more.add(unit(4,Source.COMMENT,"画面很清晰丁",7L));more.add(unit(5,Source.COMMENT,"画面很清晰戊",6L));
+        var bounded=fiveTarget.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(5,0,0,0,5),List.of(fiveTarget.prepare(Source.COMMENT,more,c)),c,()->{});assertEquals(3,bounded.representativeCount());
+    }
     @Test void centeringFallsBackWhenOneNearMeanExpressionContainsMostOriginalFeedback(){
         var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(2);when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());
         FeedbackEmbedding embedding=new FeedbackEmbedding(){public String version(){return "fixture-weight";}public int dimension(){return 2;}public List<List<Float>> embed(List<String> texts,CallControl c){return texts.stream().map(t->t.startsWith("中心")?List.of(1f,0f):List.of(.9998f,Integer.parseInt(t.substring(t.lastIndexOf('号')+1))%2==0?.02f:-.02f)).toList();}};
@@ -75,7 +98,8 @@ class FeedbackCompressionTest {
     }
     @Test void filtersAreCountedAndDoNotBecomeModelEvidence(){
         var s=service(mock(FeedbackVectorIndex.class));var source=s.prepare(Source.COMMENT,List.of(unit(1,Source.COMMENT,"太吵",99L),unit(2,Source.COMMENT,"😀",0L),unit(3,Source.COMMENT,"人声听不清",0L)),control());
-        assertEquals(List.of("C:3"),source.eligible().stream().map(Unit::id).toList());assertEquals(2,source.excluded().size());
+        assertEquals(List.of("C:3"),source.eligible().stream().map(Unit::id).toList());assertEquals(2,source.excluded().size());assertEquals(3L,source.stats().daily().values().stream().mapToLong(Long::longValue).sum());
+        var danmaku=s.prepare(Source.DANMAKU,List.of(unit(4,Source.DANMAKU,"太吵",0L),unit(5,Source.DANMAKU,"声音听不清",0L)),control());assertEquals(1,danmaku.excluded().size());assertEquals(2L,danmaku.stats().playback().get(1000L));
     }
     @Test void noVectorServiceCannotMasqueradeAsCompression(){
         var s=new FeedbackCompression(null,null,FeedbackCompressionProperties.defaults(),json);

@@ -9,6 +9,7 @@ import java.util.*;
 /** Trusted presentation code. Model text and source quotations are always escaped. */
 public final class FeedbackReportRenderer {
     private FeedbackReportRenderer(){}
+    static String styles(){return STYLE;}
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE=DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm");
     private static String e(Object value){return Objects.toString(value,"").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;");}

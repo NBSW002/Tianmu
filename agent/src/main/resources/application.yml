@@ -55,7 +55,8 @@ agent:
       min-similarity: ${FEEDBACK_CLUSTER_MIN_SIMILARITY:0.90}
       neighbors: ${FEEDBACK_CLUSTER_NEIGHBORS:32}
       min-centrality: ${FEEDBACK_MIN_CENTRALITY:0.75}
-      representatives-per-cluster: ${FEEDBACK_REPRESENTATIVES_PER_CLUSTER:2}
+      representatives-per-cluster: ${FEEDBACK_REPRESENTATIVES_PER_CLUSTER:3}
+      moment-match-max-gap-ms: ${FEEDBACK_MOMENT_MATCH_MAX_GAP_MS:15000}
       max-per-cluster: ${FEEDBACK_MAX_PER_CLUSTER:3}
       max-representatives: ${FEEDBACK_MAX_REPRESENTATIVES:60}
       near-duplicate-similarity: ${FEEDBACK_NEAR_DUPLICATE_SIMILARITY:0.96}

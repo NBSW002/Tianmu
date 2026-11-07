@@ -10,11 +10,16 @@ import java.util.*;
 
 /** Pure task-member clustering and representative selection. Full membership never enters model projection. */
 public final class FeedbackCompression {
+    private static final int MAX_STATS_KEYS=10000; // Keeps each sealed aggregation below the object-store limit.
     public static final String VERSION="feedback-representatives-v1";
     public static final String FIVE_VERSION=FeedbackAnalysis.FIVE_BUCKET_VERSION;
     public static boolean representativeVersion(String version){return VERSION.equals(version) || FIVE_VERSION.equals(version);}
     public record Excluded(String id,String reason) {}
-    public record SourceMaterial(Source source,List<Unit> eligible,List<Excluded> excluded) {
+    public record SourceStats(Map<String,Long> daily,Map<Long,Long> playback,long playbackMissing) {
+        public SourceStats {daily=Map.copyOf(daily);playback=Map.copyOf(playback);}
+    }
+    public record SourceMaterial(Source source,List<Unit> eligible,List<Excluded> excluded,SourceStats stats) {
+        public SourceMaterial(Source source,List<Unit> eligible,List<Excluded> excluded){this(source,eligible,excluded,null);}
         public SourceMaterial {eligible=List.copyOf(eligible);excluded=List.copyOf(excluded);}
     }
     public record Excerpt(String memberId,String field,String snapshotHash,String valueHash,int startCodePoint,int endCodePoint,int originalCodePoints) {}
@@ -26,8 +31,9 @@ public final class FeedbackCompression {
     public record BucketMetric(String mode,String fallback,double threshold,int expressions,String transformVersion) {}
     public record Material(String version,FeedbackCompressionProperties policy,String protocolRevision,Blob manifest,Counts rawCounts,
                            Counts eligibleCounts,List<Excluded> excluded,int exactExpressions,List<Cluster> clusters,
-                           List<FeedbackModels.Input> inputs,int representativeCount,int modelBytes,List<String> unclassified,List<Representative> unclassifiedExamples,BucketMetric bucketMetric) {
+                           List<FeedbackModels.Input> inputs,int representativeCount,int modelBytes,List<String> unclassified,List<Representative> unclassifiedExamples,BucketMetric bucketMetric,SourceStats stats) {
         public Material {excluded=List.copyOf(excluded);clusters=List.copyOf(clusters);inputs=List.copyOf(inputs);unclassified=unclassified==null?List.of():List.copyOf(unclassified);unclassifiedExamples=unclassifiedExamples==null?List.of():List.copyOf(unclassifiedExamples);}
+        public Material withoutStats(){return new Material(version,policy,protocolRevision,manifest,rawCounts,eligibleCounts,excluded,exactExpressions,clusters,inputs,representativeCount,modelBytes,unclassified,unclassifiedExamples,bucketMetric,null);}
         public Map<String,Object> summary(){var values=new LinkedHashMap<String,Object>();values.put("raw",rawCounts.total());values.put("excluded",excluded.size());values.put("eligible",eligibleCounts.total());values.put("exact",exactExpressions);values.put("clusters",clusters.size());values.put("representatives",representativeCount);values.put("model_bytes",modelBytes);values.put("method",version);values.put("policy",protocolRevision);values.put("unclassified",unclassified.size());if(bucketMetric!=null)values.put("bucket_metric",Map.of("mode",bucketMetric.mode(),"fallback",bucketMetric.fallback(),"threshold",bucketMetric.threshold(),"expressions",bucketMetric.expressions(),"transform_version",bucketMetric.transformVersion()));return Collections.unmodifiableMap(values);}
     }
     private record Exact(Source source,String text,String context,boolean author,Long bucket) {}
@@ -43,10 +49,13 @@ public final class FeedbackCompression {
     }
     public FeedbackCompressionProperties policy(){return policy;}
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
-    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-task-centering-v3").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-task-centering-three-stats-v5").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
-        var accepted=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();
+        var accepted=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;boolean statsOverflow=false;
         for(var u:rows){check(control);if(u.source()!=source)throw new AgentException("INVALID_EVIDENCE","Mixed preparation partition");
+            if(!statsOverflow){if(u.createdAt()!=null)daily.merge(u.createdAt().atZone(DanmakuTypes.ZONE).toLocalDate().toString(),1L,Long::sum);
+                if(source==Source.DANMAKU){if(u.playbackMs()==null)missing++;else playback.merge(u.playbackMs(),1L,Long::sum);}
+                if(daily.size()+playback.size()>MAX_STATS_KEYS){statsOverflow=true;daily.clear();playback.clear();}}
             String clean=Normalizer.normalize(u.text(),Normalizer.Form.NFKC).replaceAll("[\\p{Z}\\s]+"," ").strip();
             long effective=clean.codePoints().filter(Character::isLetterOrDigit).count();
             String reason=clean.isEmpty()?"EMPTY":effective<policy.minEffectiveChars()?"SHORT_TEXT":null;
@@ -55,7 +64,7 @@ public final class FeedbackCompression {
             if(reason!=null){excluded.add(new Excluded(u.id(),reason));continue;}
             accepted.add(new Unit(u.id(),u.source(),u.originalId(),clean,u.replyContext(),false,u.playbackMs(),u.userId(),u.createdAt(),u.likeCount()));
         }
-        return new SourceMaterial(source,accepted,excluded);
+        return new SourceMaterial(source,accepted,excluded,statsOverflow?null:new SourceStats(daily,playback,missing));
     }
     public Material compress(UUID job,AccessScope owner,Request request,Blob manifest,Counts raw,List<SourceMaterial> partitions,
                              CallControl control,Runnable reserveEmbedding){
@@ -71,7 +80,7 @@ public final class FeedbackCompression {
         for(var members:exact.values()){members.sort(ranking);expressions.add(new Expression(members.get(0),List.copyOf(members)));}
         if((long)expressions.size()*embedding.dimension()*Float.BYTES*3>policy.vectorBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Task vector memory quota exceeded");
         var encoded=encode(owner,request,expressions,control,reserveEmbedding);
-        if(FIVE_VERSION.equals(request.rulesVersion()))return fiveBuckets(manifest,raw,excluded,rows,expressions,encoded,control);
+        if(FIVE_VERSION.equals(request.rulesVersion()))return fiveBuckets(manifest,raw,excluded,rows,expressions,encoded,control,mergeStats(partitions));
         var assigned=new BitSet(expressions.size());var clusters=new ArrayList<Cluster>();var inputs=new ArrayList<FeedbackModels.Input>();
         var allGroups=new ArrayList<FeedbackModels.Group>();int reps=0,bytes=0;
         for(int seed=0;seed<expressions.size();seed++){
@@ -136,9 +145,10 @@ public final class FeedbackCompression {
         if(!batch.isEmpty())inputs.add(new FeedbackModels.Input(WorkKind.CLASSIFY,batch,List.of(),null));
         var people=new HashSet<String>();rows.stream().filter(u->u.userId()!=null).forEach(u->people.add(u.userId()));long comments=rows.stream().filter(u->u.source()==Source.COMMENT).count();
         bytes=projectedBytes(allGroups);if(bytes>policy.packageBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative model projection exceeds global byte quota");
-        return new Material(VERSION,policy,revision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,reps,bytes,List.of(),List.of(),null);
+        return new Material(VERSION,policy,revision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,reps,bytes,List.of(),List.of(),null,mergeStats(partitions));
     }
-    private Material fiveBuckets(Blob manifest,Counts raw,List<Excluded> excluded,List<Unit> rows,List<Expression> expressions,List<float[]> encoded,CallControl control){
+    private SourceStats mergeStats(List<SourceMaterial> parts){var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;for(var part:parts){if(part.stats()==null)return null;part.stats().daily().forEach((k,v)->daily.merge(k,v,Math::addExact));part.stats().playback().forEach((k,v)->playback.merge(k,v,Math::addExact));missing=Math.addExact(missing,part.stats().playbackMissing());if(daily.size()+playback.size()>MAX_STATS_KEYS)return null;}return new SourceStats(daily,playback,missing);}
+    private Material fiveBuckets(Blob manifest,Counts raw,List<Excluded> excluded,List<Unit> rows,List<Expression> expressions,List<float[]> encoded,CallControl control,SourceStats stats){
         var eligibleIndices=new ArrayList<Integer>();var unclassified=new ArrayList<String>();
         for(int n=0;n<expressions.size();n++){if(contextDependent(expressions.get(n).exemplar()))expressions.get(n).members().forEach(u->unclassified.add(u.id()));else eligibleIndices.add(n);}
         var transformed=FeedbackVectorTransform.apply(eligibleIndices.stream().map(encoded::get).toList(),buckets,control);
@@ -173,12 +183,12 @@ public final class FeedbackCompression {
             for(int n=0;n<expressions.size();n++)if(ids.contains(expressions.get(n).exemplar().id()))choices.add(n);
             float[] center=new float[embedding.dimension()];for(int n:choices)for(int d=0;d<center.length;d++)center[d]+=rankingVectors.get(n)[d];normalize(center);choices.sort((a,b)->compare(expressions.get(a),expressions.get(b),rankingVectors.get(a),rankingVectors.get(b),center));
             var members=cluster.members().stream().map(byId::get).toList();
-            for(int n:choices){
-                if(selected.size()>=Math.min(policy.representativesPerCluster(),policy.maxPerCluster()) || representatives>=policy.maxRepresentatives())break;
+            for(int pass=0;pass<2;pass++)for(int n:choices){
+                if(selected.size()>=Math.min(3,Math.min(policy.representativesPerCluster(),policy.maxPerCluster())) || representatives>=policy.maxRepresentatives())break;
                 var e=expressions.get(n);if(selected.stream().anyMatch(r->r.id().equals(e.exemplar().id())))continue;
-                boolean duplicate=false;for(var r:selected)for(int previous:choices)if(expressions.get(previous).exemplar().id().equals(r.id()) && cosine(rankingVectors.get(n),rankingVectors.get(previous))>=policy.nearDuplicateSimilarity()){duplicate=true;break;}if(duplicate)continue;
+                boolean duplicate=false;for(var r:selected)for(int previous:choices)if(expressions.get(previous).exemplar().id().equals(r.id()) && cosine(rankingVectors.get(n),rankingVectors.get(previous))>=policy.nearDuplicateSimilarity()){duplicate=true;break;}if(duplicate && pass==0)continue;
                 var next=new ArrayList<>(selected);next.add(representative(e.exemplar(),e.members().size(),manifest.sha256()));int delta=projectedBytes(groups(cluster.id(),members,next))-projectedBytes(groups(cluster.id(),members,selected));
-                if(bytes+delta>policy.packageBytes())continue;selected=next;bytes+=delta;representatives++;
+                if(bytes+delta>policy.packageBytes() || projectedBytes(groups(cluster.id(),members,next))>policy.batchBytes())continue;selected=next;bytes+=delta;representatives++;
             }
             clusters.set(index,new Cluster(cluster.id(),cluster.members(),selected));
         }
@@ -193,7 +203,7 @@ public final class FeedbackCompression {
         var examples=new ArrayList<Representative>();var unclassifiedSet=new HashSet<>(unclassified);
         rows.stream().filter(u->unclassifiedSet.contains(u.id())).sorted(Comparator.<Unit,Boolean>comparing(u->u.likeCount()==null).thenComparing(u->u.likeCount()==null?0L:u.likeCount(),Comparator.reverseOrder()).thenComparing(Unit::id)).limit(3).forEach(u->examples.add(representative(u,1,manifest.sha256())));
         var metric=new BucketMetric(transformed.mode(),transformed.fallback(),transformed.threshold(),transformed.vectors().size(),transformed.mode().equals("TASK_CENTERED_COSINE")?"task-mean-centered-v1":"raw-cosine-v1");
-        return new Material(FIVE_VERSION,policy,fiveRevision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,representatives,bytes,unclassified,examples,metric);
+        return new Material(FIVE_VERSION,policy,fiveRevision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,representatives,bytes,unclassified,examples,metric,stats);
     }
     private int projectedBytes(List<FeedbackModels.Group> groups){return write(groups.stream().map(g->FeedbackModelProjection.group(g,json)).toList()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;}
     private List<FeedbackModels.Group> groups(String id,List<Unit> members,List<Representative> reps){

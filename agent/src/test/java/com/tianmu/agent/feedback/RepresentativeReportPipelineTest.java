@@ -61,7 +61,10 @@ class RepresentativeReportPipelineTest {
             var report=preparation.reportJson(job.id(),owner,control);
             assertEquals(1,exports.get());assertEquals(1,requests.size());assertFalse(requests.get(0).contains("音乐太大听不清楚"));assertFalse(requests.get(0).contains("originalIds"));assertTrue(requests.get(0).contains("背景音乐盖住人声了"));
             assertEquals(22,report.topics().get(0).commentCount());assertEquals(1,report.topics().get(0).danmakuCount());assertEquals(2,report.topics().get(0).representatives().size());
-            assertEquals(report,preparation.storedReportJson(job.id(),owner));assertTrue(new String(report.html(),java.nio.charset.StandardCharsets.UTF_8).contains("未逐条阅读全部原文"));
+            assertEquals(24L,report.daily().values().stream().mapToLong(Long::longValue).sum());assertEquals(1,report.playback().plotted());assertEquals(0,report.playback().omitted());assertFalse(requests.get(0).contains("playbackMissing"));assertFalse(requests.get(0).contains("raw_unique_audience"));
+            assertEquals(report,preparation.storedReportJson(job.id(),owner));var html=new String(report.html(),java.nio.charset.StandardCharsets.UTF_8);assertTrue(html.contains("未逐条阅读全部原文"));assertTrue(html.contains("/video/1001?t=1.0"));assertTrue(html.contains("观众原话与完整建议"));
+            assertEquals(List.of(1000L),report.videoDetails().sampledAtMs());assertEquals("演示参数",report.videoDetails().moments().get(0).observation());assertTrue(html.contains("原话播放位置附近的采样画面"));
+            var historical=(com.fasterxml.jackson.databind.node.ObjectNode)json.valueToTree(report);historical.remove(List.of("daily","playback","videoDetails"));var old=json.treeToValue(historical,FeedbackReportJson.class);assertTrue(old.daily().isEmpty());assertNull(old.playback());assertNull(old.videoDetails());
             var asset=service.asset(job.id(),owner,request);
             assertEquals("REPRESENTATIVE_ONLY",assertThrows(AgentException.class,()->service.search(asset,"音乐",0,5)).code());
             assertEquals("REPRESENTATIVE_ONLY",assertThrows(AgentException.class,()->service.originalText(asset,report.topics().get(0).id(),"C:2",0,50)).code());
