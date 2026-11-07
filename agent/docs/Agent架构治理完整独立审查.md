@@ -68,3 +68,13 @@ F2工作流定义修正关闭、实际执行证据待补：ci.yml现显式开启
 主Agent报告14项专项通过，并正在使用服务器新建随机专用_it库及临时Redis运行隔离集成测试；本节没有独立读取该运行结果，因此该项仍是进行中信息，不作为通过依据。完成后应保存各测试类执行/跳过数量和清理证据，再补录持久化验证与真实CI状态。
 
 此次静态复核没有新增P0/P1发现，前文原路线未实施项仍有效；用户后续授权部署不使这些功能自动成为已完成能力。
+
+## Trace前端fan-in布局修复复核
+
+只读复核front/src/trace/trace-presentation.mjs的layoutPresentation及新增重叠fan-in测试；没有执行构建或修改前端代码。graphTime只在图谱排序、兄弟重叠分组和摆放阶段把merge的展示转换时点设为其结束时间，原始offsetMs/durationMs与详情数据未被改写；普通节点的时间规则保持不变。end不完整时回退原start，未制造一个虚构时长。相同终点的零耗时边界仍通过原compare稳定排序。
+
+新增fixture将merge开始置于三个识别分支执行期间，验证三条branch→merge及merge→model连边、merge的横坐标确实在三分支之后，并保持原始时间11/80。这覆盖此次后端真实等待Span带来的前端回归，不是将后端耗时重新缩短迎合图形。
+
+直接读取var/governance-release/graph-audit-fixed.log：五个真实Trace图谱检查均PASS，含CANCELLED、NEEDS_INPUT、通用/指标/报告SUCCEEDED；取消样本usageComplete=false仍保留，未用布局修复补造完整Token。日志由主Agent执行，不冒充本Agent重新测试，亦不代表已对更新部署后的浏览器产物完成验收。
+
+未发现此补丁新增P0/P1/P2阻塞。补充边界建议：以后增加分支超时后忽略中断、其Span实际结束晚于merge的fixture；图谱应继续保留真实重叠/未完成状态，不能为了强制所有箭头都归并而篡改late branch的时间。当前图谱本就以时间顺序而非全部因果依赖为契约，不据该未新增用例认定已有实现错误。

@@ -383,7 +383,10 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     } else cards.push({ ...card, collapseId })
   }
   presentation.cards.forEach(card => visit(card))
-  cards.sort(compare)
+  // A merge span measures waiting as well as evaluation. Its graph transition
+  // occurs when fan-in completes; its original start/duration remain in details.
+  const graphTime = card => card.cardKind === 'merge' && Number.isFinite(end(card)) ? end(card) : time(card)
+  cards.sort((a, b) => graphTime(a) - graphTime(b) || compare(a, b))
   const displayStarts = new Map(), siblings = new Map()
   for (const card of cards) {
     const key = card.parentId || 'root'
@@ -392,15 +395,15 @@ export function layoutPresentation(presentation, expanded = new Set()) {
   }
   for (const peers of siblings.values()) {
     let batch = [], commonEnd = Infinity
-    const flush = () => { if (batch.length > 1) batch.forEach(n => displayStarts.set(n.id, time(batch[0]))); batch = []; commonEnd = Infinity }
+    const flush = () => { if (batch.length > 1) batch.forEach(n => displayStarts.set(n.id, graphTime(batch[0]))); batch = []; commonEnd = Infinity }
     for (const card of peers) {
       if (card.summaryOnly || !Number.isFinite(end(card))) { flush(); continue }
-      if (time(card) >= commonEnd) flush()
+      if (graphTime(card) >= commonEnd) flush()
       batch.push(card); commonEnd = Math.min(commonEnd, end(card))
     }
     flush()
   }
-  cards.sort((a, b) => (displayStarts.get(a.id) ?? time(a)) - (displayStarts.get(b.id) ?? time(b)) || compare(a, b))
+  cards.sort((a, b) => (displayStarts.get(a.id) ?? graphTime(a)) - (displayStarts.get(b.id) ?? graphTime(b)) || compare(a, b))
   const nodes = [], edges = [], lanes = [], frontier = new Map()
   let lastX = 0
   const stop = n => n.summaryOnly ? time(n) : end(n)
@@ -409,7 +412,7 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     edges.push({ id: `${relation}:${a.id}:${b.id}`, source: a.id, target: b.id, relation })
   }
   for (const card of cards) {
-    const displayTime = displayStarts.get(card.id) ?? time(card)
+    const displayTime = displayStarts.get(card.id) ?? graphTime(card)
     const known = Number.isFinite(displayTime)
     const finished = known ? [...frontier.values()].filter(n => Number.isFinite(stop(n.data)) && stop(n.data) <= displayTime) : []
     // Each ended branch joins the next chronological step. A new overlapping

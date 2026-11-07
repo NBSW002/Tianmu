@@ -54,6 +54,32 @@ test('entry recognition forks into three real model spans and joins before the c
 })
 
 const node = (id, name, kind, offsetMs, durationMs, extra = {}) => ({ id, name, kind, offsetMs, durationMs, status: 'SUCCEEDED', attributes: {}, ...extra })
+
+test('a merge covering fan-in waiting follows all recognition branches without changing measured times', () => {
+  const raw = [
+    node('faq', 'agent.prepare.faq', 'STAGE', 0, 5),
+    node('intent', 'agent.prepare.intent', 'MODEL', 10, 70, { parentId: 'prepare', attributes: { 'preparation.method': 'MODEL' } }),
+    node('emotion', 'agent.prepare.emotion', 'MODEL', 12, 55, { parentId: 'prepare', attributes: { 'preparation.method': 'MODEL' } }),
+    node('clarification', 'agent.prepare.clarification', 'MODEL', 14, 75, { parentId: 'prepare', attributes: { 'preparation.method': 'MODEL' } }),
+    node('merge', 'agent.prepare.merge', 'STAGE', 11, 80, { parentId: 'prepare' }),
+    node('model', 'agent.model', 'MODEL', 100, 20),
+  ]
+  const graph = layoutPresentation(buildTracePresentation(raw))
+  const merge = graph.nodes.find(n => n.id === 'merge')
+  for (const id of ['intent', 'emotion', 'clarification']) {
+    const branch = graph.nodes.find(n => n.id === id)
+    assert.ok(merge.position.x > branch.position.x)
+    assert.ok(graph.edges.some(e => e.source === id && e.target === merge.id))
+  }
+  assert.ok(graph.edges.some(e => e.source === merge.id && e.target === 'model'))
+  assert.equal(merge.data.offsetMs, 11)
+  assert.equal(merge.data.durationMs, 80)
+  const late = raw.map(n => n.id === 'clarification' ? { ...n, durationMs: 160 } : n)
+  const partial = layoutPresentation(buildTracePresentation(late))
+  assert.ok(partial.edges.some(e => e.source === 'intent' && e.target === 'merge'))
+  assert.ok(!partial.edges.some(e => e.source === 'clarification' && e.target === 'merge'), 'A late branch must not be shown as completed before fan-in returns')
+  assert.equal(partial.nodes.find(n => n.id === 'clarification').data.durationMs, 160)
+})
 test('intent cards show capability selection before payloads load and expand the actual candidate snapshot', () => {
   const raw=node('intent','agent.prepare.intent','MODEL',0,10,{attributes:{'preparation.intent':'DANMAKU_REPORT','preparation.intent_primary':'audience-report','preparation.intent_related':['video-content','comment-analysis'],'preparation.intent_candidates':['audience-report','video-content','comment-analysis']}})
   const card=buildTracePresentation([raw]).cards[0]
