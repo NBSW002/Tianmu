@@ -69,6 +69,33 @@ class MemoryRuntimeIntegrationTest {
         assertTrue(runs.messages(consumer.sessionId,owner,Long.MAX_VALUE).stream().filter(m->m.role().equals("assistant")).noneMatch(m->m.text().contains("使用过该偏好")));
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM agent_memory_source WHERE tenant_id=? AND declaration<>''",Integer.class,owner.tenantId()));
     }
+    @Test void reasoningPayloadRequiresLiveMemoryAuthorityAndRejectsForgottenSource() throws Exception {
+        var saved=store.create(owner,new Content(Scope.user(),PersonalMemory.Kind.PREFERENCE,"先说明数据来源",null),"reasoning-root");
+        var consumer=run("解释一下结果");ledger.begin(consumer);
+        ledger.consume(consumer,List.of(ledger.read(owner,saved.id(),1,ledger.boundary(owner,consumer.id).sequence())));
+        String reference;
+        try(var provider=io.opentelemetry.sdk.trace.SdkTracerProvider.builder().build()){
+            var span=provider.get("test").spanBuilder("model.request").startSpan();
+            try(var scope=traceDetails.bind(io.opentelemetry.context.Context.root().with(span),consumer.id).makeCurrent()){
+                com.tianmu.agent.harness.trace.TraceDetails.reasoning("按偏好先说明数据来源，邮箱 person@example.com");
+            }
+            span.end();
+            reference=((io.opentelemetry.sdk.trace.ReadableSpan)span).toSpanData().getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("detail.reasoning_ref"));
+        }
+        assertNotNull(reference);var ref=reference.split("/");
+        var endpoint=new com.tianmu.agent.api.TraceDetailController(credential->owner,runs,traceDetails);
+        var beans=new org.springframework.beans.factory.support.StaticListableBeanFactory();beans.addBean("authority",ledger);
+        org.springframework.test.util.ReflectionTestUtils.setField(endpoint,"sourceAuthorities",beans.getBeanProvider(com.tianmu.agent.runtime.spi.TraceSourceAuthority.class));
+        byte[] payload=endpoint.get(consumer.id,ref[0],ref[1],Long.parseLong(ref[2]),ref[3],"Bearer fixture").getBody();
+        assertTrue(traceDetails.requiresSourceGuard(payload));assertTrue(json.readTree(payload).path("value").asText().contains("先说明数据来源"));
+        assertFalse(new String(payload,java.nio.charset.StandardCharsets.UTF_8).contains("person@example.com"));
+        var missing=new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        org.springframework.test.util.ReflectionTestUtils.setField(endpoint,"sourceAuthorities",missing.getBeanProvider(com.tianmu.agent.runtime.spi.TraceSourceAuthority.class));
+        assertEquals("MEMORY_SOURCE_UNAVAILABLE",assertThrows(AgentException.class,()->endpoint.get(consumer.id,ref[0],ref[1],Long.parseLong(ref[2]),ref[3],"Bearer fixture")).code());
+        org.springframework.test.util.ReflectionTestUtils.setField(endpoint,"sourceAuthorities",beans.getBeanProvider(com.tianmu.agent.runtime.spi.TraceSourceAuthority.class));
+        store.delete(owner,saved.id(),1,"forget-reasoning-root");
+        assertEquals("MEMORY_CONTEXT_INVALIDATED",assertThrows(AgentException.class,()->endpoint.get(consumer.id,ref[0],ref[1],Long.parseLong(ref[2]),ref[3],"Bearer fixture")).code());
+    }
     @Test void naturalRunGcPreservesExplicitDeclarationButDerivedSourceExpiresBeforeGc(){
         var origin=run("记住，我希望先举例");var saved=ledger.declare(origin,new Content(Scope.user(),PersonalMemory.Kind.PREFERENCE,"先举例",null),"explicit",true);origin.succeed(new Answer("好",List.of()));
         db.update("UPDATE agent_run SET data_expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND),deadline_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE run_id=?",origin.id.toString());runs.garbageCollect();

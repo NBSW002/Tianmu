@@ -28,6 +28,7 @@ public final class RuntimeModelCatalog {
     private final ContextPolicy policy;
     private final PromptCatalog prompts;
     private final io.opentelemetry.api.trace.Tracer tracer;
+    private final boolean thinkingEnabled;
     @org.springframework.beans.factory.annotation.Autowired
     public RuntimeModelCatalog(DeepSeekProperties defaults,ObjectMapper json,ContextPolicy policy,PromptCatalog prompts,
                                io.opentelemetry.api.trace.Tracer tracer,@Value("${agent.models.catalog:}") String file) {
@@ -35,8 +36,8 @@ public final class RuntimeModelCatalog {
     }
     RuntimeModelCatalog(DeepSeekProperties defaults,ObjectMapper json,ContextPolicy policy,PromptCatalog prompts,
                         io.opentelemetry.api.trace.Tracer tracer,String file,java.util.function.Function<String,String> environment){
-        this.environment=environment;this.json=json;this.policy=policy;this.prompts=prompts;this.tracer=tracer;this.path=file.isBlank()?null:Path.of(file);
-        String startupRevision;try{startupRevision=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(Map.of("url",defaults.baseUrl().toString(),"key",defaults.apiKey(),"model",defaults.harnessModel(),"maxTokens",defaults.harnessMaxTokens()))));}catch(Exception error){throw new IllegalStateException("Cannot fingerprint model configuration");}
+        this.environment=environment;this.json=json;this.policy=policy;this.prompts=prompts;this.tracer=tracer;this.path=file.isBlank()?null:Path.of(file);this.thinkingEnabled=defaults.thinkingEnabled();
+        String startupRevision;try{startupRevision=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(Map.of("url",defaults.baseUrl().toString(),"key",defaults.apiKey(),"model",defaults.harnessModel(),"maxTokens",defaults.harnessMaxTokens(),"protocol","native-thinking-v1","thinkingEnabled",defaults.thinkingEnabled()))));}catch(Exception error){throw new IllegalStateException("Cannot fingerprint model configuration");}
         var choice=new Choice("default",defaults.harnessModel(),defaults.harnessModel(),startupRevision);
         current=new Catalog("default",Map.of("default",new Selection(choice,build(defaults))),startupRevision);
         if(path!=null)reload();
@@ -47,7 +48,9 @@ public final class RuntimeModelCatalog {
         try {
             if(Files.size(path)>65536)throw new IllegalArgumentException();
             byte[] bytes=Files.readAllBytes(path);
-            String revision=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+            var fingerprint=java.security.MessageDigest.getInstance("SHA-256");
+            fingerprint.update(("native-thinking-v1:"+thinkingEnabled+":").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            String revision=HexFormat.of().formatHex(fingerprint.digest(bytes));
             if(revision.equals(current.revision()))return;
             var doc=json.readValue(bytes,Document.class);
             if(doc.models()==null || doc.models().isEmpty() || doc.models().size()>32)throw new IllegalArgumentException();
@@ -56,7 +59,7 @@ public final class RuntimeModelCatalog {
                 if(entry.id()==null || !entry.id().matches("[a-zA-Z0-9_-]{1,64}") || !ids.add(entry.id()) || entry.label()==null || entry.label().isBlank() || entry.label().length()>80)throw new IllegalArgumentException();
                 if(!entry.enabled())continue;
                 if(entry.keyEnv()==null || !entry.keyEnv().matches("[A-Z][A-Z0-9_]{0,100}"))throw new IllegalArgumentException();
-                var config=new DeepSeekProperties(URI.create(entry.baseUrl()),environment.apply(entry.keyEnv()),entry.model(),entry.model(),Duration.ofSeconds(3),384,entry.maxTokens(),entry.model());
+                var config=new DeepSeekProperties(URI.create(entry.baseUrl()),environment.apply(entry.keyEnv()),entry.model(),entry.model(),Duration.ofSeconds(3),384,entry.maxTokens(),entry.model(),thinkingEnabled);
                 var choice=new Choice(entry.id(),entry.label(),entry.model(),revision);
                 entries.put(entry.id(),new Selection(choice,build(config)));
             }

@@ -12,7 +12,8 @@ function start(turn) {
   const controller = new AbortController();
   monitor = controller;
   const signal = controller.signal;
-  let sequence = 0;
+  let sequence = turn.eventSequence || 0;
+  let handled = sequence;
   const refresh = async () => {
     const snapshot = await getAgentRun(turn.runId, signal);
     if (!signal.aborted) {
@@ -47,21 +48,33 @@ function start(turn) {
           if (signal.aborted) return;
           const payload = event.payload,
             seq = Number(payload.sequence || event.id);
-          if (!Number.isSafeInteger(seq) || seq <= sequence) return;
-          sequence = seq;
+          if (!Number.isSafeInteger(seq) || seq < 1) return;
+          sequence = Math.max(sequence, seq);
+          if (seq <= handled) return;
+          handled = seq;
+          turn.eventSequence = seq;
           const data = payload.data || {};
-          if (event.type === 'TEXT_START' || event.type === 'TEXT_END') turn.streamingText = '';
+          // Completed model remarks remain visible when the next tool/model round starts.
+          if (event.type === 'TEXT_END' && turn.streamingText) {
+            turn.streamingNotes = [...(turn.streamingNotes || []), { sequence: seq, text: turn.streamingText }];
+            turn.streamingText = '';
+          }
           if (event.type === 'TEXT_DELTA' && typeof data.text === 'string') turn.streamingText = (turn.streamingText || '') + data.text;
           if (event.type === 'MODEL_SELECTED') turn.modelLabel = data.label || data.model;
           if (event.type === 'PROGRESS') {
             if (data.stage === 'tool_completed' && ['remember_memory','forget_memory'].includes(data.tool)) notifyMemoryChanged('agent');
-            turn.events.push({
+            const label = progressLabel(data);
+            if (!label) return;
+            const next = {
               sequence: seq,
-              label: progressLabel(data),
+              label,
               at: payload.at,
               waitingAuth: data.stage === 'analysis_waiting_auth',
               analysisCalls: data.stage === 'feedback_analysis' && Number.isSafeInteger(data.model_calls) ? data.model_calls : undefined,
-            });
+            };
+            const previous = turn.events[turn.events.length - 1];
+            if (previous?.label === label) Object.assign(previous, { analysisCalls: next.analysisCalls ?? previous.analysisCalls });
+            else turn.events.push(next);
             turn.events = turn.events.slice(-60);
           }
           if (event.type === 'ARTIFACT_READY')

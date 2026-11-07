@@ -9,6 +9,7 @@ import java.util.function.Consumer;
 final class NativeSseResponse {
     private final ObjectMapper json;private final Consumer<String> sink;
     private final StringBuilder content=new StringBuilder();private final Map<Integer,ObjectNode> tools=new TreeMap<>();
+    private final StringBuilder reasoning=new StringBuilder();
     private final StringBuilder pending=new StringBuilder();private long flushedAt=System.nanoTime();private Boolean display;
     boolean done(){return done;}
     private void flush(){if(!pending.isEmpty()){sink.accept(pending.toString());pending.setLength(0);flushedAt=System.nanoTime();}}
@@ -24,6 +25,9 @@ final class NativeSseResponse {
                 if(choice.path("index").asInt()!=0)continue;
                 if(choice.hasNonNull("finish_reason"))finish=choice.get("finish_reason").asText();
                 var delta=choice.path("delta");
+                if(delta.path("reasoning_content").isTextual()){
+                    reasoning.append(delta.path("reasoning_content").asText());if(reasoning.length()>131072)throw new IllegalArgumentException();
+                }
                 if(delta.path("content").isTextual()){
                     String text=delta.path("content").asText();if(content.length()+text.length()>131072)throw new IllegalArgumentException();
                     content.append(text);if(display==null && !content.toString().isBlank()){String prefix=content.toString().stripLeading();display=!prefix.startsWith("{") && !prefix.startsWith("[");}
@@ -44,7 +48,7 @@ final class NativeSseResponse {
     JsonNode result(){
         if(!done||finish==null)throw new AgentException("MODEL_ERROR","Model stream ended before completion");
         for(int i=0;i<tools.size();i++)if(!tools.containsKey(i) || !tools.get(i).path("id").isTextual() || tools.get(i).path("function").path("name").asText().isBlank())throw new AgentException("MODEL_ERROR","Incomplete tool stream");
-        var message=json.createObjectNode().put("content",content.toString());if(!tools.isEmpty())message.set("tool_calls",json.valueToTree(tools.values()));
+        var message=json.createObjectNode().put("content",content.toString());if(!reasoning.isEmpty())message.put("reasoning_content",reasoning.toString());if(!tools.isEmpty())message.set("tool_calls",json.valueToTree(tools.values()));
         var result=json.createObjectNode();var choice=json.createObjectNode().put("finish_reason",finish);choice.set("message",message);result.set("choices",json.createArrayNode().add(choice));if(usage!=null)result.set("usage",usage);return result;
     }
 }

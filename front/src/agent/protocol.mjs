@@ -152,32 +152,25 @@ export function sseDecoder(consume) {
 }
 
 export function progressLabel(data = {}) {
-  const tools = {
-    query_danmaku: '查询弹幕统计',
-    create_video_report: '生成视频内容报告',
-    analyze_feedback: '后台分析观众反馈',
-    create_feedback_report: '生成反馈报告',
-    prepare_comment_draft: '生成评论草稿',
-    prepare_danmaku_draft: '生成弹幕草稿',
-    read_skill: '加载分析方法',
-    read_result: '读取查询结果',
-    query_video_metrics: '查询视频指标',
-    clarify: '确认分析条件',
-  }
   const stage = {
-    queued: '任务已排队',
-    running: '正在思考',
-    finalizing: '正在整理回复',
-    waiting_operation: '已提交后台分析，正在处理',
-    analysis_waiting_auth: '分析已暂停，请重新验证登录后继续',
+    queued: '收到啦，我马上开始 (｡•̀ᴗ-)✧',
+    running: '我先看看你的问题～',
+    preparing: '让我确认一下，这次要分析哪些内容呀～',
+    harness: '范围清楚啦，开始认真干活 (๑•̀ㅂ•́)و✧',
+    finalizing: '快好啦，我再把结果整理一下～',
+    waiting_operation: '分析还在进行中，稍等我一下呀～',
+    analysis_waiting_auth: '需要重新登录一下哦，验证后我会接着处理～',
   }
   if (data.stage === 'feedback_analysis') {
-    const phase = { SNAPSHOTTING:'正在固定分析数据', ANALYZING:'正在分批分析反馈', MERGING:'正在归并讨论主题', VALIDATING:'正在核对分析结果' }[data.phase] || '正在准备后台分析'
-    return `${phase} · 已完成 ${Number.isSafeInteger(data.completed_work) ? data.completed_work : 0} 个处理单元`
+    return { SNAPSHOTTING:'我在收集这次范围内的反馈～', COLLECTING:'我在收集这次范围内的反馈～', CLASSIFYING:'我在认真读大家的反馈，记好小笔记 φ(゜▽゜*)♪', ANALYZING:'我在认真读大家的反馈，记好小笔记 φ(゜▽゜*)♪', MERGING:'我来把相关观点整理到一起～', VALIDATING:'分析好啦，再让我核对一下数据 ( •̀ ω •́ )✧' }[data.phase] || '我在分析大家的反馈啦，数据多时会稍久一点～'
   }
-  if (data.stage === 'tool_completed')
-    return `${tools[data.tool] || '分析步骤'}已完成`
+  if (data.stage === 'tool_completed') return null
   if (data.stage === 'tool_failed')
-    return `${tools[data.tool] || '分析步骤'}暂未完成，正在处理`
-  return stage[data.stage] || tools[data.tool] || '正在处理请求'
+    return '这一步遇到一点小问题，我试着调整一下～'
+  if (data.stage === 'tool') {
+    if (data.tool === 'analyze_video_content') return '我在认真看视频，稍等我一下呀～'
+    if (['create_feedback_report','create_video_report'].includes(data.tool)) return '我来把分析结果整理成报告啦 (๑•̀ㅂ•́)و✧'
+    return null
+  }
+  return stage[data.stage] || null
 }

@@ -27,7 +27,8 @@ final class TransformInvariants {
             require(decision.additionalCalls().equals(prior.additionalCalls()));
             if(decision.kind()==Kind.TOOL && prior.kind()==Kind.TOOL && decision.call()!=null && prior.call()!=null)
                 require(Objects.equals(decision.call().providerCallId(),prior.call().providerCallId())
-                        && Objects.equals(decision.call().providerGroupId(),prior.call().providerGroupId()));
+                        && Objects.equals(decision.call().providerGroupId(),prior.call().providerGroupId())
+                        && Objects.equals(decision.call().reasoningContent(),prior.call().reasoningContent()));
             switch (decision.kind()) {
                 case TOOL -> require(decision.call() != null && decision.answer() == null && decision.clarification() == null);
                 case ANSWER -> require(decision.answer() != null && decision.call() == null && decision.clarification() == null);
@@ -36,6 +37,7 @@ final class TransformInvariants {
             }
         }
         if (value instanceof ToolCall call) {
+            require(Objects.equals(call.reasoningContent(),((ToolCall)baseline).reasoningContent()));
             require(call.name() != null && call.name().equals(((ToolCall) baseline).name()));
             require(Objects.equals(call.providerCallId(),((ToolCall)baseline).providerCallId()));
             require(Objects.equals(call.providerGroupId(),((ToolCall)baseline).providerGroupId()));

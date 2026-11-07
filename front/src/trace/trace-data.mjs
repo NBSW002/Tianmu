@@ -95,6 +95,7 @@ function normalizeTrace(spans, traceId, meta) {
       inputRef: a['detail.input_ref'], outputRef: a['detail.output_ref'],
       error: inline.error ?? null, errorRef: a['detail.error_ref'], errorState: a['detail.error_state'],
       provider_output: inline.provider_output ?? null, provider_outputRef: a['detail.provider_output_ref'], provider_outputState: a['detail.provider_output_state'],
+      reasoning: inline.reasoning ?? null, reasoningRef: a['detail.reasoning_ref'], reasoningState: a['detail.reasoning_state'],
       attributes: a,
     }
   }).sort((a, b) => (a.offsetMs ?? Infinity) - (b.offsetMs ?? Infinity))

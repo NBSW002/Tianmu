@@ -40,12 +40,14 @@ class ContextEnvelopeTest {
         var orphan=part(Slot.CURRENT_CONTEXT,Map.of("messages",List.of(Map.of("role","tool","tool_call_id","never_called","content","result"))));
         assertThrows(AgentException.class,()->new NativeContextProjector(json,ContextPolicy.defaults()).project(envelope(List.of(rules(),orphan))));
     }
-    @Test void parallelCallsKeepOneVisibleAssistantMessageAndRealIds() {
-        String text="我先查询两个来源。";var first=new ToolCall("one",Map.of(),"id1","group",text);var second=new ToolCall("two",Map.of(),"id2","group",text);
+    @Test void parallelCallsKeepOneVisibleAssistantMessageAndRealIds() throws Exception {
+        String text="我先查询两个来源。", reasoning="先比较两个来源。";var first=new ToolCall("one",Map.of(),"id1","group",text,reasoning);var second=new ToolCall("two",Map.of(),"id2","group",text,reasoning);
         var a=new ToolResult("one",Map.of("value",1),null);var b=new ToolResult("two",Map.of("value",2),null);
         var context=new ModelContext("question",LocalDate.now(),new AccessScope("t","u",Set.of()),Set.of(),List.of(a,b),List.of(),4,false,"",null,null,MemoryTypes.View.empty(),List.of(new ToolExchange(first,a),new ToolExchange(second,b)));
         var messages=new HarnessContextBuilder(json,ContextPolicy.defaults()).build("rules",context);
         var calls=messages.stream().filter(m->m.containsKey("tool_calls")).toList();assertEquals(1,calls.size());assertEquals(text,calls.get(0).get("content"));
+        assertEquals(reasoning,calls.get(0).get("reasoning_content"));
+        assertEquals(first,json.readValue(json.writeValueAsBytes(first),ToolCall.class));
         assertEquals(List.of("id1","id2"),messages.stream().filter(m->"tool".equals(m.get("role"))).map(m->m.get("tool_call_id")).toList());
     }
 }

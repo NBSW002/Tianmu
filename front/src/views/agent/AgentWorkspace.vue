@@ -103,7 +103,8 @@
                     >{{ isPaused(turn) ? '已暂停' : statusLabel(turn.snapshot?.status) }}</span
                   >
                 </div>
-                <p v-if="turn.streamingText && !isTerminal(turn.snapshot?.status)" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
+                <p v-for="note in turn.streamingNotes || []" :key="note.sequence" class="answer-text">{{ note.text }}</p>
+                <p v-if="turn.streamingText && !turn.snapshot?.answer && turn.snapshot?.status !== 'NEEDS_INPUT'" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
                 <MemoryUsage v-if="validRunId(turn.runId) && isTerminal(turn.snapshot?.status)" :run-id="turn.runId" />
 
                 <div

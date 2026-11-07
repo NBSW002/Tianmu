@@ -1,8 +1,32 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTracePresentation, buildTraceOverview, cardHighlight, cardSummary, preparationDetails, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, cardHighlight, cardSummary, preparationDetails, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
+
+test('a waiting merge joins three recognizers even when its measured span overlaps them',()=>{
+  const p=buildTracePresentation([
+    node('faq','agent.prepare.faq','STAGE',0,1,{parentId:'entry'}),
+    ...['intent','emotion','clarification'].map((kind,i)=>node(kind,`agent.prepare.${kind}`,'MODEL',2+i*.1,3+i*.2,{parentId:'entry',attributes:{'preparation.method':'MODEL'}})),
+    node('merge','agent.prepare.merge','STAGE',2.2,4,{parentId:'entry'}),
+    node('memory','agent.memory.recall','STAGE',7,1,{parentId:'entry'}),
+  ]);
+  const g=layoutPresentation(p),merge=g.nodes.find(n=>n.id==='merge');
+  assert.deepEqual(g.edges.filter(e=>e.target==='merge').map(e=>e.source).sort(),['clarification','emotion','intent']);
+  assert.equal(new Set(g.nodes.filter(n=>['intent','emotion','clarification'].includes(n.id)).map(n=>n.position.x)).size,1);
+  for(const kind of ['intent','emotion','clarification'])assert.ok(merge.position.x>g.nodes.find(n=>n.id===kind).position.x);
+  assert.ok(g.edges.some(e=>e.source==='merge'&&e.target==='memory'));
+});
+
+test('model cards expose only reasoning payloads from their actual descendant calls',()=>{
+  const p=buildTracePresentation([
+    node('m','agent.model','MODEL',0,5),
+    node('http','model.request','MODEL',1,3,{parentId:'m',reasoningRef:'private-a'}),
+    node('next','agent.model','MODEL',6,5),
+    node('http2','model.request','MODEL',7,3,{parentId:'next',reasoningRef:'private-b'}),
+  ]);
+  assert.deepEqual(modelReasoningSources(p.allCards.get('m'),p).map(n=>n.id),['http']);
+});
 
 test('merge explains host defaults and rewrite disposition without fabricating legacy data',()=>{
   const node={cardKind:'merge',attributes:{'request.route':'HARNESS','preparation.rule_task':'unclassified','preparation.effective_task':'audience.report','preparation.merge_reason':'CAPABILITY_DEFAULTS','preparation.defaults':['video_id','report_template','sources','time_range'],'query.rewrite_state':'ACCEPTED'}}

@@ -596,7 +596,7 @@ class MysqlStorageIntegrationTest {
         run.start();
         run.preparationCallStarted();
         var operation = new PendingOperation(UUID.randomUUID(), "feedback-analysis", run.deadline());
-        run.execution().observe(new ToolCall("analyze_feedback", Map.of(), "handoff-provider-call"),
+        run.execution().observe(new ToolCall("analyze_feedback", Map.of(), "handoff-provider-call", "handoff-group", "我先查一下。", "先核对范围再分析。"),
                 new ToolResult("analyze_feedback", Map.of("status", "PENDING"), null, null, operation));
         run.waitFor(operation);
         if (bindBeforeCrash) {
@@ -617,6 +617,7 @@ class MysqlStorageIntegrationTest {
             assertEquals(Status.WAITING_OPERATION, recovered.snapshot().status());
             assertEquals(operation, recovered.continuation().operation());
             assertEquals("handoff-provider-call", recovered.execution().exchanges().get(0).call().providerCallId());
+            assertEquals("先核对范围再分析。", recovered.execution().exchanges().get(0).call().reasoningContent());
             assertTrue(recovered.completeOperation(operation, new ToolResult("analyze_feedback", Map.of("status", "READY"), "ev_handoff")));
             assertFalse(recovered.completeOperation(operation, new ToolResult("analyze_feedback", Map.of("status", "READY"), "ev_handoff")));
             recovered.cancel();

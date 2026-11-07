@@ -8,6 +8,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class NativeSseResponseTest {
     ObjectMapper json=new ObjectMapper();
+    @Test void reasoningIsCollectedAcrossChunksButNeverSentToVisibleBody()throws Exception {
+        var visible=new ArrayList<String>();var parser=new NativeSseResponse(json,visible::add);
+        parser.accept(chunk(Map.of("reasoning_content","先核对"),null));
+        parser.accept(chunk(Map.of("reasoning_content","数据来源。"),null));
+        parser.accept(chunk(Map.of("content","这是正文。"),"stop"));parser.accept("[DONE]");
+        var message=parser.result().path("choices").get(0).path("message");
+        assertEquals("先核对数据来源。",message.path("reasoning_content").asText());
+        assertEquals("这是正文。",String.join("",visible));
+    }
     String chunk(Object delta,String finish)throws Exception {var choice=new HashMap<String,Object>();choice.put("index",0);choice.put("delta",delta);choice.put("finish_reason",finish);return json.writeValueAsString(Map.of("choices",List.of(choice)));}
     @Test void combinesUnicodeAndUsageWithBoundedDisplayEvents()throws Exception {
         var output=new ArrayList<String>();var parser=new NativeSseResponse(json,output::add);

@@ -17,6 +17,19 @@ Object.assign(toolNames, { analyze_danmaku: '分析弹幕', analyze_comments: '�
 const time = n => Number.isFinite(n.offsetMs) ? n.offsetMs : Infinity
 const end = n => Number.isFinite(n.offsetMs) && Number.isFinite(n.durationMs) ? n.offsetMs + n.durationMs : Infinity
 const compare = (a, b) => time(a) - time(b) || a.id.localeCompare(b.id)
+export function modelReasoningSources(node, presentation) {
+  if (!node) return []
+  const root = node.sourceId || node.id
+  return [...presentation.rawById.values()].filter(candidate => {
+    if (!candidate.reasoningRef) return false
+    let current = candidate; const seen = new Set()
+    while (current && !seen.has(current.id)) {
+      if (current.id === root) return true
+      seen.add(current.id); current = presentation.rawById.get(current.parentId)
+    }
+    return false
+  }).sort(compare)
+}
 const statusOrder = ['FAILED', 'TIMED_OUT', 'CANCELLED', 'RUNNING', 'WAITING_OPERATION', 'NEEDS_INPUT', 'UNKNOWN', 'SUCCEEDED']
 export const cardTitle = n => n?.cardTitle || titles[n?.cardKind] || n?.label || n?.name || '节点'
 export const toolDisplayName = name => toolNames[name] || name || '工具调用'
@@ -403,6 +416,8 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     }
     flush()
   }
+  // A join is a transition, never a fourth overlapping recognition branch.
+  cards.filter(card => card.cardKind === 'merge').forEach(card => displayStarts.delete(card.id))
   cards.sort((a, b) => (displayStarts.get(a.id) ?? graphTime(a)) - (displayStarts.get(b.id) ?? graphTime(b)) || compare(a, b))
   const nodes = [], edges = [], lanes = [], frontier = new Map()
   let lastX = 0
@@ -418,7 +433,12 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     // Each ended branch joins the next chronological step. A new overlapping
     // branch forks from the last completed step, never from still-running work.
     let predecessors = finished
-    if (known && !finished.length) {
+    if (card.cardKind === 'merge') {
+      const branches = nodes.filter(n => ['intent', 'emotion', 'clarification'].includes(n.data.cardKind)
+        && n.data.parentId === card.parentId && Number.isFinite(stop(n.data)) && stop(n.data) <= displayTime)
+      if (branches.length) predecessors = branches
+    }
+    if (known && !predecessors.length) {
       const completed = nodes.filter(n => Number.isFinite(stop(n.data)) && stop(n.data) <= displayTime)
       const latest = Math.max(-Infinity, ...completed.map(n => stop(n.data)))
       predecessors = completed.filter(n => stop(n.data) === latest)

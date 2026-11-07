@@ -692,10 +692,6 @@ Around的next最多一次，执行器创建调用身份；外层超时后不能�
 
 ## 16. 实施记录（与设计结论分开）
 
-16.1–16.6保留首轮实施和验收记录；后续策略快照、Context拆分、完成条件、操作恢复注册和Hook隔离的当前新增实现看16.7，不以历史“尚未实现”覆盖后续源码。
-
-用户于2026-11-07明确开始实施，之后另行授权部署与真实测试，实际发布见对应验收记录。本节按批次记录实际产物，不改写独立设计审查历史结论。源码目录为agent/front，上传相关独立工作区改动不属于本轮治理修改。
-
 ### 16.1 批次1：行为基线与架构约束
 
 | 约束/场景 | 执行证据入口 | 覆盖及限制 |
@@ -818,6 +814,23 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 **输入与错误。** 报告支持数字1–30天、既有中文“七天”及两裸日期的半开区间；歧义/非法日期不退化全量。澄清保留评论/弹幕和不读视频约束，video-only补充以原受理时刻锚定相对时间。新增错误区分POLICY_VERSION_UNAVAILABLE、POLICY_SNAPSHOT_INVALID、MODEL_REVISION_UNAVAILABLE、RESOURCE_VERSION_MISMATCH、OPERATION_KIND_UNAVAILABLE、HOOK_TIMEOUT/HOOK_CAPACITY_EXCEEDED/HOOK_INTERRUPTED/HOOK_REJECTED。第15.5未逐项迁出的历史运行旋钮仍保留为后续模块工作，不能宣称所有硬编码已消除。
 
 本节所列续项最终发布源码为5be4caf，当前线上writer已开启；源码默认开关仍为false。最终CI、专用库、七项真实场景、Trace图谱、writer关闭/重启读取和独立证据复核见[续项发布与验收](策略快照续项发布与验收.md)。该记录单独列出剩余治理路线，不能把本节验收扩大为整个项目已完成。
+
+### 16.8 模型思考、正文保留与Trace汇合修正（2026-11-07）
+
+本节描述本轮代码行为；发布及验证证据另见[策略快照续项发布与验收](策略快照续项发布与验收.md)末尾记录。不能用源码通过代替生产验收。
+
+- **模型协议**：`agent.models.thinking-enabled=true`，环境别名`AGENT_MODEL_THINKING_ENABLED`，由DeepSeekProperties绑定、DeepSeekClient消费，重启生效。主循环原生工具请求和后台反馈分析开启DeepSeek thinking；前置意图/情绪/澄清、短输出记忆调用继续关闭。兼容端点仅在DeepSeek主机或deepseek模型名时发送thinking参数。开关及`native-thinking-v1`进入模型revision；发布必须排空QUEUED/RUNNING/WAITING_OPERATION，不能将旧模型revision当作新协议恢复。关闭开关同样改变revision。
+- **思考与正文分离**：只收集服务商实际返回的`reasoning_content`，SSE逐块组装，绝不流入聊天正文。ToolCall追加可空reasoningContent，原生assistant消息回放完整内容；并行调用分组校验一致，Transform不得修改，WAITING持久化和恢复保留。旧数据缺字段仍读为null；兼容回放仅在线路上填空字符串，不补造历史思考。
+- **私有Trace详情**：每个model.request保存独立reasoning引用，公共span仅导出引用、状态、字节数。既有provider_output仍对reasoning字段脱敏；详情执行凭据/邮箱/手机号清理以及既有单项和单Run限额、截断标记。memory或compaction保护开启时reasoning信封标记requiresSourceGuard；接口先验证Run所有权，再通过TraceSourceAuthority/MemoryLedger复验来源，缺authority拒绝返回。来源删除、暂停或撤权后不能重新读取衍生思考；私有对象遵循既有存储保留清理，不宣称即时物理抹除。
+- **前端正文**：TEXT_END将已显示文字移入完成段落，下一轮继续追加。事件高水位保存在turn，重新订阅及游标重置不能重复追加；成功快照显示权威答案，无答案的失败/取消保留已流文字。完成段落目前是当前页面状态，刷新历史时以服务端已持久答案为准，不宣称保存所有中间措辞。
+- **进度表达**：保留独立进度列表，合并连续重复阶段，隐藏加载Skill、逐工具完成等细碎提示；关键阶段采用适量萌系颜文字。正文、模型提示词和Trace技术字段不套用该风格。报告工具提交并不等于报告就绪，不能在tool_completed时提前显示“报告准备好了”。
+- **图形语义**：识别汇合span测量等待全过程，图形转移点使用其结束时间；禁止把它归入重叠识别批次。连接同一父节点下已完成的三个识别分支，汇合后进入记忆召回。原始起止、耗时、调用统计保持不变；超时未被等待的晚到分支不能伪造为汇合前置。模型卡片沿真实父子关系定位reasoning载荷，不跨轮串接。
+
+协议依据：[DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)，原生工具历史需保留assistant reasoning_content。历史Trace没有采集的内容无法追补。
+
+16.1–16.6保留首轮实施和验收记录；后续策略快照、Context拆分、完成条件、操作恢复注册和Hook隔离的当前新增实现看16.7，不以历史“尚未实现”覆盖后续源码。
+
+用户于2026-11-07明确开始实施，之后另行授权部署与真实测试，实际发布见对应验收记录。本节按批次记录实际产物，不改写独立设计审查历史结论。源码目录为agent/front，上传相关独立工作区改动不属于本轮治理修改。
 
 ## 附录 A：配置声明与散落参数证据
 

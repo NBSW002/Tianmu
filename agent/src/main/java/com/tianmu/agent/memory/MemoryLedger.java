@@ -15,7 +15,8 @@ import java.time.*;
 import java.util.*;
 
 /** Durable source and request boundaries. Stored snapshots contain references, never memory bodies. */
-public final class MemoryLedger {
+public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSourceAuthority {
+    @Override public void verify(RunState run){guard(run);}
     private final com.tianmu.agent.memory.MemoryRuntimeProperties governance;
     public record Ref(UUID id,long version,long sequence,boolean initial){public Ref(UUID id,long version){this(id,version,0,false);}}
     public record Boundary(long sequence,long consent,long erase,Mode mode,boolean consumed,boolean recalled,List<Ref> refs){}

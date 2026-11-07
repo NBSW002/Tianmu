@@ -84,11 +84,11 @@ class DeepSeekAdapterTest {
                 List.of(new ToolDefinition("analyze_video_content","video",Map.of("type","object","properties",Map.of("video_id",Map.of("type","integer")))),new ToolDefinition("query_audience","audience",Map.of("type","object"))),6,false,"",null,null,com.tianmu.agent.core.MemoryTypes.View.empty(),exchanges);
     }
     @Test void nativeToolDefinitionsAndActualProviderIdSurviveTheNextTurn() {
-        nativeAnswer=request->Map.of("tool_calls",List.of(Map.of("id","provider-call-731","type","function","function",Map.of("name","analyze_video_content","arguments","{\"video_id\":2114367144786530304,\"focus\":\"观众反馈中提到的画面\"}"))));
+        nativeAnswer=request->Map.of("reasoning_content","先核对视频来源。","tool_calls",List.of(Map.of("id","provider-call-731","type","function","function",Map.of("name","analyze_video_content","arguments","{\"video_id\":2114367144786530304,\"focus\":\"观众反馈中提到的画面\"}"))));
         var model=new DeepSeekHarnessModel(client,properties,mapper,new PromptCatalog());
         var decision=model.decide(nativeContext(List.of(),List.of()),control());
         assertEquals(2114367144786530304L,((Number)decision.call().arguments().get("video_id")).longValue());
-        assertEquals("provider-call-731",decision.call().providerCallId());
+        assertEquals("provider-call-731",decision.call().providerCallId());assertEquals("先核对视频来源。",decision.call().reasoningContent());
         assertEquals("analyze_video_content",requests.get(0).path("tools").get(0).path("function").path("name").asText());
         assertFalse(requests.get(0).has("response_format"));assertTrue(requests.get(0).path("parallel_tool_calls").asBoolean());
         nativeAnswer=null;answer=request->"已读取，这是基于画面的建议。";
@@ -98,7 +98,7 @@ class DeepSeekAdapterTest {
         var messages=requests.get(1).path("messages");
         assertEquals("provider-call-731",messages.get(messages.size()-2).path("tool_calls").get(0).path("id").asText());
         assertEquals("provider-call-731",messages.get(messages.size()-1).path("tool_call_id").asText());
-        assertTrue(messages.get(messages.size()-2).path("content").asText().isEmpty());
+        assertTrue(messages.get(messages.size()-2).path("content").asText().isEmpty());assertEquals("先核对视频来源。",messages.get(messages.size()-2).path("reasoning_content").asText());
         assertNotEquals(new ToolCall("x",Map.of("a",1),"first"),new ToolCall("x",Map.of("a",1),"second"));
     }
     @Test void parameterDescriptionsAndDynamicNamesReachTheActualNativeRequestUnchanged() {
@@ -125,7 +125,7 @@ class DeepSeekAdapterTest {
         var tools=nativeContext(List.of(),List.of()).availableTools();
         nativeAnswer=request->Map.of("tool_calls",List.of(Map.of("id","required-read","type","function","function",Map.of("name","analyze_video_content","arguments","{\"video_id\":1001}"))));
         client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","read")),tools,128,control(),true);
-        assertEquals("required",requests.get(0).path("tool_choice").asText());assertEquals("disabled",requests.get(0).path("thinking").path("type").asText());
+        assertEquals("required",requests.get(0).path("tool_choice").asText());assertEquals("enabled",requests.get(0).path("thinking").path("type").asText());
         nativeAnswer=null;answer=request->"已读取。";
         client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","answer")),tools,128,control(),false);
         assertEquals("auto",requests.get(1).path("tool_choice").asText());
@@ -325,7 +325,7 @@ class DeepSeekAdapterTest {
         assertEquals("json_object",requests.get(0).path("response_format").path("type").asText());
         assertFalse(requests.get(1).has("response_format"));
         for (JsonNode request : requests) {
-            assertEquals("disabled", request.path("thinking").path("type").asText());
+            assertEquals(request.has("response_format") ? "disabled" : "enabled", request.path("thinking").path("type").asText());
             assertFalse(request.toString().contains("private-tenant")); assertFalse(request.toString().contains("private-user"));
         }
         assertFalse(properties.toString().contains("test-secret"));

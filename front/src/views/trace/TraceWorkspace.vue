@@ -11,7 +11,7 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails, preparationDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -68,6 +68,7 @@ const selected = computed(() => presentation.value.allCards.get(selectedId.value
 const selectedSource = computed(() => presentation.value.rawById.get(selected.value?.sourceId))
 const selectedMembers = computed(() => (selected.value?.memberIds || []).filter(id => id !== selected.value.sourceId).map(id => presentation.value.rawById.get(id)).filter(Boolean))
 const invocations = computed(() => modelInvocations(selected.value, presentation.value))
+const reasoningSources = computed(() => modelReasoningSources(selected.value, presentation.value))
 const intentSelection = computed(() => intentDetails(selected.value))
 const contextSelection = computed(() => contextDetails(selected.value))
 const compactionSelection = computed(() => compactionDetails(selected.value))
@@ -126,8 +127,8 @@ watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCl
   payloadLoading.value = true
   try {
     const related = invocations.value.map(call => presentation.value.rawById.get(call.toolId)).filter(Boolean)
-    const results = await Promise.allSettled([node, ...related].flatMap(target =>
-      (target === node ? ['input', 'output', 'error', 'provider_output'] : ['input', 'output']).map(async direction => {
+    const results = await Promise.allSettled([...new Set([node, ...related, ...reasoningSources.value])].flatMap(target =>
+      (target === node ? ['input', 'output', 'error', 'provider_output', 'reasoning'] : reasoningSources.value.includes(target) ? ['reasoning'] : ['input', 'output']).map(async direction => {
         const reference = target[`${direction}Ref`]
         if (target[direction] != null || !reference || reference === 'UNAVAILABLE') return
         const data = await getTracePayload(target.attributes['run.id'] || current.runId, reference, controller.signal)
@@ -292,6 +293,7 @@ function downloadExample() {
             <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
             <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
             <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
+            <details v-for="(source, index) in reasoningSources" :key="source.id" open><summary>模型思考<span v-if="reasoningSources.length > 1"> · 第 {{ index + 1 }} 次调用</span></summary><TraceCode title="模型返回的思考内容" :value="source.reasoning" :state="source.reasoningState" :reference="source.reasoningRef" /></details>
             <details v-if="selectedSource && selected.provider_outputRef"><summary>模型原始返回</summary><TraceCode title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" /></details>
             <section class="metadata-section"><h3>节点属性</h3><dl class="node-metadata"><div><dt>{{ selected.synthetic ? '展示分组 ID' : 'Span ID' }}</dt><dd>{{ selected.id }}</dd></div><div><dt>Parent Span ID</dt><dd>{{ selected.parentId || '根节点' }}</dd></div><div><dt>开始时间 · 北京</dt><dd>{{ date(selected.startMs) }} {{ clock(selected.startMs) }}</dd></div><div><dt>模型</dt><dd>{{ selected.model || '—' }}</dd></div><div><dt>原始名称</dt><dd>{{ selected.name }}</dd></div></dl></section>
             <TraceCode v-if="selectedSource" title="原始属性" :value="selected.attributes" state="COMPLETE" />

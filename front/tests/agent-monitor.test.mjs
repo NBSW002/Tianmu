@@ -57,17 +57,43 @@ test('authorization failure stops monitoring and preserves the actionable error'
   finally { monitor.stop(); }
 });
 
-test('text deltas deduplicate replay, clear intermediate tool text, and retain pinned model label', async () => {
+test('text deltas retain completed remarks across rounds and monitor restarts without replay duplicates', async () => {
   const turn = { runId: 'run', events: [] };
   const monitor = createRunMonitor({ notice: { value: '' }, applySnapshot: (t, s) => { t.snapshot = s; },
     getAgentRun: async () => ({ status: 'SUCCEEDED', answer: { text: 'verified' } }),
     readAgentEvents: async (id, cursor, signal, receive) => {
       const send = (sequence, type, data = {}) => receive({ type, id: String(sequence), payload: { sequence, data } });
+      if(cursor>=7){send(2,'TEXT_START');send(3,'TEXT_DELTA',{text:'我先查询数据。'});send(4,'TEXT_END');send(6,'TEXT_DELTA',{text:'你'});send(7,'TEXT_DELTA',{text:'好'});return;}
       send(1, 'MODEL_SELECTED', { label: 'Pinned model' });
-      send(2, 'TEXT_START');send(3, 'TEXT_DELTA', { text: '工具调用前的临时说明' });send(4, 'TEXT_END');assert.equal(turn.streamingText, '');
+      send(2, 'TEXT_START');send(3, 'TEXT_DELTA', { text: '我先查询数据。' });send(4, 'TEXT_END');assert.equal(turn.streamingText, '');
+      assert.deepEqual(turn.streamingNotes, [{sequence:4,text:'我先查询数据。'}]);
       send(5, 'TEXT_START');send(6, 'TEXT_DELTA', { text: '你' });send(6, 'TEXT_DELTA', { text: '你' });send(7, 'TEXT_DELTA', { text: '好' });
       assert.equal(turn.streamingText, '你好');
     } });
-  try { await monitor.start(turn); assert.equal(turn.modelLabel, 'Pinned model'); assert.equal(turn.snapshot.answer.text, 'verified'); }
+  try { await monitor.start(turn); await monitor.start(turn); assert.equal(turn.streamingNotes.length,1); assert.equal(turn.streamingText,'你好'); assert.equal(turn.modelLabel, 'Pinned model'); assert.equal(turn.snapshot.answer.text, 'verified'); }
   finally { monitor.stop(); }
+});
+
+test('progress coalesces repeated phases and omits low-level tools while updating the analysis counter', async () => {
+  const turn={runId:'run',events:[]};
+  const monitor=createRunMonitor({notice:{value:''},applySnapshot:(t,s)=>{t.snapshot=s},getAgentRun:async()=>({status:'SUCCEEDED'}),
+    readAgentEvents:async(id,cursor,signal,receive)=>{
+      [{stage:'tool',tool:'read_skill'},{stage:'tool_completed',tool:'read_skill'},
+        {stage:'feedback_analysis',phase:'ANALYZING',model_calls:1},{stage:'feedback_analysis',phase:'ANALYZING',model_calls:5},
+        {stage:'finalizing'}].forEach((data,i)=>receive({type:'PROGRESS',payload:{sequence:i+1,data}}));
+    }});
+  try {await monitor.start(turn);assert.equal(turn.events.length,2);assert.equal(turn.events[0].analysisCalls,5);assert.match(turn.events[0].label,/我在/);}
+  finally{monitor.stop()}
+});
+
+test('expired transport cursor can replay retained text without appending it twice', async () => {
+  const turn={runId:'run',events:[]};let attempts=0;
+  const monitor=createRunMonitor({notice:{value:''},applySnapshot:(t,s)=>{t.snapshot=s},getAgentRun:async()=>({status:'SUCCEEDED'}),
+    readAgentEvents:async(id,cursor,signal,receive)=>{
+      const send=(sequence,type,data={})=>receive({type,payload:{sequence,data}});
+      if(attempts++===0){send(1,'TEXT_START');send(2,'TEXT_DELTA',{text:'我先看一下。'});send(3,'TEXT_END');throw Object.assign(new Error('expired'),{code:'EVENT_CURSOR_EXPIRED'});}
+      assert.equal(cursor,0);send(1,'TEXT_START');send(2,'TEXT_DELTA',{text:'我先看一下。'});send(3,'TEXT_END');send(4,'TEXT_START');send(5,'TEXT_DELTA',{text:'后续正文'});
+    }});
+  try{await monitor.start(turn);assert.equal(turn.streamingNotes.length,1);assert.equal(turn.streamingNotes[0].text,'我先看一下。');assert.equal(turn.streamingText,'后续正文');}
+  finally{monitor.stop()}
 });

@@ -26,11 +26,13 @@ public final class AgentTypes {
                     && videoIds.containsAll(required.videoIds) && readableVideoIds.containsAll(required.readableVideoIds);
         }
     }
-    public record ToolCall(String name, Map<String, Object> arguments, String providerCallId,String providerGroupId,String assistantText) {
+    public record ToolCall(String name, Map<String, Object> arguments, String providerCallId,String providerGroupId,String assistantText,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String reasoningContent) {
+        public ToolCall(String name,Map<String,Object> arguments,String id,String group,String text){this(name,arguments,id,group,text,null);}
         public ToolCall(String name,Map<String,Object> arguments,String id,String group) {this(name,arguments,id,group,"");}
         public ToolCall(String name,Map<String,Object> arguments) { this(name,arguments,null,null); }
         public ToolCall(String name,Map<String,Object> arguments,String id) { this(name,arguments,id,null); }
-        public ToolCall { arguments = ImmutablePayload.map(arguments);assistantText=assistantText==null?"":assistantText;if(assistantText.length()>8000)throw new IllegalArgumentException("Assistant tool text exceeds limit"); }
+        public ToolCall { arguments = ImmutablePayload.map(arguments);assistantText=assistantText==null?"":assistantText;if(assistantText.length()>8000 || reasoningContent!=null && reasoningContent.length()>131072)throw new IllegalArgumentException("Assistant tool text exceeds limit"); }
     }
     public record AnswerNote(String label, String text, Instant updatedAt, String timezone) {}
     public record Answer(String text, List<String> evidenceIds, List<AnswerNote> dataNotes) {

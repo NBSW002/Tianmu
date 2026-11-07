@@ -101,7 +101,15 @@ public final class DeepSeekClient {
         if (nanos <= 0) throw unavailable();
         try {
             Map<String,Object> requestBody=new LinkedHashMap<>();
-            requestBody.put("model",model);requestBody.put("messages",messages);if(config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek"))requestBody.put("thinking",Map.of("type","disabled"));
+            boolean supportsThinking=config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek");
+            boolean thinking=supportsThinking && config.thinkingEnabled() && (nativeTools!=null || external);
+            TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state",thinking?"ENABLED":"DISABLED"));
+            if(nativeTools!=null && thinking) {
+                var replay=new ArrayList<Map<String,Object>>();
+                for(var message:messages){var copy=new LinkedHashMap<String,Object>(message);if("assistant".equals(copy.get("role")))copy.putIfAbsent("reasoning_content","");replay.add(copy);}
+                messages=replay;
+            }
+            requestBody.put("model",model);requestBody.put("messages",messages);if(supportsThinking)requestBody.put("thinking",Map.of("type",thinking?"enabled":"disabled"));
             requestBody.put("temperature",0);requestBody.put("stream",streaming);
             if(streaming)requestBody.put("stream_options",Map.of("include_usage",true));requestBody.put("max_tokens",maxTokens);
             if(nativeTools==null)requestBody.put("response_format",Map.of("type","json_object"));
@@ -128,6 +136,10 @@ public final class DeepSeekClient {
             });
             TraceDetails.capture("provider_output", body, "MODEL_PROVIDER_RESPONSE");
             JsonNode choice = body.path("choices").path(0);
+            var reasoning=choice.path("message").path("reasoning_content");
+            if(reasoning.isTextual() && !reasoning.asText().isBlank()) {
+                TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state","RECEIVED"));TraceDetails.reasoning(reasoning.asText());
+            }
             if (choice.path("finish_reason").isTextual()) TraceAttributes.apply(Span.current(), Map.of("model.finish_reason", choice.path("finish_reason").asText()));
             if(nativeTools!=null && choice.path("message").path("tool_calls").isArray() && !choice.path("message").path("tool_calls").isEmpty()) {
                 if(nativeTools.isEmpty() || !"tool_calls".equals(choice.path("finish_reason").asText()))throw new AgentException("INVALID_DECISION","Unexpected native tool call");

@@ -20,7 +20,7 @@ public final class TraceDetails {
     public static final ContextKey<Binding> KEY = ContextKey.named("tianmu.trace.details");
     public static final ContextKey<java.util.concurrent.atomic.AtomicBoolean> MEMORY = ContextKey.named("tianmu.memory.trace.protection");
     public static void protectMemory(){var flag=Context.current().get(MEMORY);if(flag!=null)flag.set(true);}
-    private static final Set<String> DIRECTIONS = Set.of("input", "output", "provider_output", "error");
+    private static final Set<String> DIRECTIONS = Set.of("input", "output", "provider_output", "error", "reasoning");
     private final ObjectStore objects;
     private final ObjectMapper mapper;
     private final int maxBytes;
@@ -46,6 +46,11 @@ public final class TraceDetails {
     public Context bind(Context context, UUID runId) { return context.with(KEY, new Binding(this, runId, new java.util.concurrent.atomic.AtomicLong())).with(MEMORY,new java.util.concurrent.atomic.AtomicBoolean(protectDerived)); }
     public static void input(Object value) { capture("input", value, "LOGICAL_INPUT"); }
     public static void output(Object value) { capture("output", value, "RESULT"); }
+    public static void reasoning(String value){capture("reasoning",value,"MODEL_REASONING");}
+    public boolean requiresSourceGuard(byte[] payload) {
+        try{return mapper.readTree(payload).path("requiresSourceGuard").asBoolean(false);}
+        catch(java.io.IOException invalid){throw new AgentException("STORAGE_CORRUPT","Invalid trace payload");}
+    }
     public static void capture(String direction, Object value, String kind) {
         Binding binding = Context.current().get(KEY);
         if (binding != null && Span.current().getSpanContext().isValid()) binding.store().write(binding, direction, value, kind);
@@ -56,7 +61,8 @@ public final class TraceDetails {
         if (!enabled) { TraceAttributes.apply(span, Map.of(prefix + "_state", "DISABLED")); return; }
         try {
             var protectedMemory=Context.current().get(MEMORY);
-            if(protectedMemory!=null && protectedMemory.get())value=Map.of("memoryProtected",true,"runId",binding.runId().toString(),"details","Read authorized memory references from the run memory endpoint");
+            boolean sourceProtected=protectedMemory!=null && protectedMemory.get();
+            if(sourceProtected && !"reasoning".equals(direction))value=Map.of("memoryProtected",true,"runId",binding.runId().toString(),"details","Read authorized memory references from the run memory endpoint");
             boolean[] redacted = {false};
             JsonNode clean = clean(mapper.valueToTree(value), redacted);
             byte[] content = mapper.writeValueAsBytes(clean);
@@ -64,6 +70,7 @@ public final class TraceDetails {
             String state = content.length > maxBytes - 1024 ? "TRUNCATED" : "COMPLETE";
             ObjectNode envelope = mapper.createObjectNode();
             envelope.put("schemaVersion", "1.0"); envelope.put("kind", kind); envelope.put("state", state);
+            if("reasoning".equals(direction))envelope.put("requiresSourceGuard",sourceProtected);
             envelope.put("redacted", redacted[0]); envelope.put("originalBytes", originalBytes);
             if (state.equals("TRUNCATED")) {
                 // A JSON string preview is explicitly incomplete; never present a cut JSON object as complete.

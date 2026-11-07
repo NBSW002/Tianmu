@@ -109,8 +109,10 @@ public final class HarnessContextBuilder {
                 ObjectNode result=((ObjectNode)results.get(j)).deepCopy();result.remove("terminalAnswer");
                 replies.add(Map.of("role","tool","tool_call_id",id,"content",encode(result)));
             }
-            for(int j=i+1;j<end;j++)if(!first.assistantText().equals(recordedCalls.get(j).assistantText()))throw invalidHistory();
-            out.add(Map.of("role","assistant","content",first.assistantText(),"tool_calls",calls));out.addAll(replies);i=end;
+            for(int j=i+1;j<end;j++)if(!first.assistantText().equals(recordedCalls.get(j).assistantText()) || !Objects.equals(first.reasoningContent(),recordedCalls.get(j).reasoningContent()))throw invalidHistory();
+            var assistant=new LinkedHashMap<String,Object>();assistant.put("role","assistant");assistant.put("content",first.assistantText());assistant.put("tool_calls",calls);
+            if(first.reasoningContent()!=null)assistant.put("reasoning_content",first.reasoningContent());
+            out.add(assistant);out.addAll(replies);i=end;
         }
         var conversation=new LinkedHashMap<String,Object>();conversation.put("messages",out);
         if(!context.memory().compaction().isEmpty() && !ConversationTopics.switchesTopic(context.message()))conversation.put("compaction",Map.of("segments",data(context.memory().compaction()),"completeness","PARTIAL_READBACK_AVAILABLE"));
@@ -150,7 +152,7 @@ public final class HarnessContextBuilder {
             if(call.providerCallId()==null) {
                 String base="call_host_"+i,id=base;int suffix=0;
                 while(!ids.add(id))id=base+"_"+(++suffix);
-                calls.set(i,new ToolCall(call.name(),call.arguments(),id,group,call.assistantText()));
+                calls.set(i,new ToolCall(call.name(),call.arguments(),id,group,call.assistantText(),call.reasoningContent()));
             }
         }
         return List.copyOf(calls);

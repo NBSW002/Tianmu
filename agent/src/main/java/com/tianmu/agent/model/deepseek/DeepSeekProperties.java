@@ -11,7 +11,8 @@ public record DeepSeekProperties(@DefaultValue("https://api.deepseek.com") URI b
         @DefaultValue("deepseek-flash") String harnessModel,
         @DefaultValue("3s") Duration connectTimeout,
         @DefaultValue("384") int preparationMaxTokens, @DefaultValue("3072") int harnessMaxTokens,
-        @DefaultValue("deepseek-flash") String analysisModel) {
+        @DefaultValue("deepseek-flash") String analysisModel,@DefaultValue("true") boolean thinkingEnabled) {
+    public DeepSeekProperties(URI baseUrl,String apiKey,String preparationModel,String harnessModel,Duration connectTimeout,int preparationMaxTokens,int harnessMaxTokens,String analysisModel){this(baseUrl,apiKey,preparationModel,harnessModel,connectTimeout,preparationMaxTokens,harnessMaxTokens,analysisModel,true);}
     public DeepSeekProperties(URI baseUrl, String apiKey, String preparationModel, String harnessModel,
             Duration connectTimeout, int preparationMaxTokens, int harnessMaxTokens) {
         this(baseUrl, apiKey, preparationModel, harnessModel, connectTimeout, preparationMaxTokens, harnessMaxTokens, "deepseek-flash");
