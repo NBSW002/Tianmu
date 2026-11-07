@@ -136,7 +136,10 @@ class EvaluationBaselineTest {
                 }
                 default -> fail("Unimplemented binding mode");
             }
-            assertEquals(message, run.path("preparation").path("originalQuery").asText());
+            if(item.path("mode").asText().equals("forbidden")){
+                assertTrue(run.path("preparation").isNull());
+                assertEquals(0,run.path("steps").asInt());
+            }else assertEquals(message, run.path("preparation").path("originalQuery").asText());
             String stream = events(id);
             assertEquals(1, stream.split("event:DONE", -1).length - 1, "Exactly one DONE required");
             record.put("status", "PASS"); record.put("terminal_status", run.path("status").asText());

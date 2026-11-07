@@ -68,7 +68,7 @@ class PreparationFlowTest {
         })) {
             RunState run = f.run();
             execute(f, prep, run, context -> {
-                assertEquals(run.message + " please", context.message());
+                assertEquals(run.message, context.message());
                 assertEquals(run.message, context.preparation().originalQuery());
                 assertTrue(context.preparation().emotion() == Emotion.NEGATIVE || context.preparation().skippedStages().contains("emotion"));
                 assertEquals(run.owner, context.scope());
@@ -76,7 +76,7 @@ class PreparationFlowTest {
                 return Decision.clarify("Next question");
             });
             assertEquals(Route.HARNESS, run.snapshot().route());
-            assertTrue(run.snapshot().preparation().degradedStages().isEmpty());
+            assertEquals(Set.of("rewrite"),run.snapshot().preparation().degradedStages());
             var spans = f.recording.spans.stream().filter(s -> s.getName().startsWith("agent.prepare.")).toList();
             assertEquals(6, spans.size());
             assertTrue(spans.stream().anyMatch(s -> s.getName().equals("agent.prepare.merge")));
@@ -122,9 +122,9 @@ class PreparationFlowTest {
             public Understanding understand(Input i, CallControl c) { throw new IllegalStateException("down"); }
         })) {
             RunState run = f.run(); execute(f, prep, run, forbidden());
-            assertEquals(Status.NEEDS_INPUT, run.snapshot().status());
-            assertEquals(Route.CLARIFY, run.snapshot().route());
-            assertTrue(run.snapshot().preparation().degradedStages().contains("understanding"));
+            assertEquals(Status.FAILED, run.snapshot().status());
+            assertEquals("MODEL_UNAVAILABLE", run.snapshot().errorCode());
+            assertNull(run.task());
         }
     }
     @Test void slowSiblingDoesNotDiscardCompletedClarification() {
@@ -186,7 +186,7 @@ class PreparationFlowTest {
             assertEquals(3, cancelCallbacks.get());
         } finally { release.countDown(); worker.shutdownNow(); }
     }
-    @Test void modelConditionsCannotInventChangeOrOmitServerConditions() {
+    @Test void modelConditionsCannotChangeFrozenServerConditionsAndOmissionsAreFilled() {
         for (Map<String, Object> conditions : List.of(
                 Map.<String, Object>of("video_id", 1002L, "date", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1).toString(), "metric", "bullet_count"),
                 Map.<String, Object>of("video_id", 1001L),
@@ -196,10 +196,13 @@ class PreparationFlowTest {
                 public Understanding understand(Input i, CallControl c) { return Understanding.proceed(conditions, i.query()); }
             })) {
                 RunState run = new RunState(new AccessScope("demo", "alice", Set.of(1001L, 1002L)), "查询视频1001昨天的弹幕数");
-                execute(f, prep, run, forbidden());
-                assertEquals(Status.NEEDS_INPUT, run.snapshot().status());
-                assertTrue(run.preparedRequest().degradedStages().contains("understanding"));
-                assertNull(run.task()); assertEquals(0, f.queries.get());
+                execute(f, prep, run, c -> Decision.clarify("ready"));
+                assertEquals(Route.HARNESS, run.snapshot().route());
+                assertEquals(1001L,run.task().specification().conditions().get("video_id"));
+                assertEquals(run.businessDate.minusDays(1).toString(),run.task().specification().conditions().get("date"));
+                assertEquals("bullet_count",run.task().specification().conditions().get("metric"));
+                assertFalse(run.task().specification().conditions().containsKey("user_id"));
+                assertEquals(0, f.queries.get());
             }
         }
     }
@@ -223,7 +226,8 @@ class PreparationFlowTest {
             RunState run = f.run(); execute(f, prep, run, c -> Decision.clarify("ready"));
             assertEquals(Route.HARNESS, run.snapshot().route());
             assertEquals(run.message, run.task().query());
-            assertTrue(run.preparedRequest().degradedStages().contains("rewrite"));
+            assertFalse(run.preparedRequest().degradedStages().contains("rewrite"));
+            assertEquals("SKIPPED",run.preparedRequest().resolution().rewriteState());
         }
     }
     @Test void intentFailureOrUnknownCannotEnterLoop() {
@@ -235,9 +239,9 @@ class PreparationFlowTest {
                 }
             })) {
                 RunState run = f.run(); execute(f, prep, run, forbidden());
-                assertEquals(Status.NEEDS_INPUT, run.snapshot().status());
-                assertEquals(Intent.UNKNOWN, run.preparedRequest().intent());
-                assertEquals(unavailable, run.preparedRequest().degradedStages().contains("intent"));
+                assertEquals(unavailable?Status.FAILED:Status.NEEDS_INPUT, run.snapshot().status());
+                if(unavailable)assertEquals("MODEL_UNAVAILABLE",run.snapshot().errorCode());
+                else assertEquals(Intent.UNKNOWN, run.preparedRequest().intent());
                 assertNull(run.task());
             }
         }
@@ -248,9 +252,11 @@ class PreparationFlowTest {
             public Intent intent(Input i, CallControl c) { return Intent.KNOWLEDGE; }
         })) {
             RunState run = new RunState(new AccessScope("demo", "alice", Set.of(1001L)), "查询视频1001昨天的弹幕数");
-            execute(f, prep, run, forbidden());
-            assertEquals(Status.NEEDS_INPUT, run.snapshot().status());
-            assertTrue(run.preparedRequest().degradedStages().contains("intent"));
+            execute(f, prep, run, c -> Decision.clarify("ready"));
+            assertEquals(Route.HARNESS, run.snapshot().route());
+            assertEquals(Intent.VIDEO_METRIC,run.preparedRequest().intent());
+            assertEquals("RULE_PRESERVED",run.preparedRequest().resolution().reason());
+            assertEquals(1001L,run.task().specification().conditions().get("video_id"));
             assertEquals(0, f.queries.get());
         }
     }
@@ -276,8 +282,8 @@ class PreparationFlowTest {
         }, new PreparationPolicy(Duration.ofMillis(200), Duration.ofMillis(400), Duration.ofMillis(100), Duration.ofMillis(40)), f.harness)) {
             RunState run = f.run();
             assertTimeoutPreemptively(Duration.ofSeconds(1), () -> execute(f, prep, run, forbidden()));
-            assertEquals(Status.NEEDS_INPUT, run.snapshot().status());
-            assertTrue(run.preparedRequest().degradedStages().contains("intent"));
+            assertEquals(Status.FAILED, run.snapshot().status());
+            assertEquals("MODEL_UNAVAILABLE",run.snapshot().errorCode());
             assertNull(run.task());
         } finally { release.countDown(); }
     }

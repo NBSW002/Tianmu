@@ -56,7 +56,9 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
     }
     public Understanding understand(Input input, CallControl control) {
         JsonNode result = call(understandingPrompt, input, control, config.preparationMaxTokens());
-        fields(result, "needsClarification", "clarificationQuestion", "conditions", "rewrittenQuery");
+        boolean structured=result.has("issue") || result.has("missingFields");
+        if(structured)fields(result,"needsClarification","clarificationQuestion","conditions","rewrittenQuery","issue","missingFields");
+        else fields(result, "needsClarification", "clarificationQuestion", "conditions", "rewrittenQuery");
         if (!result.path("needsClarification").isBoolean() || !result.path("conditions").isObject())
             throw new IllegalArgumentException("Invalid understanding structure");
         for (String key : new String[]{"clarificationQuestion", "rewrittenQuery"})
@@ -66,9 +68,10 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
                 new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
         boolean clarify = result.path("needsClarification").booleanValue();
         String rewrite = result.path("rewrittenQuery").textValue();
-        // Null means reuse the immutable request; never spend output tokens echoing long input.
-        if (!clarify && rewrite == null) rewrite = input.query();
-        return new Understanding(clarify,
-                result.path("clarificationQuestion").textValue(), conditions, rewrite);
+        if(!structured)return new Understanding(clarify,result.path("clarificationQuestion").textValue(),conditions,rewrite);
+        if(!result.path("issue").isTextual() || !result.path("missingFields").isArray())throw new IllegalArgumentException("Invalid clarification issue");
+        var missing=new java.util.ArrayList<String>();
+        for(var field:result.path("missingFields")){if(!field.isTextual())throw new IllegalArgumentException("Invalid missing field");missing.add(field.textValue());}
+        return new Understanding(clarify,result.path("clarificationQuestion").textValue(),conditions,rewrite,ClarificationIssue.valueOf(result.path("issue").asText()),missing);
     }
 }

@@ -100,4 +100,48 @@ public class TaskMeaning {
         Map<String,String> provenance = new HashMap<>(spec.provenance());provenance.put("video_id","page_context");
         return new Specification(spec.type(),spec.conditions(),provenance,spec.analysis());
     }
+    /** Only an exposed report capability can fill a grammar gap. Values come from the original
+     * request/page and existing parsers, never from model-extracted IDs, dates or related goals. */
+    public Optional<Specification> reportCandidate(com.tianmu.agent.core.PreparationTypes.Input input,
+            com.tianmu.agent.core.PreparationTypes.IntentRecognition intent) {
+        String text=input.query();String capability=intent.primary();
+        if(!Set.of("audience-report","video-content").contains(capability==null?"":capability)
+                || input.intentCandidates().stream().noneMatch(c->c.id().equals(capability))
+                || com.tianmu.agent.core.ConversationTopics.general(text)
+                || text.matches("(?s).*(?:如何|怎样|怎么|什么是|教程|介绍).*" )
+                || !text.matches("(?s).*(?:生成|制作|做|出|写|给我|来).{0,16}(?:报告|复盘).*"))return Optional.empty();
+        if(text.matches("(?s).*(?:发送|发布|投递|删除|覆盖|授权|付费|购买|私信|邮箱).*"))return Optional.empty();
+        if(text.matches("(?s).*(?:只|仅|排除|不要|不看|不读).*" ) && !AnalysisSourceSelection.mentions(text))
+            throw new com.tianmu.agent.core.AgentException("AMBIGUOUS_ANALYSIS_SOURCES","请说明报告允许读取哪些来源；未确认的限制不会用默认模板覆盖。");
+        String targeted=input.targetedQuery();var ids=com.tianmu.agent.core.DanmakuTarget.matcher(targeted).results().toList();
+        if(ids.size()!=1)throw new com.tianmu.agent.core.AgentException("AMBIGUOUS_ANALYSIS_SOURCES",ids.isEmpty()?"要为哪个视频生成报告？请先选择视频或提供视频ID。":"这次要为哪个视频生成报告？请先选定一个视频。");
+        long video=Long.parseLong(ids.get(0).group(1));
+        if(!input.scope().readableVideoIds().contains(video))throw new com.tianmu.agent.core.AgentException("FORBIDDEN","Video is outside the authenticated scope");
+        try {
+            Specification base;
+            boolean generic=!AnalysisSourceSelection.mentions(text) && !AudienceReportTask.requested(text);
+            boolean audience=generic?input.scope().videoIds().contains(video) && input.intentCandidates().stream().anyMatch(c->c.id().equals("audience-report")):capability.equals("audience-report");
+            if(audience){
+                var query=DanmakuReportTask.parse(targeted,input.businessDate(),input.requestedAt().atZone(ZoneId.of("Asia/Shanghai")));
+                query.checkTime(input.requestedAt());
+                base=new Specification("audience.report",DanmakuReportTask.specification(query).conditions(),Map.of(),com.tianmu.agent.core.AnalysisContract.legacy("audience.report"));
+            }else{
+                var videoSpec=VideoContentTask.parse(targeted);
+                base=new Specification("video.content",videoSpec.conditions(),Map.of(),new com.tianmu.agent.core.AnalysisContract(Set.of(com.tianmu.agent.core.AnalysisContract.Source.VIDEO),true));
+            }
+            var reading=AnalysisSourceSelection.select(text,base.reading());
+            var result=selected(base,refresh(text,playback(text,base,reading)),input.businessDate(),input.requestedAt());
+            if(!result.reading().textSources().isEmpty() && !input.scope().videoIds().contains(video))
+                throw new com.tianmu.agent.core.AgentException("FORBIDDEN","Feedback reports require author access to this video");
+            var provenance=new HashMap<String,String>();result.conditions().keySet().forEach(k->provenance.put(k,"server_parsed"));
+            provenance.put("video_id",com.tianmu.agent.core.DanmakuTarget.matcher(text).find()?"user_input":"page_context");
+            provenance.put("report_template","skill_default");
+            if(!AnalysisSourceSelection.mentions(text))provenance.put("sources","skill_default");
+            if(result.typed() instanceof com.tianmu.agent.core.TaskConditions.Report report && report.query().allTime()){
+                provenance.put("start","skill_default");provenance.put("end","request_time");
+            }
+            return Optional.of(new Specification(result.type(),result.conditions(),provenance,result.analysis()));
+        }catch(com.tianmu.agent.core.AgentException e){if(!e.code().equals("DATE_OUT_OF_RANGE"))throw e;throw new com.tianmu.agent.core.AgentException("AMBIGUOUS_ANALYSIS_SOURCES","请提供有效的已结束时间范围；明确指定的范围不会被默认值覆盖。");}
+        catch(IllegalArgumentException e){throw new com.tianmu.agent.core.AgentException("AMBIGUOUS_ANALYSIS_SOURCES",e.getMessage());}
+    }
 }

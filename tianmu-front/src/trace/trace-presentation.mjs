@@ -105,6 +105,7 @@ export function cardHighlight(n) {
   if (n.failureIds?.length) return n.summary?.includes('条异常') ? n.summary : `${n.summary || '已完成'} · ${n.failureIds.length} 条异常`
   if (n.cardKind === 'faq') return n.attributes?.['faq.hit'] === true ? '已命中，直接回答' : n.attributes?.['faq.hit'] === false ? '未命中' : '匹配结果未记录'
   if (n.cardKind === 'clarification') return n.attributes?.['clarification.required'] === true ? '需要补充信息' : n.attributes?.['clarification.required'] === false ? '无需澄清' : '判断结果未记录'
+  if (n.cardKind === 'merge' && n.attributes?.['preparation.merge_reason']) return n.summary
   if (n.cardKind === 'merge') return n.attributes?.['request.route'] === 'CLARIFY' ? '先向用户澄清' : n.attributes?.['request.route'] === 'HARNESS' ? '进入执行' : n.summary
   if (n.cardKind === 'tool') {
     if (n.attributes?.['tool.success'] === false) return '工具返回业务错误'
@@ -138,6 +139,17 @@ export function semanticKind(n) {
 }
 
 const methods = { RULE: '规则判断', MODEL: '模型判断', LOOKUP: '知识查询' }
+const defaultNames = {video_id:'当前视频',report_template:'报告模板',sources:'默认来源',time_range:'默认时间范围'}
+export function preparationDetails(node) {
+  const a=node?.attributes || {}
+  return {
+    visible: !!a['preparation.merge_reason'],
+    ruleTask:a['preparation.rule_task'] || '未记录',effectiveTask:a['preparation.effective_task'] || '未记录',
+    defaults:Array.isArray(a['preparation.defaults'])?a['preparation.defaults'].map(key=>defaultNames[key]).filter(Boolean):[],
+    reason:({RULE_MATCHED:'原文规则匹配',CAPABILITY_DEFAULTS:'按已识别能力补齐默认条件',RULE_PRESERVED:'保留原文规则确认的任务',DEFAULTS_SATISFIED:'宿主条件已补齐缺失字段',MODEL_CONDITIONS_REJECTED:'舍弃与原文不一致的模型条件'}[a['preparation.merge_reason']]) || '查看最终合并结果',
+    rewrite:({ACCEPTED:'已采用，经任务条件等价校验',REJECTED:'已舍弃，沿用用户原话',SKIPPED:a['query.rewrite_reason']==='CLARIFICATION_REQUIRED'?'等待必要澄清，未执行改写':'无需改写，沿用用户原话'}[a['query.rewrite_state']]) || '未记录'
+  }
+}
 const skipReasons = { CONFIG_DISABLED: '配置禁用', FAQ_HIT: 'FAQ 已命中', CLARIFICATION_REQUIRED: '等待补充信息', RESOURCE_LOOKUP: '交由资源选择处理', RULE_ROUTE: '规则路由已完成' }
 export function cardSummary(n) {
   const a = n.attributes || {}, out = n.output
@@ -148,7 +160,14 @@ export function cardSummary(n) {
     case 'delivery': return n.status === 'SUCCEEDED' ? '结果已返回用户' : '查看交付状态'
     case 'report_delivery': return n.status === 'SUCCEEDED' ? '后台报告已就绪并完成交接' : '查看报告交付状态'
     case 'finish': return ({ SUCCEEDED: '本次运行已成功结束', NEEDS_INPUT: '等待用户补充信息', CANCELLED: '本次运行已取消' }[n.status]) || '查看最终运行状态'
-    case 'merge': return ({ HARNESS: '条件已确认，进入 Agent', CLARIFY: '调用澄清工具，等待补充', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
+    case 'merge': {
+      if(a['request.route']==='CLARIFY')return ({REQUIRED_CONDITIONS:'必要条件仍缺失或存在歧义',UNKNOWN_GOAL:'任务目标尚未明确',UNRESOLVED_TASK:'任务尚不能可靠确定',UNRESOLVED_CONDITIONS:'必要条件尚不能确定',MISSING_FIELDS:'必要字段仍未补齐',AMBIGUOUS_TARGET:'需要确定唯一任务目标',CONTRADICTORY_CONSTRAINTS:'需要解决用户条件冲突',CONFIRMATION_REQUIRED:'需要用户确认后继续',UNSPECIFIED:'模型要求澄清，未提供结构化原因',MODEL_AMBIGUITY:'存在尚未解决的关键歧义',RECOGNITION_UNAVAILABLE:'识别服务暂不可用'}[a['clarification.reason']]) || '调用澄清工具，等待补充'
+      const defaults=preparationDetails(n).defaults
+      if(a['request.route']==='HARNESS' && defaults.length)return `采用${defaults.join('、')}，进入 Agent`
+      if(a['preparation.merge_reason']==='RULE_PRESERVED')return '按原文已确认的任务继续执行'
+      if(a['preparation.merge_reason']==='MODEL_CONDITIONS_REJECTED')return '舍弃不一致的模型条件，保留宿主确认条件'
+      return ({ HARNESS: '条件已确认，进入 Agent', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
+    }
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
     case 'memory': return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
     case 'memory_restore': return `恢复原快照 ${a['memory.selected_count'] || 0} 条 · 未重新检索`

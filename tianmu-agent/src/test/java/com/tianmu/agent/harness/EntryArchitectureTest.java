@@ -72,14 +72,14 @@ class EntryArchitectureTest {
             assertTrue(run.preparedRequest().degradedStages().contains("emotion"));
         } finally { release.countDown(); worker.shutdownNow(); }
     }
-    @Test void understandingTimeoutAsksForClarificationWithoutEnteringHarness() {
+    @Test void understandingTimeoutFailsAsSystemErrorWithoutEnteringHarness() {
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         try (var f = new HarnessLifecycleTest.Fixture(); var prep = new PreparationService((i, c) -> Optional.empty(), new PreparationFlowTest.Model() {
             public Understanding understand(Input i, CallControl c) { entered.countDown(); waitFor(release); return accepted(i, i.query()); }
         }, new PreparationPolicy(Duration.ofMillis(200), Duration.ofMillis(50), Duration.ofMillis(50)), f.harness)) {
             RunState run = f.run(); assertTimeoutPreemptively(Duration.ofSeconds(1), () -> execute(f, prep, run));
-            assertEquals(Route.CLARIFY, run.snapshot().route()); assertNull(run.task());
-            assertTrue(run.preparedRequest().degradedStages().contains("understanding"));
+            assertEquals(Status.FAILED, run.snapshot().status()); assertNull(run.task());
+            assertEquals("MODEL_UNAVAILABLE",run.snapshot().errorCode());
         } finally { release.countDown(); }
     }
     @Test void rewriteCannotRemoveKnownTaskIdentityEvenWhenNumbersAreUnchanged() {

@@ -1,8 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTracePresentation, buildTraceOverview, cardHighlight, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, cardHighlight, cardSummary, preparationDetails, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
+
+test('merge explains host defaults and rewrite disposition without fabricating legacy data',()=>{
+  const node={cardKind:'merge',attributes:{'request.route':'HARNESS','preparation.rule_task':'unclassified','preparation.effective_task':'audience.report','preparation.merge_reason':'CAPABILITY_DEFAULTS','preparation.defaults':['video_id','report_template','sources','time_range'],'query.rewrite_state':'ACCEPTED'}}
+  const details=preparationDetails(node)
+  assert.equal(details.visible,true);assert.equal(details.ruleTask,'unclassified');assert.equal(details.effectiveTask,'audience.report')
+  assert.deepEqual(details.defaults,['当前视频','报告模板','默认来源','默认时间范围'])
+  assert.match(cardSummary(node),/当前视频.*默认时间范围/);assert.match(details.rewrite,/等价校验/)
+  node.attributes['query.rewrite_state']='REJECTED';assert.match(preparationDetails(node).rewrite,/舍弃.*原话/)
+  node.attributes['request.route']='CLARIFY';node.attributes['clarification.reason']='REQUIRED_CONDITIONS';assert.match(cardSummary(node),/必要条件/)
+  assert.equal(preparationDetails({}).visible,false);assert.equal(preparationDetails(null).rewrite,'未记录')
+})
 
 test('compaction reports actual range and byte savings without inventing absent values',()=>{
   const value=compactionDetails({name:'agent.context.compact',attributes:{'compaction.covered_from':1,'compaction.covered_through':8,'compaction.source_messages':8,'compaction.input_bytes':7000,'compaction.output_bytes':1400,'compaction.saved_bytes':5600,'compaction.trigger_reason':'HISTORY_BUDGET'}})

@@ -37,9 +37,20 @@ public final class PreparationTypes {
         }
     }
     /** Untrusted model candidates; PreparationService validates against server-derived task meaning. */
+    public enum ClarificationIssue { NONE, UNSPECIFIED, MISSING_FIELDS, AMBIGUOUS_TARGET, CONTRADICTORY_CONSTRAINTS, UNKNOWN_GOAL, CONFIRMATION_REQUIRED }
     public record Understanding(boolean needsClarification, String clarificationQuestion,
-                                Map<String, Object> conditions, String rewrittenQuery) {
+                                Map<String, Object> conditions, String rewrittenQuery,ClarificationIssue issue,List<String> missingFields) {
+        public Understanding(boolean clarify,String question,Map<String,Object> conditions,String rewrite){
+            this(clarify,question,conditions,rewrite,clarify?ClarificationIssue.UNSPECIFIED:ClarificationIssue.NONE,List.of());
+        }
         public Understanding {
+            issue=issue==null?(needsClarification?ClarificationIssue.UNSPECIFIED:ClarificationIssue.NONE):issue;
+            missingFields=missingFields==null?List.of():List.copyOf(missingFields);
+            var allowed=Set.of("video_id","report_type","sources","time_range","date","metric","start","end","playback_range","output_style");
+            if(missingFields.size()>8 || !allowed.containsAll(missingFields) || new HashSet<>(missingFields).size()!=missingFields.size()
+                    || !needsClarification && (issue!=ClarificationIssue.NONE || !missingFields.isEmpty())
+                    || needsClarification && issue==ClarificationIssue.NONE
+                    || issue==ClarificationIssue.MISSING_FIELDS && missingFields.isEmpty())throw new IllegalArgumentException("Invalid clarification issue");
             conditions = ImmutablePayload.map(conditions);
             if (conditions.size() > 16 || conditions.entrySet().stream().anyMatch(e ->
                     !e.getKey().matches("[a-z][a-z0-9_]{0,63}") || e.getValue() == null
@@ -66,8 +77,17 @@ public final class PreparationTypes {
                 throw new IllegalArgumentException("Invalid curated FAQ entry");
         }
     }
+    /** Host reconciliation metadata. Model proposals cannot populate defaults or grant authority. */
+    public record Resolution(String ruleTask,String effectiveTask,String reason,List<String> defaults,String clarificationReason,String rewriteState,String rewriteReason) {
+        public Resolution(String ruleTask,String effectiveTask,String reason,List<String> defaults,String clarificationReason){this(ruleTask,effectiveTask,reason,defaults,clarificationReason,"SKIPPED","NO_CANDIDATE");}
+        public Resolution withRewrite(String state,String why){return new Resolution(ruleTask,effectiveTask,reason,defaults,clarificationReason,state,why);}
+        public Resolution { defaults=List.copyOf(defaults); }
+    }
     public record PreparedRequest(String originalQuery, String query, Emotion emotion, Set<String> degradedStages, Set<String> skippedStages, Intent intent,
-                                  TaskTypes.Specification specification, IntentRecognition recognition) {
+                                  TaskTypes.Specification specification, IntentRecognition recognition,Resolution resolution) {
+        public PreparedRequest(String original,String query,Emotion emotion,Set<String> degraded,Set<String> skipped,Intent intent,TaskTypes.Specification specification,IntentRecognition recognition){
+            this(original,query,emotion,degraded,skipped,intent,specification,recognition,null);
+        }
         public PreparedRequest(String original, String query, Emotion emotion, Set<String> degraded, Set<String> skipped, Intent intent, TaskTypes.Specification specification) {
             this(original,query,emotion,degraded,skipped,intent,specification,null);
         }

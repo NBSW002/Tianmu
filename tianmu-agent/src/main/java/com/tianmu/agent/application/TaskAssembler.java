@@ -39,11 +39,7 @@ public class TaskAssembler {
         boolean conversation = "unclassified".equals(specification.type())
                 && Set.of(com.tianmu.agent.core.PreparationTypes.Intent.KNOWLEDGE, com.tianmu.agent.core.PreparationTypes.Intent.OTHER).contains(preparation.intent());
         if (conversation) specification = new Specification("conversation", Map.of(), Map.of());
-        if (!run.query().equals(run.message)) {
-            Map<String, String> provenance = new HashMap<>();
-            specification.provenance().keySet().forEach(key -> provenance.put(key, "server_validated_input"));
-            specification = new Specification(specification.type(), specification.conditions(), provenance, specification.analysis());
-        }
+        // Field provenance survives accepted rewrites: page values and Skill defaults remain distinct.
         {
             try{FeedbackTaskPolicy.request(specification);run.executionWindow(feedbackPolicy.timeout());}
             catch(com.tianmu.agent.core.AgentException notAnalysis){if(!"TASK_CONSTRAINT_VIOLATION".equals(notAnalysis.code()))throw notAnalysis;}

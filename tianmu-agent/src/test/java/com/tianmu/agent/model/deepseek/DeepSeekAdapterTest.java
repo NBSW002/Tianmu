@@ -345,16 +345,26 @@ class DeepSeekAdapterTest {
         answer = request -> "{\"needsClarification\":true,\"clarificationQuestion\":\"Which date?\",\"conditions\":{},\"rewrittenQuery\":null}";
         assertEquals("Which date?", port.understand(input(), control()).clarificationQuestion());
     }
-    @Test void understandingReusesLongOriginalWhenRewriteIsNull() {
+    @Test void understandingKeepsOptionalRewriteNullForHostFallback() {
         var port = new DeepSeekAdapters().deepSeekPreparation(client, properties, mapper, new PromptCatalog());
         String original = "请概括学习笔记：" + "先理解缓存，再理解索引，最后理解事务。".repeat(60);
         var longInput = new Input(original, input().businessDate(), input().scope());
         answer = request -> "{\"needsClarification\":false,\"clarificationQuestion\":null,\"conditions\":{},\"rewrittenQuery\":null}";
         Understanding result = port.understand(longInput, control());
         assertFalse(result.needsClarification());
-        assertEquals(original, result.rewrittenQuery());
+        assertNull(result.rewrittenQuery());
         assertTrue(result.conditions().isEmpty());
         assertEquals(1, requests.size());
+    }
+    @Test void structuredClarificationDistinguishesMissingFieldsFromAmbiguity() {
+        var port = new DeepSeekAdapters().deepSeekPreparation(client, properties, mapper, new PromptCatalog());
+        String payload="{\"needsClarification\":true,\"clarificationQuestion\":\"Which video?\",\"conditions\":{},\"rewrittenQuery\":null,\"issue\":\"MISSING_FIELDS\",\"missingFields\":[\"video_id\"]}";
+        answer=request->payload;
+        var result=port.understand(input(),control());
+        assertEquals(ClarificationIssue.MISSING_FIELDS,result.issue());assertEquals(List.of("video_id"),result.missingFields());
+        for(String invalid:List.of(payload.replace("MISSING_FIELDS","NONE"),payload.replace("MISSING_FIELDS","MADE_UP"),payload.replace("[\"video_id\"]","[]"),payload.replace("video_id","admin_permission"),payload.replace("[\"video_id\"]","[7]"))){
+            answer=request->invalid;assertThrows(IllegalArgumentException.class,()->port.understand(input(),control()));
+        }
     }
     @Test void understandingRejectsCoercionExtraFieldsAndContradictoryPayloads() {
         var port = new DeepSeekAdapters().deepSeekPreparation(client, properties, mapper, new PromptCatalog());

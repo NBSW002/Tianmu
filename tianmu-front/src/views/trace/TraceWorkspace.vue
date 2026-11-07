@@ -11,7 +11,7 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, intentDetails, contextDetails, compactionDetails, preparationDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -71,6 +71,7 @@ const invocations = computed(() => modelInvocations(selected.value, presentation
 const intentSelection = computed(() => intentDetails(selected.value))
 const contextSelection = computed(() => contextDetails(selected.value))
 const compactionSelection = computed(() => compactionDetails(selected.value))
+const preparationSelection = computed(() => preparationDetails(selected.value))
 const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
 function toggleGroup(id) {
   const next = new Set(expanded.value)
@@ -250,6 +251,13 @@ function downloadExample() {
               <p>协议 {{ contextSelection.version }} · {{ contextSelection.projection }}</p>
               <ol><li v-for="slot in contextSelection.slots" :key="slot.name">{{ slot.label }}<small v-if="slot.bytes != null"> · {{ slot.bytes }} B</small></li></ol>
               <p>仅列出本次实际装配的模块；正文依当前权限查看。</p>
+            </section>
+            <section v-if="selected.cardKind === 'merge' && preparationSelection.visible" class="intent-selection" aria-label="前置合并与改写">
+              <h3>前置合并与改写</h3>
+              <p>{{ preparationSelection.reason }}</p>
+              <p>规则任务：{{ preparationSelection.ruleTask }}</p><p>最终任务：{{ preparationSelection.effectiveTask }}</p>
+              <p v-if="preparationSelection.defaults.length">默认补齐：{{ preparationSelection.defaults.join('、') }}</p>
+              <p>Query 改写：{{ preparationSelection.rewrite }}</p>
             </section>
             <section v-if="['intent','merge'].includes(selected.cardKind) && intentSelection.visible" class="intent-selection" aria-label="意图能力选择">
               <h3>能力识别</h3>

@@ -198,32 +198,74 @@ public class PreparationService implements AutoCloseable {
             try { result = await(run, understanding, end); }
             catch (PreparationUnavailable e) {
                 degraded.add("understanding");
-                result = Understanding.clarify("暂时无法确认查询条件，请明确要分析的视频、指标和日期后重试。");
+                result = Understanding.clarify("前置识别暂不可用，请稍后重试。");
             }
-            if (required.isPresent()) result = Understanding.clarify(required.get().question());
-            else if (recognized == Intent.UNKNOWN) {
-                result = Understanding.clarify("暂时无法确认你的任务意图，请说明要查询的数据或需要帮助的具体问题。");
-            } else if (!result.needsClarification() && !validIntent(specification.type(), recognized)) {
-                degraded.add("intent");
-                result = Understanding.clarify("任务意图与查询条件存在冲突，请明确要查询的视频、日期和指标。");
-            } else if (!resourceLookup && !result.needsClarification() && !validConditions(specification.conditions(), result.conditions())) {
-                degraded.add("understanding");
-                result = Understanding.clarify("查询条件存在冲突，请明确要查询的视频、日期和指标。");
+            var effective=specification;
+            String mergeReason="RULE_MATCHED",clarificationReason="NONE";
+
+            if(required.isEmpty() && specification.type().equals("unclassified")) {
+                try {
+                    var candidate=meaning.reportCandidate(contextInput,recognition);
+                    if(candidate.isPresent()){effective=candidate.get();mergeReason="CAPABILITY_DEFAULTS";}
+                } catch(AgentException e) {
+                    if(!e.code().equals("AMBIGUOUS_ANALYSIS_SOURCES"))throw e;
+                    required=Optional.of(new Clarification(true,e.getMessage()));
+                }
             }
+            authorizeTask(effective,run.owner);
+            var defaults=defaultFields(effective,contextInput);
+            if(required.isEmpty() && (degraded.contains("understanding") || degraded.contains("intent") && effective.type().equals("unclassified")))
+                throw new AgentException("MODEL_UNAVAILABLE","前置识别暂不可用，请稍后重试。");
+            if (required.isPresent()) {
+                result=Understanding.clarify(required.get().question());clarificationReason="REQUIRED_CONDITIONS";
+            } else if (recognized == Intent.UNKNOWN && effective.type().equals("unclassified")) {
+                result=Understanding.clarify("你希望完成什么任务？请简要说明目标。");clarificationReason="UNKNOWN_GOAL";
+            } else if(effective.type().equals("unclassified") && !validIntent(effective.type(),recognized)) {
+                result=Understanding.clarify(recognized==Intent.DANMAKU_REPORT?"请说明要生成哪类报告，以及要处理的视频。":"要查询哪个视频的什么数据？请补充必要条件。");
+                clarificationReason="UNRESOLVED_TASK";
+            } else {
+                // A parser miss is not a contradiction. An authoritative original/page-derived
+                // task also does not become ambiguous because a model misclassified or omitted it.
+                if(!validIntent(effective.type(),recognized) && !effective.type().equals("unclassified")){
+                    recognized=intentFor(effective.type());mergeReason="RULE_PRESERVED";
+                    recognition=hostSelection(recognition,effective.type(),recognized);
+                }
+                if(result.needsClarification() && result.issue()==ClarificationIssue.MISSING_FIELDS
+                        && !effective.type().equals("unclassified") && missingSatisfied(result,effective)){
+                    result=Understanding.proceed(effective.conditions(),null);mergeReason="DEFAULTS_SATISFIED";
+                } else if(!result.needsClarification() && !resourceLookup && !validConditions(effective.conditions(),result.conditions())){
+                    // Discard unsupported model values; never substitute them into the frozen task.
+                    if(!effective.type().equals("unclassified")){
+                        result=Understanding.proceed(effective.conditions(),null);mergeReason="MODEL_CONDITIONS_REJECTED";
+                    }else{
+                        result=Understanding.clarify("请补充这项任务需要的具体条件。");clarificationReason="UNRESOLVED_CONDITIONS";
+                    }
+                }
+                if(result.needsClarification() && clarificationReason.equals("NONE"))clarificationReason=result.issue().name();
+            }
+            var resolution=new Resolution(specification.type(),effective.type(),mergeReason,defaults,clarificationReason);
             if (result.needsClarification()) {
+                resolution=resolution.withRewrite("SKIPPED","CLARIFICATION_REQUIRED");
                 skipped.add("rewrite");
                 Emotion feeling = readyEmotion(run, emotion, emotionEnd, degraded, skipped);
-                return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, feeling, degraded, skipped, recognized,null,recognition), null, result.clarificationQuestion());
+                return new Result(Route.CLARIFY, new PreparedRequest(run.message, query, feeling, degraded, skipped, recognized,null,recognition,resolution), null, result.clarificationQuestion());
             }
-            String rewritten = result.rewrittenQuery();
-            if (!safeRewrite(query, rewritten)
-                    || !resourceLookup && !specification.equals(meaning.resolve(rewritten, run.businessDate, run.createdAt,run.memory()))) {
-                degraded.add("rewrite"); rewritten = query;
+            String candidate=result.rewrittenQuery(),rewritten=query;
+            if(candidate!=null && !candidate.equals(query)) {
+                boolean accepted=false;
+                if(safeRewrite(query,candidate) && !resourceLookup && !effective.type().equals("unclassified"))try{
+                    var rewrittenInput=new Input(candidate,run.businessDate,run.owner,run.memory(),run.createdAt,contextInput.intentCandidates());
+                    var proposed=meaning.resolve(candidate,run.businessDate,run.createdAt,run.memory());
+                    if(proposed.type().equals("unclassified"))proposed=meaning.reportCandidate(rewrittenInput,recognition).orElse(proposed);
+                    accepted=sameTask(effective,proposed);
+                }catch(AgentException|IllegalArgumentException rejected){ /* Untrusted rewrite never aborts the original request. */ }
+                if(accepted){rewritten=candidate;resolution=resolution.withRewrite("ACCEPTED","TASK_EQUIVALENT");}
+                else{degraded.add("rewrite");resolution=resolution.withRewrite("REJECTED","SEMANTIC_CHANGE_OR_UNVERIFIABLE");}
             }
             Emotion feeling = readyEmotion(run, emotion, emotionEnd, degraded, skipped);
             run.checkpoint();
-            bindFocus(run,specification);
-            return new Result(Route.HARNESS, new PreparedRequest(run.message, rewritten, feeling, degraded, skipped, recognized, specification,recognition), null, null);
+            bindFocus(run,effective);
+            return new Result(Route.HARNESS, new PreparedRequest(run.message, rewritten, feeling, degraded, skipped, recognized, effective,recognition,resolution), null, null);
         } finally { dispose(understanding); dispose(intent); dispose(emotion); }
     }
     private Map<String, Object> rule() {
@@ -239,12 +281,49 @@ public class PreparationService implements AutoCloseable {
                         "node.type", "ROUTING", "node.status", state), () -> null);
     }
     private boolean validIntent(String type, Intent intent) {
+        if(intent==Intent.UNKNOWN)return false;
         return switch (type) {
             case "danmaku.report", "audience.report", "comments.analysis", "danmaku.overview" -> intent == Intent.DANMAKU_REPORT;
             case "resource.lookup" -> intent != Intent.UNKNOWN;
             case "video.metric" -> intent == Intent.VIDEO_METRIC;
             default -> intent != Intent.VIDEO_METRIC && intent != Intent.DANMAKU_REPORT;
         };
+    }
+    private void authorizeTask(com.tianmu.agent.core.TaskTypes.Specification spec,com.tianmu.agent.core.AgentTypes.AccessScope owner){
+        if(!(spec.conditions().get("video_id") instanceof Number video))return;
+        if(!owner.readableVideoIds().contains(video.longValue()))throw new AgentException("FORBIDDEN","Video is outside the authenticated scope");
+        if(spec.reading()!=null && !spec.reading().textSources().isEmpty() && !owner.videoIds().contains(video.longValue()))throw new AgentException("FORBIDDEN","Feedback access requires author permission for the selected video");
+    }
+    private boolean missingSatisfied(Understanding proposal,com.tianmu.agent.core.TaskTypes.Specification spec){
+        return proposal.missingFields().stream().allMatch(field->switch(field){
+            case "report_type"->spec.reading()!=null && spec.reading().reportRequired();
+            case "sources"->spec.reading()!=null;
+            case "time_range"->spec.conditions().containsKey("start") && spec.conditions().containsKey("end");
+            case "output_style"->spec.reading()!=null && spec.reading().reportRequired();
+            case "playback_range"->spec.conditions().containsKey("start_ms") && spec.conditions().containsKey("end_ms");
+            default->spec.conditions().containsKey(field);
+        });
+    }
+    private boolean sameTask(com.tianmu.agent.core.TaskTypes.Specification a,com.tianmu.agent.core.TaskTypes.Specification b){
+        return a.type().equals(b.type()) && a.conditions().equals(b.conditions()) && Objects.equals(a.reading(),b.reading());
+    }
+    private Intent intentFor(String type){return switch(type){
+        case "video.metric"->Intent.VIDEO_METRIC;
+        case "audience.report","danmaku.report","comments.analysis","danmaku.overview"->Intent.DANMAKU_REPORT;
+        default->Intent.OTHER;
+    };}
+    private IntentRecognition hostSelection(IntentRecognition original,String type,Intent intent){
+        String primary=switch(type){case "video.metric"->"video-metrics";case "audience.report"->"audience-report";case "danmaku.report","danmaku.overview"->"danmaku-analysis";case "comments.analysis"->"comment-analysis";case "video.content"->"video-content";default->null;};
+        if(primary==null || original.candidates().stream().noneMatch(c->c.id().equals(primary)))return new IntentRecognition(intent,null,List.of(),original.candidates());
+        return new IntentRecognition(intent,primary,List.of(),original.candidates());
+    }
+    private List<String> defaultFields(com.tianmu.agent.core.TaskTypes.Specification spec,Input input){
+        var fields=new ArrayList<String>();
+        if(spec.conditions().containsKey("video_id") && !com.tianmu.agent.core.DanmakuTarget.matcher(input.query()).find() && input.memory().environment()!=null)fields.add("video_id");
+        if(spec.reading()!=null && spec.reading().reportRequired())fields.add("report_template");
+        if(spec.reading()!=null && !AnalysisSourceSelection.mentions(input.query()))fields.add("sources");
+        if(spec.typed() instanceof com.tianmu.agent.core.TaskConditions.Report report && report.query().allTime())fields.add("time_range");
+        return List.copyOf(fields);
     }
     private void bindFocus(RunState run,com.tianmu.agent.core.TaskTypes.Specification specification) {
         var focus=run.memory().focus();
@@ -255,8 +334,9 @@ public class PreparationService implements AutoCloseable {
     }
     /** Model candidates never grant scope or supply missing server-side task conditions. */
     private boolean validConditions(Map<String, Object> expected, Map<String, Object> proposed) {
-        if (!expected.keySet().equals(proposed.keySet())) return false;
-        return expected.entrySet().stream().allMatch(e -> {
+        if (!expected.keySet().containsAll(proposed.keySet())) return false;
+        return proposed.entrySet().stream().allMatch(proposal -> {
+            var e=Map.entry(proposal.getKey(),expected.get(proposal.getKey()));
             Object actual = proposed.get(e.getKey());
             if (Set.of("start", "end").contains(e.getKey()) && e.getValue() instanceof String expectedTime && actual instanceof String candidateTime) {
                 try { return LocalDateTime.parse(expectedTime).equals(LocalDateTime.parse(candidateTime)); }
@@ -345,7 +425,7 @@ public class PreparationService implements AutoCloseable {
     static boolean safeRewrite(String original, String rewrite) {
         if (rewrite == null || rewrite.isBlank() || rewrite.length() > 2000) return false;
         if (!numbers(original).equals(numbers(rewrite))) return false;
-        for (String anchor : List.of("昨天", "今天", "前天", "上周", "本周", "上月", "本月", "弹幕", "播放", "点赞", "评论"))
+        for (String anchor : List.of("昨天", "今天", "前天", "上周", "本周", "上月", "本月", "弹幕", "播放", "点赞", "评论", "不", "只", "仅", "排除", "全部", "所有", "发布", "发送", "删除", "授权", "观众", "反馈", "画面", "字幕", "音轨", "语音"))
             if (original.contains(anchor) != rewrite.contains(anchor)) return false;
         return true;
     }

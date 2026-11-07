@@ -38,6 +38,14 @@ public final class TraceSemantics {
             attrs.put("preparation.emotion", prepared.request().emotion().name());
             attrs.put("preparation.intent", prepared.request().intent().name());
             if(prepared.request().recognition()!=null)attrs.putAll(intentSelection(prepared.request().recognition()));
+            attrs.put("preparation.intent",prepared.request().intent().name());
+            var resolution=prepared.request().resolution();
+            if(resolution!=null){
+                attrs.put("preparation.rule_task",resolution.ruleTask());attrs.put("preparation.effective_task",resolution.effectiveTask());
+                attrs.put("preparation.merge_reason",resolution.reason());attrs.put("preparation.defaults",resolution.defaults());
+                attrs.put("clarification.reason",resolution.clarificationReason());
+                attrs.put("query.rewrite_state",resolution.rewriteState());attrs.put("query.rewrite_reason",resolution.rewriteReason());
+            }
             attrs.put("preparation.skipped_stages", prepared.request().skippedStages().stream().sorted().toList());
             attrs.put("preparation.degraded_stages", prepared.request().degradedStages().stream().sorted().toList());
             attrs.put("preparation.degraded_count", prepared.request().degradedStages().size());
@@ -51,6 +59,7 @@ public final class TraceSemantics {
         } else if (value instanceof Understanding understood) {
             attrs.put("model.decision", understood.needsClarification() ? "CLARIFY" : "PROCEED");
             attrs.put("clarification.required", understood.needsClarification());
+            attrs.put("clarification.reason",understood.issue().name());
             attrs.put("query.rewritten", understood.rewrittenQuery() != null);
         } else if (value instanceof Optional<?> optional) {
             attrs.put("faq.hit", optional.filter(FaqAnswer.class::isInstance).isPresent());
