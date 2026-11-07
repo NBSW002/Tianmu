@@ -17,7 +17,7 @@ public record FeedbackPolicy(@DefaultValue("5000") int maxRecords,
                 || batchBytes<24000 || batchBytes>48000 || batchGroups<1 || batchGroups>100
                 || maxModelCalls<1 || maxModelCalls>10000 || maxTokens<8192 || maxTokens>1000000000L
                 || timeout==null || timeout.compareTo(Duration.ofMinutes(1))<0 || timeout.compareTo(Duration.ofHours(6))>0
-                || modelTimeout==null || modelTimeout.toSeconds()<1 || modelTimeout.toSeconds()>60)throw new IllegalArgumentException("Invalid feedback execution policy");
+                || modelTimeout==null || modelTimeout.compareTo(Duration.ofSeconds(1))<0 || modelTimeout.compareTo(Duration.ofSeconds(180))>0)throw new IllegalArgumentException("Invalid feedback execution policy");
     }
     public static FeedbackPolicy defaults(){return new FeedbackPolicy(5000,67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
 }

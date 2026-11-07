@@ -9,6 +9,7 @@ import TraceGraph from '@/components/trace/TraceGraph.vue'
 import TraceDivider from '@/components/trace/TraceDivider.vue'
 import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
+import TraceContext from '@/components/trace/TraceContext.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -247,12 +248,7 @@ function downloadExample() {
               <p v-if="compactionSelection.prompt">策略 {{ compactionSelection.prompt }}</p>
               <p>原始消息保留；摘要只覆盖标明的范围，失效来源不会继续使用。</p>
             </section>
-            <section v-if="contextSelection.visible" class="intent-selection" aria-label="上下文模块装配">
-              <h3>上下文结构</h3>
-              <p>协议 {{ contextSelection.version }} · {{ contextSelection.projection }}</p>
-              <ol><li v-for="slot in contextSelection.slots" :key="slot.name">{{ slot.label }}<small v-if="slot.bytes != null"> · {{ slot.bytes }} B</small></li></ol>
-              <p>仅列出本次实际装配的模块；正文依当前权限查看。</p>
-            </section>
+            <TraceContext :selection="contextSelection" />
             <section v-if="selected.cardKind === 'merge' && preparationSelection.visible" class="intent-selection" aria-label="前置合并与改写">
               <h3>前置合并与改写</h3>
               <p>{{ preparationSelection.reason }}</p>
@@ -281,8 +277,10 @@ function downloadExample() {
                 <code>{{ call.name }}</code>
                 <p v-if="call.skill" class="invocation-skill">Skill：{{ call.skill }}</p>
                 <p class="invocation-summary">{{ call.summary }}</p>
-                <TraceCode title="调用参数" :value="call.arguments" :state="call.inputState" :reference="call.inputRef" />
-                <details v-if="call.toolId"><summary>执行结果</summary><TraceCode title="工具返回" :value="call.output" :state="call.outputState" :reference="call.outputRef" /></details>
+                <div class="invocation-payloads">
+                  <details><summary>调用参数</summary><TraceCode title="调用参数" :value="call.arguments" :state="call.inputState" :reference="call.inputRef" /></details>
+                  <details v-if="call.toolId"><summary>执行结果</summary><TraceCode title="工具返回" :value="call.output" :state="call.outputState" :reference="call.outputRef" /></details>
+                </div>
                 <button v-if="call.toolId" type="button" class="invocation-link" @click="selectNode(call.toolId)">查看执行节点 →</button>
               </article>
             </section>
@@ -355,6 +353,10 @@ html.trace-workspace-page #app { max-width: none; background: var(--workbench-pa
 .invocation-card code { display: block; overflow-wrap: anywhere; color: var(--workbench-muted); font: 11px/1.6 var(--trace-mono); margin-top: 4px; }
 .invocation-skill,.invocation-summary { font-size: 12px; overflow-wrap: anywhere; margin: 8px 0; }
 .invocation-card summary { font-size: 12px; cursor: pointer; }
+.invocation-payloads { border-top: 1px solid var(--workbench-border); margin-top: 12px; padding-top: 6px; }
+.invocation-payloads > details > summary { padding: 6px 0; color: var(--workbench-muted); }
+.invocation-payloads :deep(.trace-code) { margin: 6px 0 12px; }
+.invocation-heading > span { flex-shrink: 0; font-size: 11px; line-height: 1.7; }
 .invocation-link { padding: 6px 0 0; border: 0; background: none; color: var(--workbench-accent); font-size: 12px!important; }
 .member-section { margin: 20px 0; }
 .member-section h3 { font-size: 12px; font-weight: 500; color: var(--workbench-ink); }

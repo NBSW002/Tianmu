@@ -32,6 +32,8 @@ def catalog():
              "| `agent.policy-snapshot.enabled` | false | PolicySnapshotProperties → ExecutionPolicyFactory；YAML显式环境别名 `AGENT_POLICY_SNAPSHOT_ENABLED`。仅新Run创建时捕获，旧记录永不补造；关闭写者仍兼容读取已保存v1。先部署兼容reader再启用writer。 |", ""]
     lines += ["## agent.models", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.models.thinking-enabled` | true | DeepSeekProperties → DeepSeekClient；YAML环境别名 `AGENT_MODEL_THINKING_ENABLED`。启动绑定，主循环原生工具及后台反馈分析启用；短输出前置识别、记忆模型仍关闭。仅DeepSeek端点或deepseek模型名发送thinking协议。模式和协议版本进入模型revision，变更需排空在途Run；不是执行策略快照字段。旧Trace不补造思考。 |", ""]
+    lines += ["## agent.feedback思考调用时限", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+              "| `agent.feedback.model-timeout` | 基础30s；deepseek profile 120s | FeedbackPolicy → FeedbackAnalysisService；显式环境别名 `FEEDBACK_MODEL_TIMEOUT`，启动生效，精确范围1–180秒。单次模型调用取此值与job剩余deadline较小者；工作租约为超时加model-lease-margin-seconds，取消、fence、调用与Token预算不变。修改前排空既有任务，不将新策略冒充旧job版本。 |", ""]
     sources = {p: p.read_text(encoding="utf-8") for p in JAVA.rglob("*.java")}
     errors = []
     for relative in POLICIES:

@@ -828,6 +828,12 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 
 协议依据：[DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)，原生工具历史需保留assistant reasoning_content。历史Trace没有采集的内容无法追补。
 
+生产报告对照暴露了旧30秒后台调用时限不足：三次model.request均在约30秒结束、没有HTTP响应头，终态MODEL_UNAVAILABLE，保留该失败证据。随后新增deepseek profile默认`agent.feedback.model-timeout=120s`、显式`FEEDBACK_MODEL_TIMEOUT`，基础profile保留30s；精确合法范围1–180秒。租约仍由modelTimeout加既有margin生成，调用受job剩余deadline、预算、取消和fence约束，不增加工作并发或重置预算。必须以真实报告复测成功作为验收，不能用延长配置代替上游诊断。
+
+节点详情沿用workbench颜色、边框、字体及圆角：上下文模块采用名称/字节数行布局，协议版本收进技术信息；调用参数和执行结果统一折叠，真实正文仍可展开和复制。memoryProtected占位载荷显示中文保护说明，保留服务端保护策略，不把占位JSON当成真实调用参数；代码区统一字号并限制高度。已打开的SPA需刷新才能加载新脚本；用户确认bd231布局在刷新后正常，不能把旧脚本截图解释为新布局已验证失败。
+
+截至2026-11-07，官方`deepseek-flash`对应DeepSeek-V4.1-Flash-1017，[官方模型表](https://api-docs.deepseek.com/quick_start/pricing/)与服务端/models列表已核对。目录展示名为V4.1-Flash-1017；线路继续使用官方别名deepseek-flash，不伪造服务商未提供的固定版本ID。
+
 16.1–16.6保留首轮实施和验收记录；后续策略快照、Context拆分、完成条件、操作恢复注册和Hook隔离的当前新增实现看16.7，不以历史“尚未实现”覆盖后续源码。
 
 用户于2026-11-07明确开始实施，之后另行授权部署与真实测试，实际发布见对应验收记录。本节按批次记录实际产物，不改写独立设计审查历史结论。源码目录为agent/front，上传相关独立工作区改动不属于本轮治理修改。

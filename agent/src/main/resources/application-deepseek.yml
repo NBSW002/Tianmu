@@ -1,4 +1,6 @@
 agent:
+  feedback:
+    model-timeout: ${FEEDBACK_MODEL_TIMEOUT:120s}
   video:
     provider: ${VIDEO_MODEL_PROVIDER:compatible}
     enabled: ${VIDEO_CONTENT_ENABLED:true}

@@ -75,7 +75,7 @@ agent:
     max-model-calls: 2000
     max-tokens: 16000000
     timeout: 1h
-    model-timeout: 30s
+    model-timeout: ${FEEDBACK_MODEL_TIMEOUT:30s}
   faq:
     location: ${AGENT_FAQ_LOCATION:classpath:faq/business.json}
   qa:
