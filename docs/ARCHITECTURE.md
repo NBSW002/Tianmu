@@ -2,6 +2,8 @@
 
 [返回项目首页](../README.md) · [运行与接入](QUICKSTART.md)
 
+本文说明网站和Agent的整体关系。Agent跨模块职责、配置治理、迁移及实际验收以[统一技术设计](../agent/docs/Agent架构与工程治理技术设计.md)为准，文档导航见[Agent文档索引](../agent/docs/README.md)。
+
 ## 后端架构
 
 视频后端采用模块化单体结构。网站通过 HTTP 读写业务数据，通过 WebSocket 收发弹幕；媒体文件、业务记录、缓存与搜索索引分别流向对应的存储服务。
@@ -59,15 +61,15 @@ flowchart TB
 
 ## Agent 架构
 
-本次升级的统一实施入口为 [Agent 执行与记忆体系升级技术方案](../tianmu-agent/docs/Agent执行与记忆体系升级技术方案.md)，涵盖一次召回与恢复、参考成熟源码的原生工具并行和多轮自动记忆。实现沿用本站 Java Harness，不接入外部 Agent 框架。该方案尚待实施，不能据文档推定已部署。
+本次升级的统一实施入口为 [Agent 执行与记忆体系升级技术方案](../agent/docs/Agent执行与记忆体系升级技术方案.md)，涵盖一次召回与恢复、参考成熟源码的原生工具并行和多轮自动记忆。实现沿用本站 Java Harness，不接入外部 Agent 框架。该方案尚待实施，不能据文档推定已部署。
 
 ### 动态上下文协议
 
-Agent 输入统一采用 [ContextEnvelope 1.0](../tianmu-agent/docs/动态上下文架构.md)：固定槽位依次为 system_prompt、tool_catalog、skill_catalog、agent_catalog、execution_context、focus、memory_context、environment_context、reference_context、current_context、runtime_state、output_contract。不存在的模块省略，其余相对顺序保持不变；agent_catalog 当前是可选扩展位，不代表已具备 A2A 调用能力。
+Agent 输入统一采用 [ContextEnvelope 1.0](../agent/docs/动态上下文架构.md)：固定槽位依次为 system_prompt、tool_catalog、skill_catalog、agent_catalog、execution_context、focus、memory_context、environment_context、reference_context、current_context、runtime_state、output_contract。不存在的模块省略，其余相对顺序保持不变；agent_catalog 当前是可选扩展位，不代表已具备 A2A 调用能力。
 
 ContextAssembler 将已授权的目录、记忆、页面、会话与执行结果归位，NativeContextProjector 投影到模型原生 messages/tools，统一预算门控检查真实请求。current_context 包含压缩摘要与未压缩消息，原生工具调用和结果保持关联；长期记忆单独归入 memory_context。记忆召回独立于装配，权限与来源失效检查覆盖所有消费副本。该协议正在逐步接入，具体状态见专题方案。
 
-会话摘要与长期记忆采用不同作用域，共用来源失效与可靠派生任务机制。[上下文压缩方案](../tianmu-agent/docs/上下文压缩调研与实施方案.md)规定先精简可回源工具结果，再压缩旧的完整消息前缀，近期原文与当前任务由宿主保留；摘要放入 current_context.compaction。实现已接入可靠后台摘要、固定范围及删除失效；配置默认关闭，部署环境可显式开启。审查与验收边界见[审查记录](../tianmu-agent/docs/记忆压缩与上下文审查记录.md)。
+会话摘要与长期记忆采用不同作用域，共用来源失效与可靠派生任务机制。[上下文压缩方案](../agent/docs/上下文压缩调研与实施方案.md)规定先精简可回源工具结果，再压缩旧的完整消息前缀，近期原文与当前任务由宿主保留；摘要放入 current_context.compaction。实现已接入可靠后台摘要、固定范围及删除失效；配置默认关闭，部署环境可显式开启。审查与验收边界见[审查记录](../agent/docs/记忆压缩与上下文审查记录.md)。
 
 Agent 是独立的 Spring Boot 服务，分为**前置处理**和 **Harness Loop** 两个阶段。前置处理确定“用户要做什么、能访问什么、执行条件是否齐全”；Harness 根据准备好的任务，组织模型与工具协作完成工作。
 
@@ -151,7 +153,7 @@ flowchart TB
 
 这套设计将三件事分开：**前置处理明确任务，模型决定下一步，Harness 组织受控执行。** 统计计算、权限校验和报告渲染由代码完成；工具结果作为后续推理和最终交付的依据。达到执行限制、发生不可恢复错误或用户取消时，请求终止，不会无限循环。
 
-Agent 不直接修改业务数据库，发布操作由用户确认后交给业务后端执行。详细开发与配置说明见 [`tianmu-agent/README.md`](../tianmu-agent/README.md)。
+Agent 不直接修改业务数据库，发布操作由用户确认后交给业务后端执行。详细开发与配置说明见 [`agent/README.md`](../agent/README.md)。
 
 ## 观众反馈的处理边界
 

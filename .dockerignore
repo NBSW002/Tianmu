@@ -1,10 +1,10 @@
 **
-!tianmu-agent/
-!tianmu-agent/pom.xml
-!tianmu-agent/src/
-!tianmu-agent/src/**
-!tianmu-agent/eval/
-!tianmu-agent/eval/**
+!agent/
+!agent/pom.xml
+!agent/src/
+!agent/src/**
+!agent/eval/
+!agent/eval/**
 !deploy/
 !deploy/Dockerfile
 !deploy/HealthProbe.java

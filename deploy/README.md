@@ -96,7 +96,7 @@ sudo python3 deploy/manage.py up --env /opt/tianmu-staging/config/releases/NEW_R
 
 真实业务模式使用 `business,deepseek,persistent`，不会回退 Demo。此时 `verify` 只检查存活和就绪，不冒用 Demo 身份，也不自动发出收费模型查询。正式登录与业务查询需要使用授权账号另行验收。
 
-报告和证据对象写入同一MinIO实例的私有bucket，业务部署不会新建MinIO服务。已有staging文件对象切换前按[存储迁移要求](../tianmu-agent/docs/持久化存储接入.md)复制并核对，未迁移时继续使用原staging配置。
+报告和证据对象写入同一MinIO实例的私有bucket，业务部署不会新建MinIO服务。已有staging文件对象切换前按[存储迁移要求](../agent/docs/持久化存储接入.md)复制并核对，未迁移时继续使用原staging配置。
 
 本方案先解决环境复现与部署边界；备份恢复、业务指标水位、生产限流、告警、完整压力测试与多实例属于后续生产化工作。
 

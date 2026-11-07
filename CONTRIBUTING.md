@@ -1,6 +1,8 @@
 # 参与 Tianmu
 
-项目使用 Java 17 / Spring Boot 3.5。首次参与请先运行根 README 的免 Key Demo，再阅读 [工程目录与扩展规范](tianmu-agent/docs/工程目录与扩展规范.md)。目前是预览阶段，接口仍可能调整。
+项目使用 Java 17 / Spring Boot 3.5。首次参与请先运行根 README 的免 Key Demo，再阅读 [工程目录与扩展规范](agent/docs/工程目录与扩展规范.md)。目前是预览阶段，接口仍可能调整。
+
+Agent当前跨模块规范与实现范围见[治理入口](agent/docs/Agent架构与工程治理技术设计.md)，协作要求见[开发与维护规范](agent/docs/开发与维护规范.md)。新增或修改文档必须在[文档索引](agent/docs/README.md)分类；修改模块运行参数同步生成配置目录并验证实际消费，历史设计和旧验收不代表当前完成情况。
 
 ## 开始一个改动
 
@@ -13,9 +15,9 @@
 
 | 改动 | 位置与要求 |
 |---|---|
-| Skill | `tianmu-agent/src/main/resources/skills/<name>/`；提供 SKILL.md 和版本元数据 |
-| Prompt | `tianmu-agent/src/main/resources/prompts/`；不在 Java 字符串中堆业务提示词 |
-| Tool | `tianmu-agent/src/main/java/com/tianmu/agent/tool/` 与 resources/tools；声明参数、权限和结果口径 |
+| Skill | `agent/src/main/resources/skills/<name>/`；提供 SKILL.md 和版本元数据 |
+| Prompt | `agent/src/main/resources/prompts/`；不在 Java 字符串中堆业务提示词 |
+| Tool | `agent/src/main/java/com/tianmu/agent/tool/` 与 resources/tools；声明参数、权限和结果口径 |
 | 业务适配器 | `.../adapters/business/`；通过业务接口鉴权、查数，不接受客户端自报身份 |
 | Hook/Trace | `.../harness/`；遵守现有执行顺序、错误策略与取消语义 |
 | 存储 | `.../adapters/storage/`；注意幂等、拥有者校验、迁移兼容性 |
@@ -27,9 +29,10 @@ Skill/Prompt 当前从 classpath 加载，修改后需要构建和重启；不�
 ```sh
 python scripts/test_publication.py
 python scripts/check_publication.py
+python scripts/check_agent_governance.py
 mvn -B verify
-mvn -B -f tianmu-agent/pom.xml verify
-python scripts/smoke_demo.py --jar tianmu-agent/target/operations-agent-0.7.0-SNAPSHOT.jar
+mvn -B -f agent/pom.xml verify
+python scripts/smoke_demo.py --jar agent/target/operations-agent-0.7.0-SNAPSHOT.jar
 git diff --check
 ```
 

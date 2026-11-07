@@ -48,6 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jar", required=True, type=Path)
     parser.add_argument("--java", default="java")
+    parser.add_argument("--rule-only", action="store_true", help="Also support validating the explicit deterministic fallback")
     parser.add_argument("--artifacts", type=Path, help="Save trace snapshots and report for the standalone trace viewer")
     args = parser.parse_args()
     jar = args.jar.resolve(strict=True)
@@ -68,7 +69,8 @@ def main():
             flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
             process = subprocess.Popen([args.java, "-Djava.io.tmpdir=" + directory, "-jar", str(jar), "--spring.profiles.active=demo",
                                         f"--server.port={port}", "--server.address=127.0.0.1", "--harness.trace.sink=file",
-                                        "--harness.trace.directory=" + str(Path(directory) / "trace")],
+                                        "--harness.trace.directory=" + str(Path(directory) / "trace"),
+                                        "--agent.preparation.deterministic-routing=" + str(args.rule_only).lower()],
                                        cwd=directory, env=environment, stdout=log, stderr=subprocess.STDOUT, **flags)
             try:
                 deadline = time.monotonic() + 60
@@ -108,9 +110,13 @@ def main():
                             assert value in run["answer"]["text"]
                         intent = "DANMAKU_REPORT" if "报告" in message else "VIDEO_METRIC"
                         assert run["preparation"]["intent"] == intent, "Intent was not merged into the task"
-                        assert run["preparationCalls"] == 0, "Explicit tasks must skip recognition models"
-                        assert {"understanding", "emotion", "rewrite"}.issubset(run["preparation"]["skippedStages"])
-                        assert "intent" not in run["preparation"]["skippedStages"], "Rule-based intent must be recorded as executed"
+                        if args.rule_only:
+                            assert run["preparationCalls"] == 0, "Rule-only tasks must skip recognition calls"
+                            assert {"understanding", "emotion", "rewrite"}.issubset(run["preparation"]["skippedStages"])
+                            assert "intent" not in run["preparation"]["skippedStages"], "Rule-based intent must be recorded as executed"
+                        else:
+                            assert run["preparationCalls"] == 3, "Default preparation must execute all three recognition branches"
+                            assert {"intent", "understanding", "emotion"}.isdisjoint(run["preparation"]["skippedStages"])
                         assert run["preparation"]["specification"] == run["task"]["specification"], "Assembly must preserve prepared conditions"
                     else:
                         assert run["totalModelCalls"] == 0
@@ -181,12 +187,20 @@ def main():
                     required = {"receive_query", "pre_route", "faq_lookup", "context_build", "agent_start", "llm_inference", "read_skill",
                                 "tool_call", "agent_end", "finish"}
                     assert required.issubset(span_types), "The report trace is missing stages: " + repr(sorted(required - span_types))
-                    skipped_recognition = [item for item in attrs if item.get("span.type") in {"emotion_recognition", "query_understanding"}]
-                    assert all(item.get("preparation.state") in {"SKIPPED", "DISABLED"} for item in skipped_recognition), "Skipped recognition must not produce inference spans"
-                    rule_intents = [item for item in attrs if item.get("span.type") == "intent_recognition"]
-                    assert rule_intents and all(item.get("preparation.method") == "RULE" and item.get("node.type") != "MODEL" for item in rule_intents), "Explicit intent must use a rule span, not model inference"
-                    assert roots[0]["attributes"].get("run.preparation_calls") == 0, "Trace must count actual preparation calls"
-                    assert roots[0]["attributes"].get("preparation.skipped_count", 0) >= 3, "Trace must disclose skipped preparation"
+                    if args.rule_only:
+                        skipped_recognition = [item for item in attrs if item.get("span.type") in {"emotion_recognition", "query_understanding"}]
+                        assert all(item.get("preparation.state") in {"SKIPPED", "DISABLED"} for item in skipped_recognition), "Skipped recognition must not produce inference spans"
+                        rule_intents = [item for item in attrs if item.get("span.type") == "intent_recognition"]
+                        assert rule_intents and all(item.get("preparation.method") == "RULE" and item.get("node.type") != "MODEL" for item in rule_intents), "Explicit intent must use a rule span, not model inference"
+                        assert roots[0]["attributes"].get("run.preparation_calls") == 0, "Trace must count actual preparation calls"
+                        assert roots[0]["attributes"].get("preparation.skipped_count", 0) >= 3, "Trace must disclose skipped preparation"
+                    else:
+                        recognition = [event.get("attributes", {}) for event in run_trace
+                                       if event.get("name") in {"agent.prepare.intent", "agent.prepare.emotion", "agent.prepare.clarification"}]
+                        assert len(recognition) == 3, "Default preparation must expose its three real stages"
+                        assert all(item.get("preparation.method") == "MODEL" and item.get("preparation.state") == "EXECUTED"
+                                   for item in recognition), "Default recognition must not be reported as skipped/rule routing"
+                        assert roots[0]["attributes"].get("run.preparation_calls") == 3, "Trace must count the three preparation calls"
                     assert any(item.get("preparation.intent") == "DANMAKU_REPORT" for item in attrs), "Intent is missing from the trace"
                     assert any(item.get("request.route") == "HARNESS" for item in attrs), "Route is missing from the trace"
                     assert any(item.get("finish.type") == "TOOL_DELIVERY" and item.get("run.status") == "SUCCEEDED" for item in attrs), "Terminal delivery is missing from the trace"
@@ -203,7 +217,7 @@ def main():
                         (args.artifacts / "spans.jsonl").write_bytes(trace_file.read_bytes())
                         shutil.copytree(Path(directory) / "trace" / "details", args.artifacts / "details", dirs_exist_ok=True)
                         (args.artifacts / "run.json").write_text(json.dumps({"runId": report_run_id, "traceId": trace_id}), encoding="utf-8")
-    print(json.dumps({"status": "PASS", "checks": checks, "reportTrace": trace_summary,
+    print(json.dumps({"status": "PASS", "preparationMode": "rule-only" if args.rule_only else "parallel", "checks": checks, "reportTrace": trace_summary,
                       "paidModelCalls": 0, "middlewareRequired": False}))
 
 

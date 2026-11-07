@@ -19,7 +19,7 @@
 
 新路径由 `AGENT_FEEDBACK_ENABLED` 控制，默认关闭；开启后适用任务不再开放旧全量分类工具，避免新旧路径混跑。普通指标查询不进入后台分析。当前属于完整链路的工程验收，尚未完成真实模型的新旧内容质量对照，不把两万条确定性覆盖测试当作生产吞吐或生成效果验收。源码 f5ca6b3 已于2026-11-02部署，后台分析新链路仍默认关闭。
 
-工程边界与配置见 [Agent 架构评审中的反馈分析改造](../tianmu-agent/docs/架构评审与演进方案.md)。验收记录：Agent 全量 verify 523 项通过；最后取消信号补强后重跑分析/HTTP/续接 17 项通过并重新打包。业务侧94项中90项执行通过、4项条件跳过，含真实MySQL的一万条评论与一万条弹幕导出；前端35项与生产构建通过。默认模式打包冒烟、持久化模式健康检查和实际查询通过。发布规则4项、部署检查11项、工作树发布扫描与diff检查通过。测试未调用付费模型；日志位于忽略目录var/feedback-*。
+工程边界与配置见 [Agent 架构评审中的反馈分析改造](../agent/docs/架构评审与演进方案.md)。验收记录：Agent 全量 verify 523 项通过；最后取消信号补强后重跑分析/HTTP/续接 17 项通过并重新打包。业务侧94项中90项执行通过、4项条件跳过，含真实MySQL的一万条评论与一万条弹幕导出；前端35项与生产构建通过。默认模式打包冒烟、持久化模式健康检查和实际查询通过。发布规则4项、部署检查11项、工作树发布扫描与diff检查通过。测试未调用付费模型；日志位于忽略目录var/feedback-*。
 
 ### 反馈分析独立 Review 修复（2026-11-02）
 
@@ -59,7 +59,7 @@ AGENT_FEEDBACK_ENABLED仍为默认false；部署新代码不等于已启用后�
 
 已有 `ModelPort`、工具注册、Skill/Prompt 目录、受限上下文、存储端口及架构测试，继续沿用这些边界。现阶段重点是消化现有复杂度、验证异常语义，不新增业务工具、多 Agent、RAG 或更换框架。
 
-2026-11-01 完成当前源码架构复评，详见 [Agent 架构评审](../tianmu-agent/docs/架构评审与演进方案.md)。确认方向合理；终态写库故障跨过 deadline 后缺少自动收敛的问题已复现并实施本批修复，记录见下方 A03。本批 A02/H02 已冻结来源与报告交付要求，并集中执行准入和完成条件；A01 两批已将报告进度和历史查询委托给应用服务；下一项为上下文、证据与交付边界复核。当前明确为单写实例，不将其表述为已完成高可用或容量验收。
+2026-11-01 完成当前源码架构复评，详见 [Agent 架构评审](../agent/docs/架构评审与演进方案.md)。确认方向合理；终态写库故障跨过 deadline 后缺少自动收敛的问题已复现并实施本批修复，记录见下方 A03。本批 A02/H02 已冻结来源与报告交付要求，并集中执行准入和完成条件；A01 两批已将报告进度和历史查询委托给应用服务；下一项为上下文、证据与交付边界复核。当前明确为单写实例，不将其表述为已完成高可用或容量验收。
 
 | 顺序 | 范围 / 当前状态 | 具体工作 | 验收 |
 |---|---|---|---|
@@ -89,7 +89,7 @@ AGENT_FEEDBACK_ENABLED仍为默认false；部署新代码不等于已启用后�
 
 ### Harness 文章调研的后续建议（2026-11-01，H01 后续已实施）
 
-已查阅 Anthropic、OpenAI 与 LangChain 的 7 篇一手文章，来源与代码对照见 [架构评审中的 Harness 调研](../tianmu-agent/docs/架构评审与演进方案.md)。新增 H01 隔离风险：单线程 deadline 回调仍同步执行终态写库/Hook，A 的慢收尾可延迟 B 的 watchdog。无模型双任务组件探针已复现，约 500ms 阻塞下 B 本地停止晚约 491ms；不是生产容量或数据库断网结论，托管调用另有等待超时保护。
+已查阅 Anthropic、OpenAI 与 LangChain 的 7 篇一手文章，来源与代码对照见 [架构评审中的 Harness 调研](../agent/docs/架构评审与演进方案.md)。新增 H01 隔离风险：单线程 deadline 回调仍同步执行终态写库/Hook，A 的慢收尾可延迟 B 的 watchdog。无模型双任务组件探针已复现，约 500ms 阻塞下 B 本地停止晚约 491ms；不是生产容量或数据库断网结论，托管调用另有等待超时保护。
 
 调研建议将 H01 安排在原 A02 之前，现已按用户要求实施 H01，见下方记录。H02 随本批 A02 实施，H03 已实施报告上下文投影首批，H04–H05 尚未实施；未引入框架、执行付费评测或部署。A03 的单任务故障收敛与 H01 的跨任务调度隔离是不同验收项。
 
@@ -163,7 +163,7 @@ HistoryQueryService 不依赖具体 RunState、ExecutionState、模型、工具�
 
 ### A04 上下文构建调研（2026-11-01，调研快照；P0 后续已修复）
 
-阅读 Anthropic、LangChain、DeepSeek 的一手文章/文档与长上下文研究，对照当前 MemoryBuilder、HarnessContextBuilder、ModelContextBuilder 和 DeepSeekClient；详见 [架构评审中的上下文专项调研](../tianmu-agent/docs/架构评审与演进方案.md)。只更新调研记录并运行一次离线 JShell 探针，未修改产品代码或 Prompt、未执行付费模型、未推送部署。
+阅读 Anthropic、LangChain、DeepSeek 的一手文章/文档与长上下文研究，对照当前 MemoryBuilder、HarnessContextBuilder、ModelContextBuilder 和 DeepSeekClient；详见 [架构评审中的上下文专项调研](../agent/docs/架构评审与演进方案.md)。只更新调研记录并运行一次离线 JShell 探针，未修改产品代码或 Prompt、未执行付费模型、未推送部署。
 
 已复现 P0：两个同值 ToolResult 对应 call_a/call_b，组装结果却均引用 call_a，因为以结果内容查找首个 exchange。P1 设计缺口：旧报告结果正文可释放，但旧工具调用的大参数仍累积；最近历史按固定窗口选择，缺少按下一次决策需要的统一投影。完整 HTTP 请求已有含 tools 的字节硬上限，改进点是让前面的裁剪也能按整请求预算规划，而非宣称缺少最终保护。
 
@@ -219,7 +219,7 @@ ModelContext 增加可选 reportState，旧构造入口默认 null；Runtime 在
 
 ### Skill 与工具体系调研（2026-11-01，仅调研）
 
-已对照7个 Skill / 11个工具及 Anthropic、Agent Skills 官方规范/指南、LangChain、MCP 官方资料，记录见 [架构评审：Skill 与工具体系建设调研](../tianmu-agent/docs/架构评审与演进方案.md)。保留现有目录、按需加载、受信任 Java Handler、版本指纹与宿主准入，不迁移框架。
+已对照7个 Skill / 11个工具及 Anthropic、Agent Skills 官方规范/指南、LangChain、MCP 官方资料，记录见 [架构评审：Skill 与工具体系建设调研](../agent/docs/架构评审与演进方案.md)。保留现有目录、按需加载、受信任 Java Handler、版本指纹与宿主准入，不迁移框架。
 
 优先级：S01 先对齐系统提示/Skill/工具说明/Java 行为，补报告契约案例；S02 改善参数级说明和安全修正反馈；S03 建立 Skill 发现、选择与执行质量对照；S04/S05 再改发现加载及结果/副作用契约；有实际共享或外部服务需求时才做标准兼容与 MCP。已确认遗漏ID处理、纯弹幕/联合主题键范围和视频选择措辞有分散或不一致；这些是调研发现，尚未修复。
 
@@ -254,7 +254,7 @@ ModelContext 增加可选 reportState，旧构造入口默认 null；Runtime 在
 
 ### S02 / S03 解决路径调研（2026-11-01，仅调研）
 
-已查阅 Pydantic AI 参数Schema与有界重试、MCP错误机制、Anthropic工具/Agent评价、Agent Skills触发与质量评价官方资料，并核对当前验证和异常边界；详见 [架构评审中的S02/S03方案](../tianmu-agent/docs/架构评审与演进方案.md)。
+已查阅 Pydantic AI 参数Schema与有界重试、MCP错误机制、Anthropic工具/Agent评价、Agent Skills触发与质量评价官方资料，并核对当前验证和异常边界；详见 [架构评审中的S02/S03方案](../agent/docs/架构评审与演进方案.md)。
 
 建议分批：S02-A先支持受限字段description并验证实际HTTP透传；S02-B只为明确发生在Handler之前的输入验证错误提供有界修正反馈，不将所有INVALID_ARGUMENTS全局重试；S03分开做真实Skill选择和完整任务质量的旧新版对照。原因是当前Dispatcher同时将执行期异常包装成INVALID_ARGUMENTS，单看错误码无法证明没有副作用。说明一致性复用Schema/领域策略与关联行为案例，结构lint不能替代语义review，不建设第二套契约DSL或执行规则。
 
@@ -276,7 +276,7 @@ ReadSkillTool 仅更新 name.enum，保留原声明中的说明与约束，不�
 
 已按用户要求先将累计的A01/A04/S01/S02-A实现推送到origin/master，提交 bc88f3d（refactor(agent): isolate host services and harden model context）。推送包含56个文件，基线452项全部通过及打包离线冒烟通过；未部署。此前各批“未推送”为当时快照，以本条更新当前状态。
 
-推送后已设计S02-B，详见 [架构评审：调用前参数错误的有限修正](../tianmu-agent/docs/架构评审与演进方案.md)。首批只对单工具的Schema前置拒绝给最多2次修正反馈；用Dispatcher在Handler前生成的结构化结果证明阶段，不把INVALID_ARGUMENTS码或公开异常子类当作证明。Handler执行异常/业务权限/未知写入结果不增加重试，多调用组保持现有失败退出。问题反馈有界、错误ID配对、Hook不可篡改，累计配额跨工具和成功调用不重置，原总预算/取消/deadline继续有效。
+推送后已设计S02-B，详见 [架构评审：调用前参数错误的有限修正](../agent/docs/架构评审与演进方案.md)。首批只对单工具的Schema前置拒绝给最多2次修正反馈；用Dispatcher在Handler前生成的结构化结果证明阶段，不把INVALID_ARGUMENTS码或公开异常子类当作证明。Handler执行异常/业务权限/未知写入结果不增加重试，多调用组保持现有失败退出。问题反馈有界、错误ID配对、Hook不可篡改，累计配额跨工具和成功调用不重置，原总预算/取消/deadline继续有效。
 
 本方案文档在bc88f3d推送后形成；本段为设计时快照。后续实施进度见下节，不以已有452项证明新机制已完成。
 
@@ -320,7 +320,7 @@ Agent 的 A03、H01、A02/H02 已随 `272be8e` 推送到 master，尚未部署�
 |---|---|---|---|
 | Q01 | P0 / 已完成本批并部署 | 原发送端只查消息 userId 的在线记录，未验证发送者凭证和房间关联 | `380ac1c` 已部署；线上真实 Redis / MQ / MySQL / 公网 WebSocket 验证通过，详见上方收尾记录；不代表整个弹幕系统已完成容量或安全审查 |
 | Q02 | P0 / 进行中 | 首轮发现：写操作使用请求 userId，取消操作未统一校验记录归属与视频；投币余额扣减缺少条件保护 | 已实现点赞、收藏、投币、三连的可信操作身份，以及取消点赞/收藏的归属校验；投币余额改为有条件扣减。继续审查评论、关注、投稿与删除；并发新增的唯一约束及真实数据库验证待完成 |
-| Q03 | P1 / 待实施 | `tianmu-front/src/lib/request.js` 直接解析 localStorage；HTTP 错误分支直接透传，登录清理只在成功响应分支；`store/user.js` 登录输出完整用户对象 | 复用已有 `lib/auth.js` 的容错读取，处理真实 HTTP 401，移除凭证对象日志；保持业务错误与 HTTP 错误可辨识。验证损坏存储、过期登录、普通业务错误与正常请求 |
+| Q03 | P1 / 待实施 | `front/src/lib/request.js` 直接解析 localStorage；HTTP 错误分支直接透传，登录清理只在成功响应分支；`store/user.js` 登录输出完整用户对象 | 复用已有 `lib/auth.js` 的容错读取，处理真实 HTTP 401，移除凭证对象日志；保持业务错误与 HTTP 错误可辨识。验证损坏存储、过期登录、普通业务错误与正常请求 |
 | Q04 | P1 / 待实施 | `views/detail/VideoDetail.vue` 在初始化动画时添加匿名 resize 监听，卸载时仅关闭 WebSocket；详情请求依赖路由 videoId，当前没有对应参数监听 | 明确视频切换的加载、取消与清理责任；清理窗口监听、动画与连接，隔离过时响应。验证同页切换视频、反复进入退出、慢请求返回和助手上下文一致性 |
 | Q05 | P1 / 待实施 | `views/platform/children/uploadChildren/VideoUpload.vue` 创建对象 URL、绑定 metadata 监听，未见对应资源释放；hash 的 FileReader Promise 未处理读取失败 | 先梳理选择、hash、分片、合并、投稿状态及失败恢复，再提取上传流程；释放对象 URL，处理读取失败与替换文件的竞态。验证换文件、读失败、分片失败、重试与离开页面 |
 | Q06 | P1 / 待复核 | `UserServiceImpl.java` 注册与登录使用固定盐 MD5；现有路线图亦有迁移项 | 单独设计历史密码兼容迁移，避免直接替换导致旧账号无法登录；验证新账号存储、旧账号迁移、错误密码与失败回滚。与其他认证改造分批交付 |
@@ -395,13 +395,13 @@ Agent 的 A03、H01、A02/H02 已随 `272be8e` 推送到 master，尚未部署�
 
 按用户要求在既有服务器真实尝试：将已推送的6730009 JAR放入仅回环可访问的临时候选，真实business/deepseek，隔离内存任务与报告存储；6条候选请求和1条线上参照共20次模型调用、114,200上报Token。标准日期查询35条与只读SQL一致，评论分析读取43条，评论报告完成43/43覆盖，非法区间零模型调用。发现中文日期被当作未指定时间而冻结为全量，以及零反馈时模型跳过报告工具、被REPORT_REQUIRED拦截这两个真实失败。接口SUCCEEDED不等于用户任务通过。
 
-详细任务、调用/耗时/Token、来源和报告验证、语义复核边界及后续优先级见 [真实Harness验收v3](../tianmu-agent/eval/baselines/real-harness-v3.md)。先修时间约束丢失，再处理空数据报告完成路径；本轮没有自然触发S02-B，不能声称其真实纠正率已提升。7条SSE均唯一DONE，业务弹幕/评论计数保持200/43。临时候选已移除；线上仍为原发布且readiness为UP。没有切换线上或修改产品代码，原始证据保存在私有忽略目录；本条文档尚未推送。
+详细任务、调用/耗时/Token、来源和报告验证、语义复核边界及后续优先级见 [真实Harness验收v3](../agent/eval/baselines/real-harness-v3.md)。先修时间约束丢失，再处理空数据报告完成路径；本轮没有自然触发S02-B，不能声称其真实纠正率已提升。7条SSE均唯一DONE，业务弹幕/评论计数保持200/43。临时候选已移除；线上仍为原发布且readiness为UP。没有切换线上或修改产品代码，原始证据保存在私有忽略目录；本条文档尚未推送。
 
 ### S03 首批真实失败修复及复测（2026-11-01）
 
 已修复上轮两个失败：共用TaskTimeText将确定的中文数字年月日解释为ISO日期，准备/报告范围/澄清续接复用；无法确定的显式时间、冲突日期与不完整范围需澄清，原文及全量/最近七天默认保留。ReportTaskState新增从已确认事实派生的emptyFeedback/reportStage，明确零反馈仍在AWAITING_REPORT；系统提示与报告Skill要求生成空报告，保留REPORT_REQUIRED及VIDEO/来源/证据/预算边界，不自动执行或新增全局重试。版本system3.7.0、danmaku-analysis3.4.2、audience-report1.3.2。
 
-新增24项回归，97项针对性及497项全量全部通过，失败/错误/跳过0，实际MySQL23项/Redis2项；打包离线冒烟、发布规则4/4与发布检查通过。服务器同模型真实复测7个任务、19次调用、111,374上报Token：原中文日期与ISO对照均查询35且匹配SQL，原空报告独立3次均保存成功，非法日期零模型调用进入澄清，非空评论报告仍完整覆盖43/43。全部SSE唯一DONE，业务记录计数200/43保持。详见 [真实Harness复测v4](../tianmu-agent/eval/baselines/real-harness-v4.md)。临时候选及本地测试容器已清理；线上原发布保持且readiness为UP，本批尚未提交/推送或切换线上。v3失败记录保留为修复前快照。
+新增24项回归，97项针对性及497项全量全部通过，失败/错误/跳过0，实际MySQL23项/Redis2项；打包离线冒烟、发布规则4/4与发布检查通过。服务器同模型真实复测7个任务、19次调用、111,374上报Token：原中文日期与ISO对照均查询35且匹配SQL，原空报告独立3次均保存成功，非法日期零模型调用进入澄清，非空评论报告仍完整覆盖43/43。全部SSE唯一DONE，业务记录计数200/43保持。详见 [真实Harness复测v4](../agent/eval/baselines/real-harness-v4.md)。临时候选及本地测试容器已清理；线上原发布保持且readiness为UP，本批尚未提交/推送或切换线上。v3失败记录保留为修复前快照。
 
 ### EchoFrame 前端品牌更新及 TLS 续期修复（2026-11-01）
 
@@ -456,7 +456,7 @@ Agent 的 A03、H01、A02/H02 已随 `272be8e` 推送到 master，尚未部署�
 | 检查 | 2026-10-31 结果 |
 |---|---|
 | 业务后端 `mvn -B -ntp verify` | BUILD SUCCESS；36 项，失败/错误 0，跳过 15 |
-| Agent `mvn -B -ntp -f tianmu-agent/pom.xml verify` | BUILD SUCCESS；346 项，失败/错误 0，跳过 16 |
+| Agent `mvn -B -ntp -f agent/pom.xml verify` | BUILD SUCCESS；346 项，失败/错误 0，跳过 16 |
 | 前端 `npm run test:agent` | 18/18 通过；按锁文件重装后再次 18/18 通过 |
 | 前端 `npm run build` | 原本地 node_modules 缺少 Vue Flow 样式依赖而失败；按锁文件完成 npm ci 后构建成功，未修改源码或锁文件；仍有旧式深度选择器、Browserslist 及体积提示 |
 | 发布检查 | `test_publication.py` 4/4 通过；`check_publication.py` PASS |

@@ -25,8 +25,8 @@ cd EchoFrame
 **无需模型 Key、数据库或中间件。** 在仓库根目录执行：
 
 ```bash
-mvn -B -f tianmu-agent/pom.xml package
-java -jar tianmu-agent/target/operations-agent-0.7.0-SNAPSHOT.jar
+mvn -B -f agent/pom.xml package
+java -jar agent/target/operations-agent-0.7.0-SNAPSHOT.jar
 ```
 
 服务默认运行在 `http://127.0.0.1:8201`。另开终端创建任务：
@@ -59,14 +59,14 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8201/api/agent/runs/$($run.runId)" -Hea
 ## 方式二：体验 Trace Studio
 
 ```bash
-cd tianmu-front
+cd front
 npm ci
 npm run serve
 ```
 
 打开终端显示的开发服务器地址，访问 `/trace`，通常为 `http://localhost:8080/trace`。页面内置演示日志，也支持导入真实的 JSON / JSONL 日志；文件在浏览器本地解析。
 
-当前版本提供离线可视化，尚未连接在线 Trace 查询。更多说明见[前端文档](../tianmu-front/README.md)。
+当前版本提供离线可视化，尚未连接在线 Trace 查询。更多说明见[前端文档](../front/README.md)。
 
 ## 方式三：运行完整网站
 
@@ -78,7 +78,7 @@ npm run serve
 
 ```bash
 mvn -B package
-mvn -B -f tianmu-agent/pom.xml package
+mvn -B -f agent/pom.xml package
 ```
 
 分别在两个 Bash 终端启动服务。真实 Agent 需先配置 `DEEPSEEK_API_KEY`、Agent 专用 `AGENT_JDBC_URL` / `AGENT_DB_*`、`AGENT_REDIS_*` 与 MinIO 凭据。业务桥接须使用与网站登录一致的 JWT 密钥和 Redis 会话配置：
@@ -92,7 +92,7 @@ AGENT_BRIDGE_ENABLED=true java -jar target/tianmu-0.0.1-SNAPSHOT.jar
 # 接入真实业务、模型和持久化存储的 Agent
 BUSINESS_BASE_URL=http://127.0.0.1:8101/api \
 SPRING_PROFILES_ACTIVE=business,deepseek,persistent \
-  java -jar tianmu-agent/target/operations-agent-0.7.0-SNAPSHOT.jar
+  java -jar agent/target/operations-agent-0.7.0-SNAPSHOT.jar
 ```
 
 需要画面理解时，再启用视觉模型并为业务后端安装 FFmpeg / ffprobe，配置见[网站部署的视频内容理解说明](../deploy/site/README.md#视频内容理解)。`deepseek` 配置默认开启视频工具；视觉服务不支持图片输入时，应设置 `VIDEO_CONTENT_ENABLED=false`，或配置可用的 `VIDEO_MODEL_*`。
@@ -100,7 +100,7 @@ SPRING_PROFILES_ACTIVE=business,deepseek,persistent \
 然后启动前端（默认代理指向本地 8101 / 8201）：
 
 ```bash
-cd tianmu-front
+cd front
 npm ci
 npm run serve
 ```
@@ -112,5 +112,5 @@ npm run serve
 | 弹幕 WebSocket | 端口 `9101` |
 | 前端 | 以开发服务器输出为准 |
 
-真实模式需配置数据库、登录、中间件及模型凭据，模型调用可能产生费用。前端代理和模型参数的配置分别见[前端说明](../tianmu-front/README.md)、[Agent 说明](../tianmu-agent/README.md)。容器部署可选择[独立 Agent 栈](../deploy/README.md)或[完整网站栈](../deploy/site/README.md)。
+真实模式需配置数据库、登录、中间件及模型凭据，模型调用可能产生费用。前端代理和模型参数的配置分别见[前端说明](../front/README.md)、[Agent 说明](../agent/README.md)。容器部署可选择[独立 Agent 栈](../deploy/README.md)或[完整网站栈](../deploy/site/README.md)。
 

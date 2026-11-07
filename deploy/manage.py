@@ -136,8 +136,8 @@ def enable_kafka(env_path):
 
 
 def source_hash():
-    files = [ROOT / 'tianmu-agent' / 'pom.xml', ROOT / '.dockerignore']
-    files += list((ROOT / 'tianmu-agent' / 'src').rglob('*'))
+    files = [ROOT / 'agent' / 'pom.xml', ROOT / '.dockerignore']
+    files += list((ROOT / 'agent' / 'src').rglob('*'))
     files += [DEPLOY / n for n in ('Dockerfile', 'entrypoint.sh', 'HealthProbe.java')]
     digest = hashlib.sha256()
     for path in sorted(p for p in files if p.is_file()):

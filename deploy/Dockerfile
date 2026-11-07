@@ -6,9 +6,9 @@ FROM ${MAVEN_IMAGE} AS build
 WORKDIR /build
 ENV MAVEN_OPTS="-Xmx256m -XX:MaxMetaspaceSize=160m -XX:ActiveProcessorCount=2"
 ARG TEST_JVM_OPTIONS="-Xmx256m -XX:MaxMetaspaceSize=160m -XX:ActiveProcessorCount=2"
-COPY tianmu-agent/pom.xml ./pom.xml
-COPY tianmu-agent/src ./src
-COPY tianmu-agent/eval ./eval
+COPY agent/pom.xml ./pom.xml
+COPY agent/src ./src
+COPY agent/eval ./eval
 COPY deploy/HealthProbe.java /probe/HealthProbe.java
 RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp "-DargLine=${TEST_JVM_OPTIONS}" package \
     && javac --release 17 -d /probe/classes /probe/HealthProbe.java

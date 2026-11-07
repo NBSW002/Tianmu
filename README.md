@@ -9,7 +9,7 @@
 [![Build and verify](https://github.com/blackirlsama/EchoFrame/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/blackirlsama/EchoFrame/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 17](https://img.shields.io/badge/Java-17-orange.svg)](pom.xml)
-[![Vue 3](https://img.shields.io/badge/Vue-3-42b883.svg)](tianmu-front/package.json)
+[![Vue 3](https://img.shields.io/badge/Vue-3-42b883.svg)](front/package.json)
 
 [功能与展示](#功能与展示) · [快速开始](#快速开始) · [架构概览](#架构概览) · [文档](#文档) · [参与贡献](#参与贡献)
 
@@ -70,8 +70,8 @@ cd EchoFrame
 无需模型 Key、数据库或中间件。在仓库根目录执行：
 
 ```bash
-mvn -B -f tianmu-agent/pom.xml package
-java -jar tianmu-agent/target/operations-agent-0.7.0-SNAPSHOT.jar
+mvn -B -f agent/pom.xml package
+java -jar agent/target/operations-agent-0.7.0-SNAPSHOT.jar
 ```
 
 另开 Bash 终端创建任务：
@@ -97,14 +97,14 @@ Demo 使用模拟身份、脚本模型和内存存储，用于体验流程，不
 从仓库根目录执行：
 
 ```bash
-cd tianmu-front
+cd front
 npm ci
 npm run serve
 ```
 
 打开开发服务器的 `/trace` 页面，通常为 `http://localhost:8080/trace`。内置演示日志，也支持导入 JSON / JSONL 文件，在浏览器本地解析，无需后端。
 
-当前为离线可视化，尚未接入在线 Trace 查询。[前端开发说明 →](tianmu-front/README.md)
+当前为离线可视化，尚未接入在线 Trace 查询。[前端开发说明 →](front/README.md)
 
 ### 接入真实业务与模型
 
@@ -148,13 +148,13 @@ flowchart LR
 
 ```bash
 mvn -B verify
-mvn -B -f tianmu-agent/pom.xml verify
+mvn -B -f agent/pom.xml verify
 ```
 
 验证前端：
 
 ```bash
-cd tianmu-front
+cd front
 npm ci
 npm run test:agent
 npm run build
@@ -168,13 +168,14 @@ npm run build
 | --- | --- |
 | [运行与接入](docs/QUICKSTART.md) | 运行方式、Bash / PowerShell 示例、真实模型与完整网站接入 |
 | [架构说明](docs/ARCHITECTURE.md) | 业务链路、任务准备、Harness 与反馈处理边界 |
-| [前端开发](tianmu-front/README.md) | 页面、Trace Studio、代理与构建 |
-| [Agent 开发](tianmu-agent/README.md) | 模型、工具、存储与配置 |
+| [前端开发](front/README.md) | 页面、Trace Studio、代理与构建 |
+| [Agent 开发](agent/README.md) | 模型、工具、存储与配置 |
+| [Agent 治理与文档索引](agent/docs/README.md) | 当前架构、配置目录、开发维护、验收与独立审查 |
 | [网站部署](deploy/site/README.md) / [独立 Agent 部署](deploy/README.md) | 容器与环境配置 |
 | [部署参考](docs/DEPLOYMENT.md) | 环境与集成测试 |
 | [项目路线图](docs/ROADMAP.md) | 开发方向与待完善能力 |
 
-源码入口：[业务后端](src/) · [前端](tianmu-front/) · [Agent](tianmu-agent/) · [脚本](scripts/)。
+源码入口：[业务后端](src/) · [前端](front/) · [Agent](agent/) · [脚本](scripts/)。
 
 ## 参与贡献
 
@@ -184,4 +185,4 @@ npm run build
 
 ## 许可证与素材
 
-项目代码采用 [MIT License](LICENSE)。第三方组件、视频素材、首页插画与图标保留各自权利，不随项目代码重新授权；详见 [NOTICE](NOTICE)、[第三方说明](docs/THIRD_PARTY.md) 与[素材来源](tianmu-front/src/assets/img/home/README.md)。
+项目代码采用 [MIT License](LICENSE)。第三方组件、视频素材、首页插画与图标保留各自权利，不随项目代码重新授权；详见 [NOTICE](NOTICE)、[第三方说明](docs/THIRD_PARTY.md) 与[素材来源](front/src/assets/img/home/README.md)。

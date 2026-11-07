@@ -4,7 +4,7 @@
 
 ## 目录与构建
 
-源码发布目录为 `/opt/tianmu-site/releases/RELEASE`，私有配置为 `/opt/tianmu-site/config`。前端构建产物放在发布目录的 `tianmu-front/dist/`。这些服务器路径中的真实凭据不应提交到仓库。
+源码发布目录为 `/opt/tianmu-site/releases/RELEASE`，私有配置为 `/opt/tianmu-site/config`。前端构建产物放在发布目录的 `front/dist/`。这些服务器路径中的真实凭据不应提交到仓库。
 
 ```sh
 docker build -f deploy/Dockerfile.business -t tianmu-business:RELEASE .

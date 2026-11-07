@@ -17,8 +17,8 @@ class DeploymentContract(unittest.TestCase):
     def test_agent_image_build_includes_evaluation_inputs_required_by_default_tests(self):
         dockerfile = (ROOT / 'deploy' / 'Dockerfile').read_text(encoding='utf-8')
         ignore = (ROOT / '.dockerignore').read_text(encoding='utf-8')
-        self.assertIn('COPY tianmu-agent/eval ./eval', dockerfile)
-        self.assertIn('!tianmu-agent/eval/**', ignore)
+        self.assertIn('COPY agent/eval ./eval', dockerfile)
+        self.assertIn('!agent/eval/**', ignore)
 
     def test_release_builds_bound_both_maven_and_forked_test_jvm(self):
         for name in ['Dockerfile', 'Dockerfile.business']:
