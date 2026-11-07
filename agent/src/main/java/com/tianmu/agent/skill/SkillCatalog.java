@@ -14,11 +14,13 @@ public class SkillCatalog {
     private final Map<String, Skill> skills;
     private final Map<String, Map<String, String>> documents;
     private final Map<String, String> fingerprints;
+    private final Map<String,String> canonicalFingerprints;
     public SkillCatalog() { this(ResourceFiles.discover("classpath*:skills/*/skill.json")); }
     public SkillCatalog(Resource[] resources) {
         Map<String, Skill> loaded = new TreeMap<>();
         Map<String, Map<String, String>> refs = new TreeMap<>();
         Map<String, String> hashes = new TreeMap<>();
+        Map<String,String> canonicalHashes=new TreeMap<>();
         for (Resource resource : resources) {
             Metadata metadata = ResourceFiles.json(resource, Metadata.class);
             if (!ResourceFiles.name(metadata.name()) || !ResourceFiles.version(metadata.version())
@@ -50,12 +52,17 @@ public class SkillCatalog {
                 String canonical = new com.fasterxml.jackson.databind.ObjectMapper()
                         .configure(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true).writeValueAsString(payload);
                 hashes.put(skill.name(), com.tianmu.agent.resource.TextPage.hash(canonical));
+                var normalized=new TreeMap<String,Object>(payload);
+                normalized.put("instructions",instructions.replace("\r\n","\n"));
+                var normalizedBodies=new TreeMap<String,String>();bodies.forEach((key,value)->normalizedBodies.put(key,value.replace("\r\n","\n")));normalized.put("resources",normalizedBodies);
+                canonicalHashes.put(skill.name(),com.tianmu.agent.resource.TextPage.hash(new com.fasterxml.jackson.databind.ObjectMapper().enable(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).writeValueAsString(normalized)));
             } catch (IOException e) { throw new IllegalStateException("Cannot locate skill instructions", e); }
         }
         if (loaded.isEmpty()) throw new IllegalStateException("Skill catalog is empty");
         skills = Collections.unmodifiableMap(loaded);
         documents = Map.copyOf(refs);
         fingerprints = Map.copyOf(hashes);
+        canonicalFingerprints=Map.copyOf(canonicalHashes);
     }
     public Set<String> names() { return skills.keySet(); }
     public List<Map<String, String>> list() {
@@ -71,6 +78,7 @@ public class SkillCatalog {
         if (!allowed) throw new AgentException("SKILL_REQUIRED", "Read the relevant skill before calling its tool");
     }
     public String fingerprint(String name) { read(name); return fingerprints.get(name); }
+    public String canonicalFingerprint(String name){read(name);return canonicalFingerprints.get(name);}
     public List<Map<String, Object>> resources(String name) {
         read(name);
         return documents.get(name).entrySet().stream().sorted(Map.Entry.comparingByKey()).map(e -> Map.<String, Object>of(

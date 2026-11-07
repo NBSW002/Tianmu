@@ -219,7 +219,7 @@ public class ToolDispatcher {
             var versions = run.task().resourceVersions();
             String version = versions.get("skill:" + name), fingerprint = versions.get("skill-content:" + name);
             if (version != null && !version.equals(skill.version())
-                    || fingerprint != null && !fingerprint.equals(skills.fingerprint(name)))
+                    || fingerprint != null && !com.tianmu.agent.resource.ResourceManifestCompatibility.skill(name,fingerprint,versions.get("manifest:format"),skills.fingerprint(name),skills.canonicalFingerprint(name)))
                 throw new AgentException("RESOURCE_VERSION_MISMATCH", "Skill differs from the prepared resource snapshot");
         }
         public List<Map<String, Object>> skillResources(String name) {

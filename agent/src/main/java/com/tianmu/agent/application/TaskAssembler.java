@@ -17,6 +17,7 @@ import com.tianmu.agent.preparation.TaskMeaning;
 public class TaskAssembler {
     private final Map<String, String> versions;
     private final Map<String,String> legacyVersions;
+    private final Map<String,String> canonicalLegacyVersions;
     private final Set<String> registrySnapshot;
     private final TaskMeaning meaning;
     private com.tianmu.agent.feedback.FeedbackPolicy feedbackPolicy=com.tianmu.agent.feedback.FeedbackPolicy.defaults();
@@ -32,6 +33,8 @@ public class TaskAssembler {
         prompts.ids().forEach(id -> loaded.put("prompt:" + id, prompts.get(id).version()));
         tools.all().forEach((name, definition) -> loaded.put("tool:" + name, fingerprint(definition)));
         legacyVersions=Map.copyOf(loaded);
+        skills.names().forEach(name->loaded.put("skill-content:"+name,skills.canonicalFingerprint(name)));
+        canonicalLegacyVersions=Map.copyOf(loaded);
         loaded.put("manifest:format","2");
         prompts.ids().forEach(id -> loaded.put("prompt-content:" + id, contentFingerprint(prompts.text(id))));
         versions = Map.copyOf(loaded); registrySnapshot = Set.copyOf(tools.all().keySet());
@@ -61,7 +64,7 @@ public class TaskAssembler {
     }
     public Map<String,String> resourceVersions(){return versions;}
     private static String contentFingerprint(String content) {
-        try{return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(content.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
+        try{return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(content.replace("\r\n","\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
         catch(java.security.NoSuchAlgorithmException impossible){throw new IllegalStateException(impossible);}
     }
     public void verifyPolicy(com.tianmu.agent.core.ExecutionPolicySnapshot policy) {
@@ -72,7 +75,7 @@ public class TaskAssembler {
         // Legacy manifests never recorded prompt content. Preserve their declared-version contract;
         // do not manufacture historical hashes. Format 2 requires every captured content fingerprint.
         return stored.containsKey("manifest:format") || stored.keySet().stream().anyMatch(key->key.startsWith("prompt-content:"))
-                ?versions.equals(stored):legacyVersions.equals(stored);
+                ?versions.equals(stored):com.tianmu.agent.resource.ResourceManifestCompatibility.legacy(stored,legacyVersions,canonicalLegacyVersions);
     }
     private String fingerprint(ToolDefinition definition) {
         try {
