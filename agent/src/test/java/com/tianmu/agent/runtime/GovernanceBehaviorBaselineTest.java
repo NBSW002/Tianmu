@@ -163,6 +163,10 @@ class GovernanceBehaviorBaselineTest {
         run.execution().observe(call, result);
         assertFalse((new com.tianmu.agent.application.BusinessCompletionEvaluator().evaluate(AgentRuntime.completionInput(run)) instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver), "A tool body cannot claim host registration");
         run.execution().reportReady("ev_report");
+        assertFalse(new com.tianmu.agent.application.BusinessCompletionEvaluator().evaluate(AgentRuntime.completionInput(run)) instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver,"Registration without a completed analysis asset is insufficient");
+        var request=com.tianmu.agent.application.FeedbackTaskPolicy.request(spec);
+        run.execution().evidence().put(new Evidence("ev_report",run.id,run.owner,null,null,null,null,null,
+                new FeedbackAnalysis.Binding(UUID.randomUUID(),request,new FeedbackAnalysis.Counts(0,0,0,0,0),Instant.now(),"hash","fixture","fixture")));
         assertTrue((new com.tianmu.agent.application.BusinessCompletionEvaluator().evaluate(AgentRuntime.completionInput(run)) instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver));
         var operation = new PendingOperation(UUID.randomUUID(), "feedback-report", run.deadline());
         assertThrows(IllegalArgumentException.class, () -> new ToolResult("create_feedback_report",

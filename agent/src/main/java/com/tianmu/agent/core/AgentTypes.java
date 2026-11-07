@@ -131,7 +131,12 @@ public final class AgentTypes {
     public record Snapshot(UUID runId, Status status, Instant createdAt, int steps,
                            Answer answer, String clarification, String errorCode, String traceId,
                            StopReason stopReason, int modelCalls, Route route, String faqId, String faqVersion, PreparedRequest preparation, PreparedTask task,
-                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq, PendingOperation operation, int backgroundModelCalls) {
+                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq, PendingOperation operation, int backgroundModelCalls, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) ExecutionPolicySnapshot executionPolicy) {
+    public Snapshot(UUID runId, Status status, Instant createdAt, int steps,
+                           Answer answer, String clarification, String errorCode, String traceId,
+                           StopReason stopReason, int modelCalls, Route route, String faqId, String faqVersion, PreparedRequest preparation, PreparedTask task,
+                           int preparationCalls, int totalModelCalls, UUID sessionId, long turnSeq, PendingOperation operation, int backgroundModelCalls) { this(runId,status,createdAt,steps,answer,clarification,errorCode,traceId,stopReason,modelCalls,route,faqId,faqVersion,preparation,task,preparationCalls,totalModelCalls,sessionId,turnSeq,operation,backgroundModelCalls,null); }
+
         public Snapshot { if(backgroundModelCalls<0)throw new IllegalArgumentException("Invalid background call count"); }
         public Snapshot(UUID runId,Status status,Instant createdAt,int steps,Answer answer,String clarification,String errorCode,String traceId,
                         StopReason stopReason,int modelCalls,Route route,String faqId,String faqVersion,PreparedRequest preparation,PreparedTask task,

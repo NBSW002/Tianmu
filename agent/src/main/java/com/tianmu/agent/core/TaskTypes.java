@@ -18,7 +18,11 @@ public final class TaskTypes {
     }
     public record PreparedTask(UUID runId, String originalQuery, String query, LocalDate businessDate,
             String timezone, AccessScope scope, PreparedRequest preparation, Specification specification,
-            Map<String, String> resourceVersions, Set<String> allowedTools, Instant deadline, int maxModelCalls) {
+            Map<String, String> resourceVersions, Set<String> allowedTools, Instant deadline, int maxModelCalls, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String policyHash) {
+    public PreparedTask(UUID runId, String originalQuery, String query, LocalDate businessDate,
+            String timezone, AccessScope scope, PreparedRequest preparation, Specification specification,
+            Map<String, String> resourceVersions, Set<String> allowedTools, Instant deadline, int maxModelCalls) { this(runId,originalQuery,query,businessDate,timezone,scope,preparation,specification,resourceVersions,allowedTools,deadline,maxModelCalls,null); }
+
         public PreparedTask {
             resourceVersions = Map.copyOf(resourceVersions); allowedTools = Set.copyOf(allowedTools);
             Objects.requireNonNull(runId); Objects.requireNonNull(businessDate); Objects.requireNonNull(deadline);

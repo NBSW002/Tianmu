@@ -32,8 +32,9 @@ public final class LoopControl implements AutoCloseable {
     }
     public LoopPolicy policy() { return policy; }
     public void arm(RunState run) {
-        run.configureBudget(policy);
-        if (!run.bindControl(policy.requestTimeout(), policy.maxModelCalls())) return;
+        var effective=RunPolicies.loop(run,policy);
+        run.configureBudget(effective);
+        if (!run.bindControl(effective.requestTimeout(), effective.maxModelCalls())) return;
         ScheduledFuture<?> deadline = timer.schedule(() -> expire(run), run.deadline());
         run.onTerminal(snapshot -> deadline.cancel(false));
     }

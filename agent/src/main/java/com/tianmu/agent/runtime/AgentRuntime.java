@@ -100,7 +100,7 @@ public class AgentRuntime {
         }
     }
     public static com.tianmu.agent.runtime.spi.CompletionEvaluator.Input completionInput(RunState run) {
-        return new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(run.task(),run.execution().exchanges(),run.execution().artifactEvidence());
+        return new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(run.task(),run.execution().exchanges(),run.execution().artifactEvidence(),null,null,com.tianmu.agent.core.StopReason.ANSWER,run.execution().evidence().snapshot());
     }
     public boolean canCompleteWithoutModel(RunState run) {
         return completion.evaluate(completionInput(run)) instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver;
@@ -122,19 +122,20 @@ public class AgentRuntime {
                     () -> iteration(run, message, remaining, progress));
             if (done) return;
         }
-        if (!harness.policy().finalizeEnabled() || run.execution().evidence().isEmpty()) { run.fail("STEP_LIMIT"); return; }
+        if (!harness.policy(run).finalizeEnabled() || run.execution().evidence().isEmpty()) { run.fail("STEP_LIMIT"); return; }
         finalizeWithoutTools(run, message);
     }
     private int maxTurns(RunState run){
-        return taskPolicy.maxTurns(run,harness.policy().maxTurns());
+        return run.executionPolicy()==null?taskPolicy.maxTurns(policyInput(run),harness.policy(run).maxTurns()):run.executionPolicy().foreground().effectiveTurns();
     }
+    private com.tianmu.agent.runtime.spi.TaskExecutionPolicy.Input policyInput(RunState run){return new com.tianmu.agent.runtime.spi.TaskExecutionPolicy.Input(run.task(),run.modelCallLimit(),run.execution().evidence().snapshot(),run.execution().artifactEvidence());}
     private ModelContext context(RunState run, String message, int remaining, boolean finalizing) {
         return harness.stage(run, "agent.context", null, null, Map.of("context.observation_count", run.execution().observations().size()),
                 () -> harness.transform(run, TransformPoint.CONTEXT, new ModelContext(message,
                         run.businessDate, run.owner, run.execution().activeSkills(), run.execution().observations(),
                         finalizing ? List.of() : tools.definitions(run), remaining, finalizing,
                         finalizing ? finalizeDirective : "", run.preparedRequest(), run.task(), run.memory(),run.execution().exchanges(),
-                        taskPolicy.project(run))));
+                        taskPolicy.project(policyInput(run)))));
     }
     private Decision decide(RunState run, ModelContext context) {
         if(contextAuthority!=null)contextAuthority.verify(run);
@@ -242,7 +243,7 @@ public class AgentRuntime {
                 if(dispatched instanceof ToolDispatcher.ValidationRejected rejected) {
                     run.checkpoint();
                     int failure=progress.failure(name);
-                    if(progress.argumentCorrections>=2 || failure>=harness.policy().consecutiveToolFailures())
+                    if(progress.argumentCorrections>=2 || failure>=harness.policy(run).consecutiveToolFailures())
                         throw new AgentException("TOOL_FAILURE_LIMIT","Tool argument correction limit reached");
                     progress.argumentCorrections++;inputRejected.set(true);
                     TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.validation_issue_count",rejected.validation().issues().size(),
@@ -260,7 +261,7 @@ public class AgentRuntime {
             run.checkpoint();
             if (!RETRYABLE.contains(e.code())) throw e;
             int attempt = progress.failure(name);
-            if (attempt >= harness.policy().consecutiveToolFailures())
+            if (attempt >= harness.policy(run).consecutiveToolFailures())
                 throw new AgentException("TOOL_FAILURE_LIMIT", "Consecutive tool failures reached the limit");
             Map<String,Object> feedback = new HashMap<>(Map.of("error_code", e.code(), "retryable", true, "attempt", attempt));
             result = harness.transform(run, TransformPoint.TOOL_RESULT, new ToolResult(name, feedback, null));
@@ -285,7 +286,7 @@ public class AgentRuntime {
     }
     private boolean complete(RunState run,Answer answer,String question,StopReason reason,TurnControl.Reservation reservation){
         run.checkpoint();
-        var input=new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(run.task(),run.execution().exchanges(),run.execution().artifactEvidence(),answer,question,reason);
+        var input=new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(run.task(),run.execution().exchanges(),run.execution().artifactEvidence(),answer,question,reason,run.execution().evidence().snapshot());
         var decision=completion.evaluate(input);
         if(decision instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver done){delivery.answer(run,done.draft(),reservation==null?delivery.reserve(run):reservation,done.reason());return true;}
         if(decision instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Clarify clarify){delivery.clarification(run,clarify.question(),reservation==null?delivery.reserve(run):reservation);return true;}

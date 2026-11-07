@@ -15,6 +15,8 @@ POLICIES = (
     "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java",
     "feedback/FeedbackRuntimeProperties.java", "video/VideoRuntimeProperties.java",
     "adapters/storage/StorageRuntimeProperties.java", "harness/trace/TraceDeliveryProperties.java",
+    "harness/hook/HookPolicy.java",
+    "runtime/OperationPolicy.java",
 )
 CATALOG = DOCS / "配置目录.md"
 
@@ -22,10 +24,12 @@ CATALOG = DOCS / "配置目录.md"
 def catalog():
     lines = ["# 配置目录", "", "状态：当前已实现配置声明；2026-11-07建立。",
              "", "本目录由 `python scripts/check_agent_governance.py --write` 生成。来源为模块的强类型声明，CI检查漂移；运行环境有效值仍需按运维手册单独核验。",
-             "", "所有下列参数启动绑定，修改后重启生效；没有热更新或持久策略冻结。键中的 millis/seconds/days/hours/bytes/tokens 表示单位，其余为数量。",
+             "", "下列模块数值参数启动绑定，修改后重启生效；没有热更新。前台策略快照由独立开关控制，只冻结新Run的前台执行参数，不冻结本表所有后台/基础设施容量。键中的 millis/seconds/days/hours/bytes/tokens 表示单位，其余为数量。",
              "", "Spring标准优先级适用：命令行参数覆盖系统属性、环境变量和配置文件；profile覆盖基础文件。环境变量按Spring规则去掉属性名中的连字符，再把点换成下划线并大写。例如 `agent.video.runtime.index-workers` 对应 `AGENT_VIDEO_RUNTIME_INDEXWORKERS`。既有YAML显式别名另以YAML为准，不凭目录臆造别名。",
              "", "配置失败应阻止启动；预算、租约/心跳、连接池和重试关系由各record构造器校验。不得用调大容量代替故障定位。安全协议限制不在本表自动变成可调参数。",
-             "", "前台Loop/Context/Preparation、现有FeedbackPolicy/VideoCachePolicy等既有配置见[统一技术设计](Agent架构与工程治理技术设计.md)第9、15.5、16节及application*.yml；本表只列本轮新增六组声明。", ""]
+             "", "前台Loop/Context/Preparation、现有FeedbackPolicy/VideoCachePolicy等既有配置见[统一技术设计](Agent架构与工程治理技术设计.md)第9、15.5、16节及application*.yml；本表列出新增模块数值声明。",
+             "", "## agent.policy-snapshot", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+             "| `agent.policy-snapshot.enabled` | false | PolicySnapshotProperties → ExecutionPolicyFactory；YAML显式环境别名 `AGENT_POLICY_SNAPSHOT_ENABLED`。仅新Run创建时捕获，旧记录永不补造；关闭写者仍兼容读取已保存v1。先部署兼容reader再启用writer。 |", ""]
     sources = {p: p.read_text(encoding="utf-8") for p in JAVA.rglob("*.java")}
     errors = []
     for relative in POLICIES:

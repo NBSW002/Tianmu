@@ -13,7 +13,7 @@ import java.util.concurrent.*;
 
 /** Scheduler never blocks on a model. A job is dispatched only after its run's wait is durably visible. */
 @Component
-public final class FeedbackOperationCoordinator {
+public final class FeedbackOperationCoordinator implements com.tianmu.agent.runtime.spi.OperationHandler {
     private final com.tianmu.agent.feedback.FeedbackRuntimeProperties governance;
     private final FeedbackAnalysisService service;private final RunService runs;
     private final com.tianmu.agent.harness.RuntimeHarness harness;
@@ -27,10 +27,13 @@ public final class FeedbackOperationCoordinator {
         this.service=service;this.runs=runs;this.harness=harness;this.assembler=assembler;
         workers=new ThreadPoolExecutor(Math.max(2,service.parallelism()),Math.max(2,service.parallelism()),governance.workerKeepAliveSeconds(),TimeUnit.SECONDS,new ArrayBlockingQueue<>(Math.max(2,service.parallelism()*2)),r->{var t=new Thread(r,"feedback-worker");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
     }
-    @Scheduled(scheduler="maintenanceScheduler", fixedDelayString="${agent.feedback.runtime.poll-millis:500}")
-    public void tick(){
+    public Set<String> kinds(){return Set.of("feedback-analysis","feedback-report");}
+    @Scheduled(scheduler="maintenanceScheduler",fixedDelayString="${agent.feedback.runtime.poll-millis:500}")
+    public void reconcileOrphans(){resume(List.of());}
+    public void tick(){resume(runs.waiting());}
+    public void resume(List<RunState> waiting){
         try {
-            for(var run:runs.waiting()){
+            for(var run:waiting){
                 var op=run.snapshot().operation();if(op==null || !Set.of("feedback-analysis","feedback-report").contains(op.kind()))continue;
                 try{
                     assembler.verify(run.task());

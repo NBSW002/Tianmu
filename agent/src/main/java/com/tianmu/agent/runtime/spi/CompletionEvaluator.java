@@ -9,9 +9,10 @@ import java.util.*;
 /** Pure whole-ledger decision. An eligible proposal still passes the transactional delivery boundary. */
 public interface CompletionEvaluator {
     record Input(PreparedTask task,List<ToolExchange> exchanges,Set<String> registeredArtifacts,
-                 Answer answerProposal,String clarificationProposal,StopReason proposalReason) {
+                 Answer answerProposal,String clarificationProposal,StopReason proposalReason,Map<String,Evidence> evidence) {
+        public Input(PreparedTask task,List<ToolExchange> exchanges,Set<String> registeredArtifacts,Answer answerProposal,String clarificationProposal,StopReason proposalReason){this(task,exchanges,registeredArtifacts,answerProposal,clarificationProposal,proposalReason,Map.of());}
         public Input(PreparedTask task,List<ToolExchange> exchanges,Set<String> registeredArtifacts){this(task,exchanges,registeredArtifacts,null,null,StopReason.ANSWER);}
-        public Input { exchanges=List.copyOf(exchanges);registeredArtifacts=Set.copyOf(registeredArtifacts); }
+        public Input { exchanges=List.copyOf(exchanges);registeredArtifacts=Set.copyOf(registeredArtifacts);evidence=Map.copyOf(evidence); }
     }
     sealed interface Decision permits Continue,Await,Deliver,Clarify,Reject {}
     record Continue(String reason) implements Decision {}

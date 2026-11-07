@@ -28,6 +28,8 @@ management:
         readiness:
           include: readinessState,agentStorage
 agent:
+  policy-snapshot:
+    enabled: ${AGENT_POLICY_SNAPSHOT_ENABLED:false}
   memory:
     # Personal memory is gated until lifecycle and real-model quality acceptance pass.
     enabled: ${AGENT_MEMORY_ENABLED:false}

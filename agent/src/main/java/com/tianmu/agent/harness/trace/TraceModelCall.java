@@ -14,6 +14,7 @@ public final class TraceModelCall {
     public static Context bind(Context context, Tracer tracer, Map<String,Object> identity) {
         return context.with(KEY,new Binding(tracer,Map.copyOf(identity)));
     }
+    public static Map<String,Object> identity(){var binding=Context.current().get(KEY);return binding==null?Map.of():binding.identity();}
     public static <T> T call(String name, Map<String, ?> attributes, Supplier<T> operation) {
         var binding=Context.current().get(KEY);
         if(binding==null)return operation.get();

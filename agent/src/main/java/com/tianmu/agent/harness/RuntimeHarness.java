@@ -45,7 +45,7 @@ public class RuntimeHarness implements AutoCloseable {
     }
     public HarnessSession start(RunState run) {
         loopControl.arm(run);
-        HarnessSession session = sessions.computeIfAbsent(run.id, id -> new HarnessSession(run, tracer, hooks, traceDetails, policy()));
+        HarnessSession session = sessions.computeIfAbsent(run.id, id -> new HarnessSession(run, tracer, hooks, traceDetails, policy(run)));
         run.traceId(session.traceId());
         loopControl.arm(run);
         session.begin();
@@ -53,6 +53,7 @@ public class RuntimeHarness implements AutoCloseable {
     }
     public void execute(RunState run, Runnable operation) { start(run).execute(operation); }
     public LoopPolicy policy() { return loopControl.policy(); }
+    public LoopPolicy policy(RunState run) { return RunPolicies.loop(run,policy()); }
     public void marker(RunState run, SpanType type, Map<String, Object> attributes) {
         start(run).marker(type, attributes);
     }
@@ -60,17 +61,17 @@ public class RuntimeHarness implements AutoCloseable {
         run.modelCallStarted();
         run.emit("TEXT_START", java.util.Map.of("step",run.snapshot().steps()));
         boolean retain=false;
-        try { T result=loopControl.call(run, finalizing ? policy().finalizeTimeout() : policy().modelTimeout(),
+        try { T result=loopControl.call(run, finalizing ? policy(run).finalizeTimeout() : policy(run).modelTimeout(),
                 "MODEL_CALL_TIMEOUT", "MODEL_ERROR", this::contextual, control -> operation.apply(control.withTextOutput(text -> { run.checkpoint(); run.emit("TEXT_DELTA",java.util.Map.of("text",text)); })), timing());
             retain=result instanceof com.tianmu.agent.core.AgentTypes.Decision decision && decision.kind()==com.tianmu.agent.core.AgentTypes.Kind.ANSWER;
             return result;
         } finally { if(!retain && !com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status()))run.emit("TEXT_END",java.util.Map.of()); }
     }
     public <T> T toolCall(RunState run, Function<CallControl, T> operation) {
-        return loopControl.toolCall(run, false, policy().toolTimeout(), this::contextual, operation, timing());
+        return loopControl.toolCall(run, false, policy(run).toolTimeout(), this::contextual, operation, timing());
     }
     public <T> T videoToolCall(RunState run, Function<CallControl, T> operation) {
-        return loopControl.toolCall(run, true, java.time.Duration.ofSeconds(120), this::contextual, operation, timing());
+        return loopControl.toolCall(run, true, run.executionPolicy()==null?java.time.Duration.ofSeconds(120):java.time.Duration.ofMillis(run.executionPolicy().timeouts().videoToolMillis()), this::contextual, operation, timing());
     }
     private java.util.function.BiConsumer<String, Long> timing() {
         Span span = Span.current();
@@ -101,7 +102,7 @@ public class RuntimeHarness implements AutoCloseable {
         String error = "";
         Map<String, Object> resultAttributes = new HashMap<>();
         var io=new com.tianmu.agent.harness.trace.IoTimings();
-        try (Scope scope = parent.with(span).with(com.tianmu.agent.harness.trace.IoTimings.KEY,io).makeCurrent(); TraceLogScope mdc = new TraceLogScope(span, run.id.toString())) {
+        try (Scope scope = com.tianmu.agent.harness.trace.TraceModelCall.bind(parent.with(span).with(com.tianmu.agent.harness.trace.IoTimings.KEY,io),tracer,TraceSemantics.identity(run)).makeCurrent(); TraceLogScope mdc = new TraceLogScope(span, run.id.toString())) {
             try {
                 run.checkpoint();
                 if (before != null) session.fire(before, attributes);

@@ -25,6 +25,84 @@ import static org.mockito.Mockito.*;
 /** Opt-in real MySQL/Redis integration. Refuses URLs outside a database ending in _it. */
 @EnabledIfEnvironmentVariable(named="AGENT_STORAGE_IT", matches="true")
 class MysqlStorageIntegrationTest {
+    @Test void priorReleaseManifestRemainsResumableWithoutInventingContentHashes() throws Exception {
+        var fixture=mapper.readTree(getClass().getResourceAsStream("/compat/agent-59a1746-resource-manifest.json"));
+        Map<String,String> resources=mapper.convertValue(fixture.get("resourceVersions"),new com.fasterxml.jackson.core.type.TypeReference<Map<String,String>>(){});
+        Set<String> tools=mapper.convertValue(fixture.get("allowedTools"),new com.fasterxml.jackson.core.type.TypeReference<Set<String>>(){});
+        var run=create("视频1001的评论报告，不读取视频内容");run.start();run.configureBudget(LoopPolicy.defaults());
+        var spec=com.tianmu.agent.preparation.TaskMeaning.defaults().resolve(run.query(),run.businessDate,run.createdAt);
+        run.prepared(new Result(Route.HARNESS,new PreparedRequest(run.message,run.query(),Emotion.NEUTRAL,Set.of(),Set.of(),Intent.DANMAKU_REPORT,spec),null,null));
+        var assembler=new com.tianmu.agent.application.TaskAssembler(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.prompt.PromptCatalog(),new com.tianmu.agent.tool.ToolCatalog());var task=assembler.assemble(run);
+        run.task(new com.tianmu.agent.core.TaskTypes.PreparedTask(task.runId(),task.originalQuery(),task.query(),task.businessDate(),task.timezone(),task.scope(),task.preparation(),task.specification(),resources,tools,task.deadline(),task.maxModelCalls()));
+        var op=new PendingOperation(UUID.randomUUID(),"feedback-analysis",run.deadline());run.execution().observe(new ToolCall("analyze_feedback",Map.of()),new ToolResult("analyze_feedback",Map.of("status","PENDING"),null,null,op));run.waitFor(op);
+        repository.close();repository=new MysqlRunRepository(source,mapper,cache,new FileObjectStore(directory),Duration.ofSeconds(30),16);
+        var restored=repository.recoverWaiting().stream().filter(value->value.id.equals(run.id)).findFirst().orElseThrow();
+        assertDoesNotThrow(()->assembler.verify(restored.task()));assertEquals(resources,restored.task().resourceVersions());assertNull(restored.executionPolicy());
+        assertFalse(restored.task().resourceVersions().containsKey("prompt-content:harness.system"));restored.cancel();
+    }
+    @Test void versionedWaitingSurvivesRestartAndWriterRollbackWithoutResettingUsage() {
+        var factory=new com.tianmu.agent.config.ExecutionPolicyFactory(new com.tianmu.agent.config.PolicySnapshotProperties(true),LoopPolicy.defaults(),com.tianmu.agent.model.ContextPolicy.defaults(),
+                new com.tianmu.agent.preparation.PreparationPolicy(Duration.ofMillis(300),Duration.ofSeconds(8)),com.tianmu.agent.feedback.FeedbackPolicy.defaults());
+        org.springframework.test.util.ReflectionTestUtils.setField(repository,"policyFactory",factory);
+        var run=create("视频1001的评论和弹幕报告，不读取视频内容");run.start();
+        var spec=com.tianmu.agent.preparation.TaskMeaning.defaults().resolve(run.query(),run.businessDate,run.createdAt);
+        run.prepared(new Result(Route.HARNESS,new PreparedRequest(run.message,run.query(),Emotion.NEUTRAL,Set.of(),Set.of(),Intent.DANMAKU_REPORT,spec),null,null));
+        new com.tianmu.agent.application.TaskAssembler(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.prompt.PromptCatalog(),new com.tianmu.agent.tool.ToolCatalog()).assemble(run);
+        ModelBudget.execute(run.callControl(),"fixture",false,()->mapper.createObjectNode());
+        var op=new PendingOperation(UUID.randomUUID(),"feedback-analysis",run.deadline());
+        run.execution().observe(new ToolCall("analyze_feedback",Map.of()),new ToolResult("analyze_feedback",Map.of("status","PENDING"),null,null,op));run.waitFor(op);
+        var policy=run.executionPolicy();var budget=run.modelBudget().snapshot();
+        repository.close();repository=new MysqlRunRepository(source,mapper,cache,new FileObjectStore(directory),Duration.ofSeconds(2),1);
+        var off=new com.tianmu.agent.config.ExecutionPolicyFactory(new com.tianmu.agent.config.PolicySnapshotProperties(false),LoopPolicy.defaults(),com.tianmu.agent.model.ContextPolicy.defaults(),new com.tianmu.agent.preparation.PreparationPolicy(Duration.ofMillis(300),Duration.ofSeconds(8)),com.tianmu.agent.feedback.FeedbackPolicy.defaults());
+        org.springframework.test.util.ReflectionTestUtils.setField(repository,"policyFactory",off);
+        var restored=repository.recoverWaiting().stream().filter(value->value.id.equals(run.id)).findFirst().orElseThrow();assertEquals(Status.WAITING_OPERATION,restored.snapshot().status());
+        assertEquals(policy,restored.executionPolicy());assertEquals(policy.contentHash(),restored.continuation().policyHash());assertEquals(budget,restored.modelBudget().snapshot());
+        assertEquals(8192,budget.charged());assertEquals(1,budget.unknown());assertEquals(16,restored.modelCallLimit());assertEquals(run.deadline(),restored.deadline());
+        assertTrue(restored.completeOperation(op,new ToolResult("analyze_feedback",Map.of("status","READY"),null)));restored.cancel();
+        var legacy=create("writer rollback creates legacy only");assertNull(legacy.executionPolicy());legacy.cancel();
+        assertEquals(policy,repository.load(run.id,owner).executionPolicy());
+    }
+    @Test void committedTaskBindingWithLostAcknowledgementCannotCorruptTerminalPolicy() {
+        var factory=new com.tianmu.agent.config.ExecutionPolicyFactory(new com.tianmu.agent.config.PolicySnapshotProperties(true),LoopPolicy.defaults(),com.tianmu.agent.model.ContextPolicy.defaults(),
+                new com.tianmu.agent.preparation.PreparationPolicy(Duration.ofMillis(300),Duration.ofSeconds(8)),com.tianmu.agent.feedback.FeedbackPolicy.defaults());
+        org.springframework.test.util.ReflectionTestUtils.setField(repository,"policyFactory",factory);
+        var run=create("视频1001的评论和弹幕报告，不读取视频内容");run.start();
+        var spec=com.tianmu.agent.preparation.TaskMeaning.defaults().resolve(run.query(),run.businessDate,run.createdAt);
+        run.prepared(new Result(Route.HARNESS,new PreparedRequest(run.message,run.query(),Emotion.NEUTRAL,Set.of(),Set.of(),Intent.DANMAKU_REPORT,spec),null,null));
+        var backend=(com.tianmu.agent.runtime.store.RunBackend)org.springframework.test.util.ReflectionTestUtils.getField(run,"backend");
+        org.springframework.test.util.ReflectionTestUtils.setField(run,"backend",new com.tianmu.agent.runtime.store.RunBackend(){
+            public void save(RunState value){backend.save(value);throw new AgentException("STORAGE_UNAVAILABLE","Acknowledgement lost after commit");}
+            public void checkpoint(RunState value){backend.checkpoint(value);}
+            public Snapshot commit(RunState value,Snapshot proposed,String event,Object data,Object done){return backend.commit(value,proposed,event,data,done);}
+        });
+        var assembler=new com.tianmu.agent.application.TaskAssembler(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.prompt.PromptCatalog(),new com.tianmu.agent.tool.ToolCatalog());
+        assertThrows(AgentException.class,()->assembler.assemble(run));assertNull(run.task());
+        var committed=repository.load(run.id,owner);assertNotNull(committed.task());assertEquals("FEEDBACK",committed.executionPolicy().windowReason());
+        run.fail("STORAGE_UNAVAILABLE");
+        var restored=repository.load(run.id,owner);assertEquals(Status.FAILED,restored.snapshot().status());
+        assertEquals(committed.task(),restored.task());assertEquals(committed.executionPolicy(),restored.executionPolicy());assertEquals(committed.deadline(),restored.deadline());
+        assertEquals(restored.executionPolicy(),run.executionPolicy());
+        assertEquals(1,restored.events().after(0).events().stream().filter(e->e.type().equals("DONE")).count());
+    }
+    @Test void policyWriterCapturesInCreateWhileLegacyRecordsStayLegacy() {
+        var legacy=create("legacy queued");assertNull(legacy.executionPolicy());
+        var factory=new com.tianmu.agent.config.ExecutionPolicyFactory(new com.tianmu.agent.config.PolicySnapshotProperties(true),LoopPolicy.defaults(),com.tianmu.agent.model.ContextPolicy.defaults(),
+                new com.tianmu.agent.preparation.PreparationPolicy(Duration.ofMillis(300),Duration.ofSeconds(8)),com.tianmu.agent.feedback.FeedbackPolicy.defaults());
+        org.springframework.test.util.ReflectionTestUtils.setField(repository,"policyFactory",factory);
+        var fresh=create("captured queued");var policy=fresh.executionPolicy();assertNotNull(policy);policy.verify();
+        var reloaded=repository.load(fresh.id,owner);assertEquals(policy,reloaded.executionPolicy());assertEquals(policy.effectiveDeadline(),reloaded.deadline());
+        assertNull(repository.load(legacy.id,owner).executionPolicy());
+        fresh.start();fresh.cancel();assertEquals(policy,repository.load(fresh.id,owner).snapshot().executionPolicy());
+        legacy.cancel();assertFalse(db.queryForObject("SELECT snapshot_json FROM agent_run WHERE tenant_id=? AND run_id=?",String.class,owner.tenantId(),legacy.id.toString()).contains("executionPolicy"));
+    }
+    @Test void reportClarificationResumesBothSourcesAndTwoDateBounds() {
+        var original=create("视频1001的评论和弹幕报告，不读取视频内容");original.start();original.clarify("请补充时间范围");
+        var day=LocalDate.now(com.tianmu.agent.core.DanmakuTypes.ZONE);String reply="从"+day.minusDays(3)+"到"+day.minusDays(1);
+        var resumed=repository.create(reply,owner,original.sessionId,UUID.randomUUID().toString(),original.id,null).run();sessions.add(resumed.sessionId);
+        var spec=com.tianmu.agent.preparation.TaskMeaning.defaults().resolve(resumed.query(),resumed.businessDate,resumed.createdAt);
+        assertEquals("audience.report",spec.type());assertEquals(Set.of(com.tianmu.agent.core.AnalysisContract.Source.COMMENT,com.tianmu.agent.core.AnalysisContract.Source.DANMAKU),spec.reading().sources());
+        assertEquals(day.minusDays(3).atStartOfDay().toString(),spec.conditions().get("start"));assertEquals(day.minusDays(1).atStartOfDay().toString(),spec.conditions().get("end"));resumed.cancel();
+    }
     @Test void pinnedModelAndStreamingEventsSurviveReload() {
         var choice=new com.tianmu.agent.model.RuntimeModelCatalog.Choice("fast","Fast","compatible-chat","v1");
         var created=repository.create("stream test",owner,null,"stream-model",null,null,choice);var run=created.run();sessions.add(run.sessionId);

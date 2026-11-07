@@ -10,12 +10,18 @@ import java.util.*;
 @Component
 public final class BusinessCompletionEvaluator implements CompletionEvaluator {
     private final Map<String,CompletionOwner> owners;
+    private final List<CompletionRequirement> requirements;
     public BusinessCompletionEvaluator(){this(List.of(new ReportOwner(),new DraftOwner(),new GeneralOwner()));}
-    @org.springframework.beans.factory.annotation.Autowired
     public BusinessCompletionEvaluator(List<CompletionOwner> registered){
+        this(registered,List.of(new EvidenceCompletionRequirement()));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public BusinessCompletionEvaluator(List<CompletionOwner> registered,List<CompletionRequirement> requirements){
         var all=new HashMap<String,CompletionOwner>();
         for(var owner:registered)for(String type:owner.taskTypes())if(all.putIfAbsent(type,owner)!=null)throw new IllegalArgumentException("Multiple completion owners: "+type);
         if(!all.containsKey("*"))throw new IllegalArgumentException("Missing completion fallback");owners=Map.copyOf(all);
+        var names=new HashSet<String>();for(var requirement:requirements)if(requirement.name()==null || !names.add(requirement.name()))throw new IllegalArgumentException("Duplicate completion requirement");
+        this.requirements=List.copyOf(requirements);
     }
     public Decision evaluate(Input input) {
         var pending=input.exchanges().stream().map(e->e.result().pending()).filter(Objects::nonNull).distinct().toList();
@@ -25,7 +31,10 @@ public final class BusinessCompletionEvaluator implements CompletionEvaluator {
         var selection=ResourceSelection.question(input.task()==null?null:input.task().specification(),input.exchanges().stream().map(ToolExchange::result).toList());
         if(selection.isPresent() && input.answerProposal()!=null)return new Clarify(selection.get());
         String type=input.task()==null?"*":input.task().specification().type();
-        return owners.getOrDefault(type,owners.get("*")).evaluate(input);
+        var decision=owners.getOrDefault(type,owners.get("*")).evaluate(input);
+        if(decision instanceof Deliver deliver)try{for(var requirement:requirements)requirement.verify(input,deliver);}
+        catch(com.tianmu.agent.core.AgentException missing){return input.answerProposal()==null?new Continue(missing.code()):new Reject(missing.code());}
+        return decision;
     }
 
     @Component

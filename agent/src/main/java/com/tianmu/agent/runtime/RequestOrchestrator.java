@@ -31,6 +31,7 @@ public class RequestOrchestrator {
     }
     public void execute(RunState run) {
         try {
+            assembler.verifyPolicy(run.executionPolicy());
             harness.execute(run, () -> {
                 if (!run.start()) return;
                 contexts.begin(run);
@@ -54,7 +55,7 @@ public class RequestOrchestrator {
                             com.tianmu.agent.harness.trace.TraceDetails.input(Map.of("preparation", result, "memory", run.memory()));
                             return assembler.assemble(run);
                         });
-                        run.task(task); runtime.runPrepared(run, task);
+                        if(run.task()!=task)run.task(task); runtime.runPrepared(run, task);
                     }
                 }
             });
@@ -62,7 +63,7 @@ public class RequestOrchestrator {
         catch (Exception e) { run.fail("INTERNAL_ERROR"); }
     }
     public void resume(RunState run){
-        try{harness.execute(run,()->{
+        try{assembler.verifyPolicy(run.executionPolicy());harness.execute(run,()->{
             if(run.snapshot().status()!=Status.RUNNING || run.task()==null)throw new AgentException("INVALID_OPERATION_STATE","No resumable prepared task");
             boolean direct=runtime.canCompleteWithoutModel(run);
             contexts.resume(run,direct);

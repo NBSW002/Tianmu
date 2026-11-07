@@ -6,6 +6,11 @@ import org.junit.jupiter.api.Test;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 class ArchitectureBoundaryTest {
+    @Test void executionPolicyExtensionCannotObtainTheMutableRunAggregate() {
+        var classes=new ClassFileImporter().importClasses(com.tianmu.agent.application.BusinessTaskExecutionPolicy.class,com.tianmu.agent.runtime.spi.TaskExecutionPolicy.class,com.tianmu.agent.application.PreparationContextResolver.class,com.tianmu.agent.application.EvidenceCompletionRequirement.class);
+        noClasses().should().dependOnClassesThat().haveFullyQualifiedName("com.tianmu.agent.runtime.RunState").check(classes);
+        noClasses().should().dependOnClassesThat().haveFullyQualifiedName("com.tianmu.agent.runtime.ExecutionState").check(classes);
+    }
     @Test void reportTaskViewCannotCallModelsToolsOrMutateRunLifecycle() {
         var classes = new ClassFileImporter().importClasses(com.tianmu.agent.application.ReportTaskStateView.class);
         noClasses().should().dependOnClassesThat().haveFullyQualifiedName("com.tianmu.agent.runtime.RunState").check(classes);

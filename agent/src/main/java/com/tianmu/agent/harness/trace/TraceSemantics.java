@@ -8,7 +8,7 @@ import java.util.*;
 public final class TraceSemantics {
     private TraceSemantics() {}
     public static Map<String, Object> identity(com.tianmu.agent.runtime.RunState run) {
-        return Map.of("run.id", run.id.toString(), "session.id", run.sessionId.toString(),
+        return Map.of("policy.source",run.executionPolicy()==null?"LEGACY_CURRENT_POLICY":"SNAPSHOT_V1","policy.hash",run.executionPolicy()==null?"legacy-v0":run.executionPolicy().contentHash(),"run.id", run.id.toString(), "session.id", run.sessionId.toString(),
                 "run.turn_seq", run.turnSeq, "tenant.id", run.owner.tenantId(), "actor.id", run.owner.userId());
     }
     public static Map<String, Object> result(SpanType type, Object value) {

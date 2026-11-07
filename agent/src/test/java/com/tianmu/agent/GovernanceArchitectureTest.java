@@ -16,6 +16,18 @@ class GovernanceArchitectureTest {
     // RequestOrchestrator is the existing application coordinator, not a generic execution component.
     private static final Set<String> APPLICATION_COORDINATORS = Set.of("runtime.RequestOrchestrator");
 
+    @Test void frozenTaskAndPolicyHaveExplicitWriteOwners() {
+        var classes=new ClassFileImporter().withImportOption(new ImportOption.DoNotIncludeTests()).importPackages(BASE);
+        var protectedWrites=Set.of("prepared","task","executionWindow","bindPreparedTask","initializePolicy");
+        var actual=new TreeSet<String>();
+        for(var type:classes)for(var call:type.getMethodCallsFromSelf())if(call.getTargetOwner().getName().equals(BASE+"runtime.RunState")
+                && protectedWrites.contains(call.getName()) && !call.getTarget().getRawParameterTypes().isEmpty())
+            actual.add(type.getName().substring(BASE.length()).split("\\$")[0]+" -> "+call.getName());
+        assertEquals(new TreeSet<>(Set.of("runtime.RequestOrchestrator -> prepared","runtime.RequestOrchestrator -> task",
+                "application.TaskAssembler -> executionWindow","application.TaskAssembler -> bindPreparedTask",
+                "adapters.storage.MemoryRunRepository -> initializePolicy","adapters.storage.MysqlRunRepository -> initializePolicy")),actual);
+    }
+
     @Test void executionKernelCannotGrowBusinessDependencies() {
         var classes = new ClassFileImporter().withImportOption(new ImportOption.DoNotIncludeTests()).importPackages(BASE);
         var actual = new TreeSet<String>();

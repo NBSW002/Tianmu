@@ -19,6 +19,7 @@ import com.tianmu.agent.harness.trace.TraceDetails;
 /** Fixed admission boundary; tool implementations register independently of this dispatcher. */
 @Component
 public class ToolDispatcher {
+    @org.springframework.beans.factory.annotation.Autowired private org.springframework.beans.factory.ObjectProvider<com.tianmu.agent.runtime.OperationRegistry> operations;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryToolService memories;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryLedger memoryLedger;
     public sealed interface DispatchOutcome permits Completed, ValidationRejected {}
@@ -177,6 +178,7 @@ public class ToolDispatcher {
                     || result.terminalClarification()!=null && !Set.of("ask_clarification","remember_memory","forget_memory").contains(call.name()))
                 throw new AgentException("INVALID_TOOL_RESULT", "Tool result does not match the registered handler or uses host-reserved feedback");
             TraceDetails.capture("output", result, "TOOL_RESULT");
+            if(result.pending()!=null && operations!=null)operations.getObject().require(result.pending().kind());
             return new Completed(result);
         } catch (IllegalArgumentException | DateTimeException | ArithmeticException e) {
             throw new AgentException("INVALID_ARGUMENTS", "Tool arguments are invalid");

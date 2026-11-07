@@ -129,6 +129,7 @@ public final class HarnessSession {
                 finish.put("run.answer_ready_ms", elapsed);
             if (snapshot.answer() != null) finish.put("answer.char_count", snapshot.answer().text().length());
             TraceAttributes.apply(root, finish);
+            TraceAttributes.apply(root, TraceSemantics.identity(run));
             TraceAttributes.apply(root, Map.of("node.status", switch (snapshot.status()) {
                 case CANCELLED -> "CANCELLED";
                 case FAILED -> snapshot.errorCode() != null && (snapshot.errorCode().contains("TIMEOUT") || snapshot.errorCode().contains("DEADLINE")) ? "TIMED_OUT" : "FAILED";

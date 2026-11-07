@@ -13,7 +13,7 @@ import java.util.concurrent.*;
 
 /** Bounded source workers. Scheduler never waits on snapshot export, Embedding or Milvus. */
 @Component
-public final class FeedbackPreparationCoordinator {
+public final class FeedbackPreparationCoordinator implements com.tianmu.agent.runtime.spi.OperationHandler {
     private final com.tianmu.agent.feedback.FeedbackRuntimeProperties governance;
     private final FeedbackPreparationService preparation;private final FeedbackAnalysisService analysis;private final RunService runs;
     private final TaskAssembler assembler;private final com.tianmu.agent.harness.RuntimeHarness harness;
@@ -24,9 +24,10 @@ public final class FeedbackPreparationCoordinator {
     public FeedbackPreparationCoordinator(FeedbackPreparationService preparation,FeedbackAnalysisService analysis,RunService runs,TaskAssembler assembler,com.tianmu.agent.harness.RuntimeHarness harness, com.tianmu.agent.feedback.FeedbackRuntimeProperties governance) { this.governance=governance;workers=new ThreadPoolExecutor(governance.preparationWorkers(),governance.preparationWorkers(),governance.workerKeepAliveSeconds(),TimeUnit.SECONDS,new ArrayBlockingQueue<>(governance.preparationQueue()),r->{var t=new Thread(r,"feedback-source");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
         this.preparation=preparation;this.analysis=analysis;this.runs=runs;this.assembler=assembler;this.harness=harness;
     }
-    @Scheduled(scheduler="maintenanceScheduler",fixedDelayString="${agent.feedback.runtime.poll-millis:500}")
-    public void tick(){
-        for(var run:runs.waiting()){
+    public Set<String> kinds(){return Set.of("feedback-sources");}
+    public void tick(){resume(runs.waiting());}
+    public void resume(List<RunState> waiting){
+        for(var run:waiting){
             var op=run.snapshot().operation();if(op==null || !op.kind().equals("feedback-sources"))continue;
             try {
                 assembler.verify(run.task());var job=analysis.forRun(run.id);

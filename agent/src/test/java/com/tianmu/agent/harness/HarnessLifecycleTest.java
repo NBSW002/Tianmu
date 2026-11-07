@@ -56,6 +56,7 @@ class HarnessLifecycleTest {
         final SdkTracerProvider provider = SdkTracerProvider.builder().addSpanProcessor(SimpleSpanProcessor.create(recording)).build();
         final Tracer tracer = provider.get("test");
         final HookDispatcher dispatcher;
+        final TransformDispatcher transforms;
         final RuntimeHarness harness;
         final AtomicInteger queries = new AtomicInteger();
         final ToolDispatcher tools;
@@ -64,8 +65,8 @@ class HarnessLifecycleTest {
         }
         Fixture(List<TransformHook<?>> transforms, AgentHook... hooks) {
             dispatcher = new HookDispatcher(List.of(hooks), tracer);
-            harness = new RuntimeHarness(tracer, dispatcher, new TransformDispatcher(transforms, tracer,
-                    new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()));
+            this.transforms=new TransformDispatcher(transforms,tracer,new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules());
+            harness = new RuntimeHarness(tracer, dispatcher, this.transforms);
             tools = dispatcher(new SkillCatalog(), (query, scope) -> {
                 queries.incrementAndGet();
                 return new MetricData(query.videoId(), query.date(), query.metric(), 128, "test-v1", "fixture",
@@ -74,7 +75,7 @@ class HarnessLifecycleTest {
         }
         RunState run() { return new RunState(new AccessScope("demo", "alice", Set.of(1001L)), "SENSITIVE_PROMPT_abc123"); }
         void execute(RunState run, ModelPort model) { com.tianmu.agent.application.AgentRuntimeFactory.create(model, tools, harness).execute(run); }
-        public void close() { harness.close(); provider.close(); }
+        public void close() { harness.close(); dispatcher.close(); transforms.close(); provider.close(); }
     }
     private AgentHook recording(List<HookEvent> events) {
         return hook("record", 0, AgentHook.Mode.OBSERVER, EnumSet.allOf(HookPoint.class), events::add);

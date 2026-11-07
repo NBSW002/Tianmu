@@ -14,6 +14,8 @@ public final class ContextLifecycle {
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryRecallService recall;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.CompactionService compaction;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryLedger ledger;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryToolService memories;
+    public boolean memoryManagement(String query){return memories!=null && com.tianmu.agent.memory.MemoryToolService.management(query);}
     public ContextLifecycle(ConversationStore conversations, RuntimeHarness harness) {
         this.conversations=conversations;this.harness=harness;
     }
@@ -28,6 +30,13 @@ public final class ContextLifecycle {
         if(compaction!=null)compaction.apply(run);
     }
     public void recall(RunState run) { if(recall!=null)recall.recall(run); }
+    public void bindFocus(RunState run,com.tianmu.agent.core.TaskTypes.Specification specification) {
+        var focus=run.memory().focus();
+        if(focus==null)return;
+        var updated=new com.tianmu.agent.core.MemoryTypes.Focus(focus.request(),focus.sourceRunId(),focus.referenceVideoId(),specification);
+        run.memory(run.memory().withContext(run.memory().environment(),updated));
+        if(conversations!=null)conversations.focus(run,updated);
+    }
     public void resume(RunState run,boolean direct) {
         if(recall!=null){recall.begin(run);if(direct)recall.verify(run);else recall.restore(run);}
         if(compaction!=null){compaction.begin(run);if(!direct)compaction.apply(run);}

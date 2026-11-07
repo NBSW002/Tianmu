@@ -14,6 +14,7 @@ import java.util.*;
 @Component
 @ConditionalOnProperty(name="agent.storage.mode", havingValue="memory", matchIfMissing=true)
 public final class MemoryRunRepository implements RunRepository, ReportStore, ConversationStore {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.config.ExecutionPolicyFactory policyFactory;
     private final Map<UUID, RunState> runs = new HashMap<>();
     private final Map<String, UUID> keys = new HashMap<>();
     private final Map<UUID, RequestContext> contexts = new HashMap<>();
@@ -50,7 +51,7 @@ public final class MemoryRunRepository implements RunRepository, ReportStore, Co
         Instant now = Instant.now();
         RunState run = new RunState(UUID.randomUUID(), session, turn, owner, message, query, now, now.plusSeconds(30),
                 RunBackend.MEMORY, new InMemoryRunEventStore(), new InMemoryEvidenceStore(), false);
-        run.pageContext(context);run.modelChoice(model);
+        run.pageContext(context);run.modelChoice(model);run.initializePolicy(policyFactory==null?null:policyFactory.capture(now,model));
         run.emit("PROGRESS", Map.of("stage", "queued", "run_id", run.id.toString()));
         runs.put(run.id, run); if (context != null) contexts.put(run.id, context); if (key != null) keys.put(identity, run.id);
         return new Created(run, true);

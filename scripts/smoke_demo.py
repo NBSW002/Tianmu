@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--jar", required=True, type=Path)
     parser.add_argument("--java", default="java")
     parser.add_argument("--rule-only", action="store_true", help="Also support validating the explicit deterministic fallback")
+    parser.add_argument("--policy-snapshot", action="store_true", help="Validate the v1 writer, effective task policy and exported policy identity")
     parser.add_argument("--artifacts", type=Path, help="Save trace snapshots and report for the standalone trace viewer")
     args = parser.parse_args()
     jar = args.jar.resolve(strict=True)
@@ -70,7 +71,8 @@ def main():
             process = subprocess.Popen([args.java, "-Djava.io.tmpdir=" + directory, "-jar", str(jar), "--spring.profiles.active=demo",
                                         f"--server.port={port}", "--server.address=127.0.0.1", "--harness.trace.sink=file",
                                         "--harness.trace.directory=" + str(Path(directory) / "trace"),
-                                        "--agent.preparation.deterministic-routing=" + str(args.rule_only).lower()],
+                                        "--agent.preparation.deterministic-routing=" + str(args.rule_only).lower(),
+                                        "--agent.policy-snapshot.enabled=" + str(args.policy_snapshot).lower()],
                                        cwd=directory, env=environment, stdout=log, stderr=subprocess.STDOUT, **flags)
             try:
                 deadline = time.monotonic() + 60
@@ -104,6 +106,12 @@ def main():
                         assert time.monotonic() < deadline, "Demo run timed out"
                         time.sleep(0.1)
                     assert run["status"] == "SUCCEEDED" and run["route"] == expected, "Unexpected demo route/result"
+                    if args.policy_snapshot:
+                        assert run["executionPolicy"]["schemaVersion"] == "1"
+                        if run.get("task"):
+                            assert run["task"]["policyHash"] == run["executionPolicy"]["contentHash"]
+                    else:
+                        assert not run.get("executionPolicy"), "Writer-off runs must remain legacy"
                     if value:
                         assert "模拟" in run["answer"]["text"]
                         if "报告" not in message:
@@ -183,6 +191,9 @@ def main():
                     # inspect the run's actual parent-child trace independently.
                     run_trace = [event for event in run_spans if event.get("traceId") == trace_id]
                     attrs = [event.get("attributes", {}) for event in run_trace]
+                    assert roots[-1]["attributes"].get("policy.source") == ("SNAPSHOT_V1" if args.policy_snapshot else "LEGACY_CURRENT_POLICY")
+                    if args.policy_snapshot:
+                        assert roots[-1]["attributes"].get("policy.hash") == run["executionPolicy"]["contentHash"]
                     span_types = {item.get("span.type") for item in attrs if item.get("span.type")}
                     required = {"receive_query", "pre_route", "faq_lookup", "context_build", "agent_start", "llm_inference", "read_skill",
                                 "tool_call", "agent_end", "finish"}

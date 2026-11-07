@@ -25,6 +25,7 @@ import java.util.function.Supplier;
 
 /** One authoritative writer per Agent database in v0.7. All terminal rows share one transaction. */
 public final class MysqlRunRepository implements RunRepository, ReportStore, ConversationStore, StorageManagement, AutoCloseable {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.config.ExecutionPolicyFactory policyFactory;
     private final com.tianmu.agent.adapters.storage.StorageRuntimeProperties governance;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryBackground memoryBackground;
     private final JdbcTemplate db; private final TransactionTemplate tx; private final ObjectMapper json;
@@ -124,7 +125,11 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         if (checkVideos && !owner.covers(saved)) throw new AgentException("FORBIDDEN", "Historical scope is no longer accessible");
         return value;
     }
-    private Snapshot snapshot(Map<String, Object> row) { return decode(row.get("snapshot_json"), Snapshot.class); }
+    private Snapshot snapshot(Map<String, Object> row) {
+        var value=decode(row.get("snapshot_json"), Snapshot.class);
+        if(value.executionPolicy()!=null)value.executionPolicy().verify();
+        return value;
+    }
     private boolean terminal(Map<String, Object> row) { return AgentTypes.terminal(Status.valueOf(row.get("status").toString())); }
     private void active(Map<String, Object> session, Map<String, Object> row, Meta meta) {
         if (!meta.id().toString().equals(Objects.toString(session.get("current_run_id"), ""))
@@ -158,7 +163,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         try {
             return write(() -> {
                 Created duplicate = duplicate(key, owner, fingerprint); if (duplicate != null) return duplicate;
-                Instant now = Instant.now(), expiry = now.plus(Duration.ofDays(governance.runRetentionDays()));
+                Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS), expiry = now.plus(Duration.ofDays(governance.runRetentionDays()));
                 UUID id = UUID.randomUUID(), sid = requestedSession == null ? UUID.randomUUID() : requestedSession;
                 if (requestedSession == null) {
                     if (reply != null) throw new AgentException("INVALID_REQUEST", "sessionId is required with replyToRunId");
@@ -177,7 +182,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                     if(originPage!=null && context!=null && !originPage.videoId().equals(context.videoId()))
                         throw new AgentException("CLARIFICATION_CONFLICT","Current page changed while answering a pending clarification");
                     if(executionContext==null)executionContext=originPage;
-                    query = ClarificationInputs.combine(RequestMessages.forParsing(pending.get(0).get("original_query").toString(),originPage), message, LocalDate.parse(origin.get("business_date").toString()));
+                    query = ClarificationInputs.combine(RequestMessages.forParsing(pending.get(0).get("original_query").toString(),originPage), message, LocalDate.parse(origin.get("business_date").toString()),instant(origin,"created_at"));
                 }
                 Object current = sess.get("current_run_id");
                 if (current != null) {
@@ -185,13 +190,14 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                     if (!terminal(previous)) finishLocked(meta(previous), previous, cancelled(snapshot(previous), StopReason.SUPERSEDED), "ABORT", Map.of("reason", "superseded"));
                 }
                 long turn = number(sess, "next_turn_seq"), generation = number(sess, "generation") + 1, version = number(sess, "history_version");
-                Instant deadline = now.plus(timeout);
+                var captured=policyFactory==null?null:policyFactory.capture(now,model);
+                Instant deadline = captured==null?now.plus(timeout):captured.initialDeadline();
                 Meta m = new Meta(id, sid, turn, generation, version, owner, message, query, now, deadline);
                 RunState initial = new RunState(id, sid, turn, owner, message, query, now, deadline, RunBackend.MEMORY,
                         new com.tianmu.agent.runtime.events.InMemoryRunEventStore(), new InMemoryEvidenceStore(), false);
-                initial.pageContext(executionContext);
+                initial.pageContext(executionContext);initial.modelChoice(model);
                 Map<String,Object> requestData=new LinkedHashMap<>();requestData.put("message",message);if(executionContext!=null)requestData.put("context",executionContext);if(model!=null)requestData.put("model",model);
-                initial.bindPersistedControl(maxCalls);
+                initial.bindPersistedControl(maxCalls);initial.initializePolicy(captured);
                 db.update("INSERT INTO agent_run(tenant_id,owner_user_id,session_id,run_id,turn_seq,session_generation,base_history_version,history_before_turn,idempotency_key,request_fingerprint,request_json,access_scope_json,execution_query,snapshot_json,reply_to_run_id,business_date,business_timezone,deadline_at,created_at,events_expires_at,data_expires_at,lease_owner,lease_token,lease_until,last_event_seq,max_model_calls) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,1,?)",
                         owner.tenantId(), owner.userId(), sid.toString(), id.toString(), turn, generation, version, turn - 1, key, fingerprint,
                         encode(requestData), encode(owner), query, encode(initial.snapshot()), reply == null ? null : reply.toString(),
@@ -225,7 +231,11 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         if(request.hasNonNull("model"))run.modelChoice(decode(request.get("model"),com.tianmu.agent.model.RuntimeModelCatalog.Choice.class));
         if (request.hasNonNull("context")) run.pageContext(decode(request.get("context"),RequestContext.class));
         run.bindPersistedControl((int) number(row, "max_model_calls"));
-        if (restored) {run.restore(snapshot(row));if(row.get("continuation_json")!=null)run.restoreContinuation(decode(row.get("continuation_json"),com.tianmu.agent.core.PendingOperation.Continuation.class));} return run;
+        var stored=snapshot(row);
+        if(stored.executionPolicy()!=null && !stored.executionPolicy().effectiveDeadline().equals(m.deadline()))throw new AgentException("POLICY_SNAPSHOT_INVALID","Stored policy deadline disagrees with row");
+        if(stored.executionPolicy()!=null && (number(row,"max_model_calls")!=stored.executionPolicy().foreground().maxCalls()
+                || !Objects.equals(stored.task(),row.get("prepared_task_json")==null?null:decode(row.get("prepared_task_json"),com.tianmu.agent.core.TaskTypes.PreparedTask.class))))throw new AgentException("POLICY_SNAPSHOT_INVALID","Stored task projection disagrees with snapshot");
+        run.restore(stored);if (restored) {if(row.get("continuation_json")!=null)run.restoreContinuation(decode(row.get("continuation_json"),com.tianmu.agent.core.PendingOperation.Continuation.class));} return run;
     }
     private final class Backend implements RunBackend {
         private final Meta meta;
@@ -235,6 +245,8 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
             Snapshot other = write(() -> {
                 var sess = session(meta.session(), meta.owner(), true); var row = row(meta.id(), meta.owner(), true);
                 if (terminal(row)) return snapshot(row); active(sess, row, meta);
+                var durable=snapshot(row);
+                if(durable.executionPolicy()!=null && durable.task()!=null && (proposed.task()==null || !Objects.equals(durable.task().policyHash(),proposed.task().policyHash())))throw new AgentException("POLICY_SNAPSHOT_INVALID","A bound task cannot be replaced");
                 db.update("UPDATE agent_run SET status=?,snapshot_json=?,prepared_task_json=?,route=?,trace_id=?,step_count=?,preparation_calls=?,model_calls=?,max_model_calls=?,deadline_at=?,continuation_json=?,updated_at=UTC_TIMESTAMP(6),version=version+1 WHERE tenant_id=? AND run_id=?",
                         proposed.status().name(), encode(proposed), proposed.task() == null ? null : encode(proposed.task()), proposed.route() == null ? null : proposed.route().name(), proposed.traceId(), proposed.steps(), proposed.preparationCalls(), proposed.modelCalls(), run.modelCallLimit(), stamp(run.deadline()),run.continuation()==null?null:encode(run.continuation()), meta.owner().tenantId(), meta.id().toString());
                 return null;
@@ -269,6 +281,14 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
                 m.owner().tenantId(), m.owner().userId(), m.session().toString(), m.id().toString(), sequence, type, payload, done ? 1 : null, stamp(expiry));
     }
     private Snapshot finishLocked(Meta m, Map<String, Object> row, Snapshot target, String event, Object data) {
+        // A prior save may have committed while its acknowledgement was lost. The row owns the
+        // task/window pair; a stale in-process failure must never overwrite only its JSON half.
+        var durable=snapshot(row);
+        if(durable.executionPolicy()!=null) {
+            if((target.status()==Status.SUCCEEDED || target.status()==Status.NEEDS_INPUT)
+                    && !Objects.equals(target.executionPolicy(),durable.executionPolicy()))throw new AgentException("POLICY_SNAPSHOT_INVALID","Terminal policy is stale");
+            target=new Snapshot(target.runId(),target.status(),target.createdAt(),target.steps(),target.answer(),target.clarification(),target.errorCode(),target.traceId(),target.stopReason(),target.modelCalls(),target.route(),target.faqId(),target.faqVersion(),target.preparation(),durable.task(),target.preparationCalls(),target.totalModelCalls(),target.sessionId(),target.turnSeq(),target.operation(),target.backgroundModelCalls(),durable.executionPolicy());
+        }
         if (target.status() == Status.SUCCEEDED || target.status() == Status.NEEDS_INPUT)
             com.tianmu.agent.memory.MemoryLedger.verifyCommit(db,json,m.owner(),m.id());
         if (target.answer() != null) for (String id : target.answer().evidenceIds()) {
@@ -308,7 +328,7 @@ public final class MysqlRunRepository implements RunRepository, ReportStore, Con
         return terminalSnapshot(old, Status.CANCELLED, null, reason);
     }
     private Snapshot terminalSnapshot(Snapshot old, Status status, String code, StopReason reason) {
-        return new Snapshot(old.runId(), status, old.createdAt(), old.steps(), null, null, code, old.traceId(), reason, old.modelCalls(), old.route(), old.faqId(), old.faqVersion(), old.preparation(), old.task(), old.preparationCalls(), old.totalModelCalls(), old.sessionId(), old.turnSeq(), null, old.backgroundModelCalls());
+        return new Snapshot(old.runId(), status, old.createdAt(), old.steps(), null, null, code, old.traceId(), reason, old.modelCalls(), old.route(), old.faqId(), old.faqVersion(), old.preparation(), old.task(), old.preparationCalls(), old.totalModelCalls(), old.sessionId(), old.turnSeq(), null, old.backgroundModelCalls(),old.executionPolicy());
     }
     private void signal(UUID id) { var handlers = listeners.get(id); if (handlers != null) handlers.values().forEach(r -> { try { r.run(); } catch (RuntimeException ignored) {} }); }
     private final class Events implements RunEventStore {

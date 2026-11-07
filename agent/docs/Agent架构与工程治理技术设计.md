@@ -692,7 +692,9 @@ Around的next最多一次，执行器创建调用身份；外层超时后不能�
 
 ## 16. 实施记录（与设计结论分开）
 
-用户已于2026-11-07明确开始实施；部署仍未授权。本节记录各批实际产物，不改写独立设计审查的历史结论。源码目录为agent/front，已有上传相关未提交改动不属于治理修改。
+16.1–16.6保留首轮实施和验收记录；后续策略快照、Context拆分、完成条件、操作恢复注册和Hook隔离的当前新增实现看16.7，不以历史“尚未实现”覆盖后续源码。
+
+用户于2026-11-07明确开始实施，之后另行授权部署与真实测试，实际发布见对应验收记录。本节按批次记录实际产物，不改写独立设计审查历史结论。源码目录为agent/front，上传相关独立工作区改动不属于本轮治理修改。
 
 ### 16.1 批次1：行为基线与架构约束
 
@@ -792,6 +794,26 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 77项跳过细分：MysqlStorageIntegrationTest30、RedisMemoryIntegrationTest2、CompactionIntegrationTest5、CompactionOnlyIntegrationTest7、MemoryRuntimeIntegrationTest10、MysqlPersonalMemoryIntegrationTest10、NativeMemoryIntegrationTest9、CompactionRealModelTest2、PaidContextCostEvaluationTest2。当前没有可用Docker引擎/专用库环境，未启用真实模型费用测试；这些不计通过，补验条件见运维手册。
 
 最终r3之前的失败日志保留：首次完整回归发现Dispatcher mock未实现角色查找；Context定向回归发现旧Trace时间断言与新真实fan-in冲突。两者修订均未降低业务顺序、权限、配对或证据要求，之后当前完整r3通过。独立审查的设计与已列实施批次结论见审查文档；不将其扩展为2B等后续代码完成或生产验收通过。
+
+### 16.7 继续治理：策略、状态边界与扩展隔离（2026-11-07）
+
+16.1–16.6记录首轮基线，本节记录后续新增源码。发布版本、门控测试及真实Trace证据另行记录，不继承首轮结论。15.3中的“现状”是2A基线；本节新增2B兼容实现，写者默认关闭。
+
+**策略与持久化。** ExecutionPolicySnapshot v1保存Loop、Preparation、Context实际标量，以及模型、资源和解释规则版本；schema/semantics/各规则版本、范围和SHA256均校验。受理时持久initial策略，组装时一次save绑定最终策略、task、deadline和hash；continuation引用同一hash，继续恢复原charged/unknown余额。LoopControl、RuntimeHarness、循环、PreparationService及DeepSeek实际请求context检查消费冻结参数；后台job继续持有自己的预算，实时来源撤销和权限不冻结。`agent.policy-snapshot.enabled=false`，显式环境别名AGENT_POLICY_SNAPSHOT_ENABLED，只影响新Run创建；旧无snapshot记录始终LEGACY_CURRENT_POLICY，关闭写者仍读v1。必须先发布兼容reader、确认其为可回滚基线，再开启writer；开启后不能退回不支持v1的旧二进制。
+
+**未知提交。** bindPreparedTask明确失败回滚内存；SQL可能已提交但ACK丢失时，失败/取消终态采用持锁权威行的task/policy，防止snapshot与deadline/prepared_task投影分裂。首次materialize独立校验row deadline，RunState回投权威effectiveDeadline。成功终态策略不一致则拒绝；不得为继续执行静默采用当前策略。门控测试新增commit-then-throw故障场景。
+
+首次物化v1快照同时装入其冻结Token预算，随后continuation覆盖持久计量；已有policy的状态回投不重新清空usage。资源清单format2记录prompt-content SHA256，避免仅改提示词内容却复用声明版本。兼容reader对旧清单严格比较原字段，对format2严格比较完整字段；缺失/混合新字段均拒绝。无policy的legacy新任务继续写旧清单，不补造历史hash。兼容夹具来自上一发布59a1746真实记录，仅包含资源清单与工具集合，不包含用户正文；旧契约不能证明当时未记录的内容指纹。
+
+**Context与状态边界。** PreparationContextResolver只接收不可变Request、返回页面/Focus/lookup投影；保留权限、服务端元数据、唯一候选和来源切换隔离。搜索真正开始时才获取局部deadline。ContextLifecycle持有历史/记忆顺序及Focus落库。TaskExecutionPolicy.Input仅含不可变task、证据/产物快照和调用上限，业务策略不能持有RunState/ExecutionState；架构测试锁定prepared、task、executionWindow、bindPreparedTask、initializePolicy的确切写者。RunState本身仍为受控可变聚合，不把局部只读SPI称为全部状态迁移完成。
+
+**完成与恢复注册。** Owner选择提案后，CompletionRequirement组合检查权威证据归属、任务来源完整性和连续主题阅读；自动报告回执条件不足返回Continue，有答案提案则Reject。Delivery保留实时校验和reservation。PendingOperation仅校验安全kind格式；OperationRegistry唯一注册真实OperationHandler，ToolDispatcher在等待前验证handler，OperationDispatcher按handler分组恢复。缺失kind报OPERATION_KIND_UNAVAILABLE，业务模块仍拥有有界worker、作业账本及独立孤儿清理。添加kind不修改core的业务switch。这不是任意自然语言多目标规划。
+
+**Hook与配置。** GATE/OBSERVER使用独立有界线程池及队列，保留确定订阅顺序；gate超时/容量/中断fail closed，observer故障计数后可丢失。Future取消不释放仍执行的worker，已取消排队任务移出队列，无CallerRuns；shutdown只发中断、不无限等待扩展。Trace记录等待结果，超时不冒充完成。配置目录增加HookPolicy与OperationPolicy，构造器校验范围；前台snapshot不冻结这些基础设施容量。强制审计、outbox、记忆入队和取消清理仍走显式事务/生命周期。
+
+必需Transform另有独立有界池，输入为既有不可变载荷，超时/容量/中断拒绝而非旁路；返回后先checkpoint，再过TransformInvariants及大小约束才能采纳。忽略中断的晚到结果不能执行后续变换或重新写正式投影。定向真实SQL/Spring/策略/Hook验证95项、0失败/错误/跳过，含36项MysqlStorageIntegrationTest；日志policy-isolated-contracts.log。完整回归和线上证据须按对应发布记录核验。
+
+**输入与错误。** 报告支持数字1–30天、既有中文“七天”及两裸日期的半开区间；歧义/非法日期不退化全量。澄清保留评论/弹幕和不读视频约束，video-only补充以原受理时刻锚定相对时间。新增错误区分POLICY_VERSION_UNAVAILABLE、POLICY_SNAPSHOT_INVALID、MODEL_REVISION_UNAVAILABLE、RESOURCE_VERSION_MISMATCH、OPERATION_KIND_UNAVAILABLE、HOOK_TIMEOUT/HOOK_CAPACITY_EXCEEDED/HOOK_INTERRUPTED/HOOK_REJECTED。第15.5未逐项迁出的历史运行旋钮仍保留为后续模块工作，不能宣称所有硬编码已消除。
 
 ## 附录 A：配置声明与散落参数证据
 

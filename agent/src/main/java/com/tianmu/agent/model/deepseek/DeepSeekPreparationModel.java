@@ -32,7 +32,13 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
             if(!"AMBIGUOUS_ANALYSIS_SOURCES".equals(ambiguous.code()))throw ambiguous;
             payload.put("serverTaskCandidate",Map.of("type","unclassified","requiresClarification",true));
         }
-        return client.complete(config.preparationModel(), client.messages(prompt, payload), tokens, control);
+        return client.complete(config.preparationModel(), client.messages(prompt, payload,control), tokens, control);
+    }
+    @Override public String revision() {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(
+                java.util.List.of("chat-native-v1",config.baseUrl().toString(),config.preparationModel(),config.preparationMaxTokens(),emotionPrompt,understandingPrompt,intentPrompt))));
+        } catch(Exception error){throw new IllegalStateException("Cannot fingerprint preparation model",error);}
     }
     public Emotion emotion(Input input, CallControl control) {
         JsonNode result = call(emotionPrompt, input, control, 128);

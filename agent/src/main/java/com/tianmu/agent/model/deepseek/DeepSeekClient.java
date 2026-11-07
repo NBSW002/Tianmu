@@ -40,7 +40,14 @@ public final class DeepSeekClient {
         http = HttpClient.newBuilder().connectTimeout(config.connectTimeout()).followRedirects(HttpClient.Redirect.NEVER).build();
     }
     public List<Map<String, String>> messages(String instruction, Map<String, ?> input) { return contexts.build(instruction, input); }
+    private com.tianmu.agent.model.ModelContextBuilder contexts(CallControl control) {
+        return control.frozenContext()==null?contexts:new com.tianmu.agent.model.ModelContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext()));
+    }
+    public List<Map<String,String>> messages(String instruction,Map<String,?> input,CallControl control){return contexts(control).build(instruction,input);}
     public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context) { return harnessContexts.build(instruction,context); }
+    public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context,CallControl control) {
+        return control.frozenContext()==null?harnessContexts.build(instruction,context):new com.tianmu.agent.model.HarnessContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext())).build(instruction,context);
+    }
     public JsonNode complete(String model, List<? extends Map<String, ?>> messages, int maxTokens, CallControl control) {
         return complete(model,messages,maxTokens,control,false);
     }
@@ -72,6 +79,7 @@ public final class DeepSeekClient {
         var span=tracer.spanBuilder("model.request").startSpan();
         com.tianmu.agent.harness.trace.TraceNode.begin(span,"model.request");
         TraceAttributes.apply(span,Map.of("model.dispatched",false,"model.name",model));
+        TraceAttributes.apply(span,com.tianmu.agent.harness.trace.TraceModelCall.identity());
         String run=io.opentelemetry.context.Context.current().get(com.tianmu.agent.harness.trace.TraceUsage.RUN_ID);
         if(run!=null)TraceAttributes.apply(span,Map.of("run.id",run));
         try(var scope=span.makeCurrent()){
@@ -84,7 +92,7 @@ public final class DeepSeekClient {
         control.checkpoint();
         if(quotaBlockedUntil!=0 && System.nanoTime()-quotaBlockedUntil<0)
             throw new AgentException("MODEL_QUOTA_EXHAUSTED","Model provider quota is unavailable; calls paused for five minutes");
-        contexts.check(messages);
+        contexts(control).check(messages);
         boolean streaming=nativeTools!=null && control.textOutput()!=null;
         TraceAttributes.apply(Span.current(),Map.of("model.tool_protocol",nativeTools==null?"json_structured":"native_tools"));
         TraceAttributes.apply(Span.current(), Map.of("model.name", model, "model.provider", config.baseUrl().getHost().endsWith("deepseek.com")?"deepseek":"compatible", "model.max_tokens", maxTokens,
@@ -107,7 +115,7 @@ public final class DeepSeekClient {
                 TraceAttributes.apply(Span.current(),Map.of("model.tool_choice",requiredTool==null?"auto":requiredTool));
             }
             TraceAttributes.apply(Span.current(),com.tianmu.agent.model.ModelPayloadMetrics.measure(mapper,requestBody));
-            contexts.check(List.of(Map.of("request",requestBody)));
+            contexts(control).check(List.of(Map.of("request",requestBody)));
             TraceDetails.capture("input", requestBody, "MODEL_REQUEST");
             byte[] payload = mapper.writeValueAsBytes(requestBody);
             String base = config.baseUrl().toString().replaceAll("/+$", "");

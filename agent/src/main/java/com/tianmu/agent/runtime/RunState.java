@@ -17,12 +17,21 @@ import java.util.function.Consumer;
 public class RunState implements EvidenceContext {
     private com.tianmu.agent.model.RuntimeModelCatalog.Selection selectedModel;
     private com.tianmu.agent.model.RuntimeModelCatalog.Choice modelChoice;
-    public synchronized void modelChoice(com.tianmu.agent.model.RuntimeModelCatalog.Choice value){modelChoice=value;}
+    private void verifyChoice(com.tianmu.agent.model.RuntimeModelCatalog.Choice value) {
+        verifyChoice(value,executionPolicy);
+    }
+    private void verifyChoice(com.tianmu.agent.model.RuntimeModelCatalog.Choice value,com.tianmu.agent.core.ExecutionPolicySnapshot policy) {
+        if(policy==null)return;
+        var fixed=policy.model();
+        if("host-default".equals(fixed.id())?value!=null:value==null || !fixed.id().equals(value.id()) || !fixed.name().equals(value.model()) || !fixed.revision().equals(value.revision()))
+            throw new AgentException("MODEL_REVISION_UNAVAILABLE","Model does not match the accepted execution policy");
+    }
+    public synchronized void modelChoice(com.tianmu.agent.model.RuntimeModelCatalog.Choice value){verifyChoice(value);modelChoice=value;}
     public synchronized com.tianmu.agent.model.RuntimeModelCatalog.Choice modelChoice(){return modelChoice;}
     public synchronized boolean modelBound(){return selectedModel!=null;}
     public synchronized void selectModel(com.tianmu.agent.model.RuntimeModelCatalog.Selection selection) {
         if(selectedModel!=null)throw new IllegalStateException("Model already selected");if(modelChoice!=null && (selection==null || !modelChoice.equals(selection.choice())))throw new com.tianmu.agent.core.AgentException("MODEL_REVISION_UNAVAILABLE","Pinned model configuration is no longer available");
-        selectedModel=selection;if(selection!=null)modelChoice=selection.choice();
+        verifyChoice(selection==null?null:selection.choice());selectedModel=selection;if(selection!=null)modelChoice=selection.choice();
         if(selection!=null)emit("MODEL_SELECTED",selection.choice());
     }
     public synchronized com.tianmu.agent.model.ModelPort modelOr(com.tianmu.agent.model.ModelPort fallback){if(modelChoice!=null && selectedModel==null)throw new com.tianmu.agent.core.AgentException("MODEL_REVISION_UNAVAILABLE","Pinned model must be restored before execution");return selectedModel==null?fallback:selectedModel.model();}
@@ -60,6 +69,15 @@ public class RunState implements EvidenceContext {
     private StopReason stopReason;
     private Result prepared;
     private PreparedTask task;
+    private com.tianmu.agent.core.ExecutionPolicySnapshot executionPolicy;
+    public synchronized com.tianmu.agent.core.ExecutionPolicySnapshot executionPolicy(){return executionPolicy;}
+    public synchronized void initializePolicy(com.tianmu.agent.core.ExecutionPolicySnapshot value){
+        if(value==null)return;
+        if(status!=Status.QUEUED || executionPolicy!=null || controlBound || task!=null)throw new IllegalStateException("Policy capture is only allowed at new run creation");
+        value.verify();verifyChoice(modelChoice,value);if(!createdAt.equals(value.acceptedAt()))throw new IllegalArgumentException("Policy accepted time mismatch");
+        executionPolicy=value;deadline=value.initialDeadline();persistedControl=true;modelCallLimit=value.foreground().maxCalls();
+        modelBudget=new ModelBudget(value.foreground().tokenLimit(),value.foreground().tokenReservation());
+    }
     private String traceId;
     private final TurnControl turnControl = new TurnControl();
     private final CancellationToken cancellation = new CancellationToken();
@@ -100,12 +118,22 @@ public class RunState implements EvidenceContext {
     public synchronized void memory(MemoryTypes.View value) { memory = Objects.requireNonNull(value); }
     public synchronized MemoryTypes.View memory() { return memory; }
     public synchronized void restore(Snapshot value) {
+        var policy=value.executionPolicy();
+        if(policy==null && value.task()!=null && value.task().policyHash()!=null)throw new AgentException("POLICY_SNAPSHOT_INVALID","Versioned task has no policy");
+        if(policy!=null){policy.verify();verifyChoice(modelChoice,policy);
+            if(!policy.acceptedAt().equals(createdAt)
+                    || value.task()!=null && (!Objects.equals(value.task().policyHash(),policy.contentHash()) || !value.task().deadline().equals(policy.effectiveDeadline())
+                        || value.task().maxModelCalls()!=policy.foreground().maxCalls() || !value.task().resourceVersions().equals(policy.business().resources())))
+                throw new AgentException("POLICY_SNAPSHOT_INVALID","Stored task and policy disagree");
+            deadline=policy.effectiveDeadline();
+            if(executionPolicy==null)modelBudget=new ModelBudget(policy.foreground().tokenLimit(),policy.foreground().tokenReservation());
+        }
         restored = value; status = value.status(); steps = value.steps(); answer = value.answer(); clarification = value.clarification();
         errorCode = value.errorCode(); stopReason = value.stopReason(); modelCalls = value.modelCalls(); preparationCalls = value.preparationCalls();
         backgroundModelCalls = value.backgroundModelCalls();
         externalModelCalls = Math.max(0, value.totalModelCalls() - modelCalls - preparationCalls - backgroundModelCalls);
         traceId = value.traceId(); task = value.task();
-        operation=value.operation();
+        operation=value.operation();executionPolicy=value.executionPolicy();
         if (task != null) modelCallLimit = task.maxModelCalls();
     }
     public void adoptTerminal(Snapshot value) {
@@ -128,23 +156,25 @@ public class RunState implements EvidenceContext {
         return new Snapshot(id, status, createdAt, steps, answer, clarification, errorCode, traceId, stopReason, modelCalls,
                 prepared == null ? restored==null?null:restored.route() : prepared.route(), prepared == null || prepared.faq() == null ? restored==null?null:restored.faqId() : prepared.faq().id(),
                 prepared == null || prepared.faq() == null ? restored==null?null:restored.faqVersion() : prepared.faq().version(), prepared == null ? restored==null?null:restored.preparation() : prepared.request(), task,
-                preparationCalls, preparationCalls + modelCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, operation, backgroundModelCalls);
+                preparationCalls, preparationCalls + modelCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, operation, backgroundModelCalls,executionPolicy);
     }
     public synchronized com.tianmu.agent.core.PendingOperation.Continuation continuation(){return continuation;}
     public synchronized void restoreContinuation(com.tianmu.agent.core.PendingOperation.Continuation value){
         if(value==null)return;
         if(status!=Status.WAITING_OPERATION || !value.operation().equals(operation))throw new IllegalArgumentException("Invalid durable continuation");
+        if(!Objects.equals(value.policyHash(),executionPolicy==null?null:executionPolicy.contentHash()))throw new com.tianmu.agent.core.AgentException("POLICY_SNAPSHOT_INVALID","Continuation policy mismatch");
+        if(executionPolicy!=null && (value.budget().limit()!=executionPolicy.foreground().tokenLimit() || value.budget().reservation()!=executionPolicy.foreground().tokenReservation()))throw new com.tianmu.agent.core.AgentException("POLICY_SNAPSHOT_INVALID","Continuation budget mismatch");
         continuation=value;memory=value.memory();execution.restore(value);modelBudget=new ModelBudget(value.budget());
     }
     public synchronized void executionWindow(Duration timeout){
-        checkpoint();if(task!=null || prepared==null || timeout.compareTo(Duration.ofHours(6))>0 || timeout.isNegative())throw new IllegalStateException("Execution window must be fixed before task assembly");
+        checkpoint();if(executionPolicy!=null)throw new IllegalStateException("Versioned policy must bind task and window atomically");if(task!=null || prepared==null || timeout.compareTo(Duration.ofHours(6))>0 || timeout.isNegative())throw new IllegalStateException("Execution window must be fixed before task assembly");
         deadline=createdAt.plus(timeout);backend.save(this);
     }
     public synchronized void waitFor(com.tianmu.agent.core.PendingOperation pending){
         checkpoint();if(status!=Status.RUNNING || pending.deadline().isAfter(deadline))throw new IllegalStateException("Invalid operation wait");
         var span=io.opentelemetry.api.trace.Span.current().getSpanContext();
         String traceParent=span.isValid()?"00-"+span.getTraceId()+"-"+span.getSpanId()+"-"+span.getTraceFlags().asHex():null;
-        operation=pending;continuation=new com.tianmu.agent.core.PendingOperation.Continuation(pending,execution.activeSkills(),execution.exchanges(),memory.withPersistent(List.of()).withCompaction(List.of()),modelBudget.snapshot(),traceParent);
+        operation=pending;continuation=new com.tianmu.agent.core.PendingOperation.Continuation(pending,execution.activeSkills(),execution.exchanges(),memory.withPersistent(List.of()).withCompaction(List.of()),modelBudget.snapshot(),traceParent,executionPolicy==null?null:executionPolicy.contentHash());
         status=Status.WAITING_OPERATION;
         try{backend.save(this);}catch(RuntimeException failure){status=Status.RUNNING;operation=null;continuation=null;throw failure;}
         emit("PROGRESS",Map.of("stage","waiting_operation","operation_id",pending.id().toString()));
@@ -163,7 +193,18 @@ public class RunState implements EvidenceContext {
     }
     public synchronized void prepared(Result result) { checkpoint(); prepared = Objects.requireNonNull(result); backend.save(this); }
     public synchronized PreparedRequest preparedRequest() { return prepared == null ? restored == null ? null : restored.preparation() : prepared.request(); }
+    public synchronized void bindPreparedTask(PreparedTask value,com.tianmu.agent.core.ExecutionPolicySnapshot policy) {
+        checkpoint();policy.verify();
+        if(executionPolicy==null || task!=null || !policy.acceptedAt().equals(createdAt) || !policy.initialDeadline().equals(executionPolicy.initialDeadline())
+                || !executionPolicy.finalized(policy.effectiveDeadline(),policy.windowReason(),policy.foreground().effectiveTurns(),executionPolicy.business().resources()).equals(policy)
+                || !value.runId().equals(id) || !value.scope().equals(owner) || !value.businessDate().equals(businessDate)
+                || !value.deadline().equals(policy.effectiveDeadline()) || value.maxModelCalls()!=modelCallLimit || !Objects.equals(value.policyHash(),policy.contentHash()))throw new IllegalStateException("Invalid atomic task policy binding");
+        var oldPolicy=executionPolicy;var oldDeadline=deadline;
+        executionPolicy=policy;deadline=policy.effectiveDeadline();task=value;
+        try{backend.save(this);}catch(RuntimeException failure){executionPolicy=oldPolicy;deadline=oldDeadline;task=null;throw failure;}
+    }
     public synchronized void task(PreparedTask value) {
+        if(executionPolicy!=null)throw new IllegalStateException("Versioned policy requires atomic task binding");
         checkpoint();
         if (task != null || !value.runId().equals(id) || !value.scope().equals(owner) || !value.businessDate().equals(businessDate)
                 || !value.deadline().equals(deadline) || value.maxModelCalls() != modelCallLimit) throw new IllegalStateException("Invalid prepared task binding");
@@ -178,7 +219,7 @@ public class RunState implements EvidenceContext {
     public CancellationToken cancellation() { return cancellation; }
     public Instant deadline() { return deadline; }
     public CallControl callControl() { return callControl(deadline, cancellation); }
-    public CallControl callControl(Instant until, CancellationToken token) { return new CallControl(until, token, modelBudget, this::externalModelCallStarted).withDispatchBarrier(this::verifyMemory); }
+    public CallControl callControl(Instant until, CancellationToken token) { return new CallControl(until, token, modelBudget, this::externalModelCallStarted).withDispatchBarrier(this::verifyMemory).withContextPolicy(executionPolicy==null?null:executionPolicy.context()); }
     public synchronized ModelBudget modelBudget() { return modelBudget; }
     public synchronized void configureBudget(LoopPolicy policy) { if (!controlBound && continuation==null) modelBudget = new ModelBudget(policy.maxTokens(), policy.tokenReservation()); }
     public synchronized boolean bindControl(Duration timeout) {
@@ -288,7 +329,7 @@ public class RunState implements EvidenceContext {
             };
             Snapshot base = snapshot();
             Snapshot proposed = new Snapshot(id, target, createdAt, steps, value, text, code, base.traceId(), reason, modelCalls,
-                    base.route(), base.faqId(), base.faqVersion(), base.preparation(), task, preparationCalls, modelCalls + preparationCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, null, backgroundModelCalls);
+                    base.route(), base.faqId(), base.faqVersion(), base.preparation(), task, preparationCalls, modelCalls + preparationCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, null, backgroundModelCalls,executionPolicy);
             // No terminal status or DONE is exposed before this durable transaction succeeds.
             completed = backend.commit(this, proposed, event, data,
                     Map.of("status", target.name(), "run_id", id.toString(), "stop_reason", reason.name()));
@@ -314,7 +355,7 @@ public class RunState implements EvidenceContext {
             Snapshot base = snapshot();
             Snapshot proposed = new Snapshot(id, target, createdAt, steps, null, null, code, base.traceId(), reason, modelCalls,
                     base.route(), base.faqId(), base.faqVersion(), base.preparation(), task, preparationCalls,
-                    modelCalls + preparationCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, null, backgroundModelCalls);
+                    modelCalls + preparationCalls + externalModelCalls + backgroundModelCalls, sessionId, turnSeq, null, backgroundModelCalls,executionPolicy);
             pendingTerminal = new PendingTerminal(proposed, target == Status.FAILED ? "ERROR" : "ABORT",
                     target == Status.FAILED ? Map.of("code", code) : Map.of("reason", reason.name().toLowerCase(Locale.ROOT)),
                     Map.of("status", target.name(), "run_id", id.toString(), "stop_reason", reason.name()));
