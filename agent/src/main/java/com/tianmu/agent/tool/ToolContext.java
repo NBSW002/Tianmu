@@ -32,6 +32,8 @@ public interface ToolContext {
     default ToolResult analyzeFeedback(String videoEvidenceId,String analysisId){throw new com.tianmu.agent.core.AgentException("FEEDBACK_SERVICE_UNAVAILABLE","Background analysis is unavailable");}
     default ToolResult prepareFeedback(com.tianmu.agent.core.FeedbackAnalysis.Source source,String videoEvidenceId){throw new com.tianmu.agent.core.AgentException("FEEDBACK_SERVICE_UNAVAILABLE","Source preparation unavailable");}
     default ToolResult createPreparedReport(String commentEvidenceId,String danmakuEvidenceId){throw new com.tianmu.agent.core.AgentException("FEEDBACK_SERVICE_UNAVAILABLE","Source report unavailable");}
+    default ToolResult prepareFeedbackMaterials(){throw new com.tianmu.agent.core.AgentException("COMPRESSION_DISABLED","Representative materials unavailable");}
+    default ToolResult generateFeedbackReport(String materialsId,String videoEvidenceId){throw new com.tianmu.agent.core.AgentException("COMPRESSION_DISABLED","Representative report unavailable");}
     default Map<String,Object> readFeedback(Evidence evidence,String section,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback result unavailable");}
     default Map<String,Object> readFeedback(Evidence evidence,String section,String topic,int offset,int limit){return readFeedback(evidence,section,offset,limit);}
     default Map<String,Object> readFeedbackOriginal(Evidence evidence,String topic,String original,int offset,int limit){throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED","Feedback original unavailable");}

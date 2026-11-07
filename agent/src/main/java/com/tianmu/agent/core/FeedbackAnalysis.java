@@ -29,13 +29,14 @@ public final class FeedbackAnalysis {
         }
     }
     public record Unit(String id, Source source, String originalId, String text, String replyContext,
-                       boolean author, Long playbackMs, String userId,Instant createdAt) {
+                       boolean author, Long playbackMs, String userId,Instant createdAt,Long likeCount) {
+        public Unit(String id,Source source,String originalId,String text,String replyContext,boolean author,Long playbackMs,String userId,Instant createdAt){this(id,source,originalId,text,replyContext,author,playbackMs,userId,createdAt,null);}
         public Unit(String id,Source source,String originalId,String text,String replyContext,boolean author,Long playbackMs,String userId){this(id,source,originalId,text,replyContext,author,playbackMs,userId,null);}
         public Unit {
             if (id == null || !id.matches("[CD]:[1-9][0-9]{0,18}") || source == null || originalId == null
                     || !id.equals((source == Source.COMMENT ? "C:" : "D:") + originalId)
                     || text == null || text.length() > 16384 || replyContext == null || replyContext.length() > 65536
-                    || playbackMs != null && (source != Source.DANMAKU || playbackMs < 0)) throw new IllegalArgumentException("Invalid feedback unit");
+                    || playbackMs != null && (source != Source.DANMAKU || playbackMs < 0) || likeCount!=null && likeCount<0) throw new IllegalArgumentException("Invalid feedback unit");
         }
     }
     public record Counts(long comments, long danmaku, long authorComments, long authorDanmaku, long uniqueAudience) {

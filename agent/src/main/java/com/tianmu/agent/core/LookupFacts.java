@@ -15,6 +15,6 @@ public record LookupFacts(String kind,String operation,Map<String,Object> data,S
     public LookupFacts(String operation,Map<String,Object> data,Set<Long> videos){this("resource-lookup-v1",operation,data,videos,Instant.now());}
     public LookupFacts{
         data=normalize(data);videoIds=Set.copyOf(videoIds);
-        if(!"resource-lookup-v1".equals(kind) || !Set.of("search_my_videos","read_report","analyze_comments","analyze_danmaku").contains(operation) || videoIds.size()>20 || readAt==null)throw new IllegalArgumentException("Invalid resource provenance");
+        if(!"resource-lookup-v1".equals(kind) || !Set.of("search_my_videos","read_report","analyze_comments","analyze_danmaku","prepare_feedback_materials").contains(operation) || videoIds.size()>20 || readAt==null)throw new IllegalArgumentException("Invalid resource provenance");
     }
 }

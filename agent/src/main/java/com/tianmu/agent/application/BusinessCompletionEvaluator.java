@@ -56,11 +56,12 @@ public final class BusinessCompletionEvaluator implements CompletionEvaluator {
         public Decision evaluate(Input input){
             boolean report=input.task()==null || input.task().specification().reading()!=null && input.task().specification().reading().reportRequired();
             if(report){
-                var receipts=input.exchanges().stream().map(ToolExchange::result).filter(last->last.tool().equals("create_feedback_report")
+                var receipts=input.exchanges().stream().map(ToolExchange::result).filter(last->Set.of("create_feedback_report","generate_feedback_report").contains(last.tool())
                         && "READY".equals(last.data().get("status")) && last.evidenceId()!=null && input.registeredArtifacts().contains(last.evidenceId()) && last.data().containsKey("url")).toList();
                 if(!receipts.isEmpty()){
                     var last=receipts.get(receipts.size()-1);
-                    return new Deliver(new Answer((Boolean.TRUE.equals(last.data().get("demo"))?"【模拟数据】":"")+"反馈报告已生成并保存。\n[查看 HTML 报告]("+last.data().get("url")+")（需登录鉴权）",List.of(last.evidenceId())),StopReason.TOOL_DELIVERY);
+                    String label=last.tool().equals("generate_feedback_report")?"查看反馈报告":"查看 HTML 报告";
+                    return new Deliver(new Answer((Boolean.TRUE.equals(last.data().get("demo"))?"【模拟数据】":"")+"反馈报告已生成并保存。\n["+label+"]("+last.data().get("url")+")（需登录鉴权）",List.of(last.evidenceId())),StopReason.TOOL_DELIVERY);
                 }
                 if(input.answerProposal()!=null && input.proposalReason()!=StopReason.TOOL_DELIVERY)return new Reject("REPORT_REQUIRED");
             }

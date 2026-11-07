@@ -61,6 +61,7 @@
               <span class="reply-time">{{
                 formatStandardDateTime(item.createTime)
               }}</span>
+              <FeedbackLikeButton :item-id="item.commentId" />
               <span class="reply-btn" @click="handleReply(item)">回复</span>
               <div
                 class="reply-operation-wrap"
@@ -158,6 +159,7 @@
 <script>
 import VAvatar from "@/components/avatar/VAvatar.vue";
 import SubComment from "@/components/Comment/SubComment.vue";
+import FeedbackLikeButton from "@/components/Comment/FeedbackLikeButton.vue";
 import ReplyTextarea from "@/components/Comment/ReplyTextarea.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { fetchCommentList, fetchDeleteComment } from "@/api/video.js";
@@ -169,6 +171,7 @@ export default {
   components: {
     VAvatar,
     SubComment,
+    FeedbackLikeButton,
     ReplyTextarea,
   },
   data() {

@@ -61,6 +61,10 @@ public class ToolDispatcher {
                 .filter(t -> permitted(t.name(), run)).toList();
     }
     private boolean permitted(String name, RunState run) {
+        boolean compressed=run.task()!=null && run.task().resourceVersions().containsKey(com.tianmu.agent.application.TaskAssembler.COMPRESSION_RESOURCE)
+                && run.task().specification().reading()!=null && run.task().specification().reading().reportRequired();
+        if(Set.of("prepare_feedback_materials","generate_feedback_report").contains(name) && !compressed)return false;
+        if(compressed && Set.of("analyze_comments","analyze_danmaku","create_feedback_report","analyze_feedback").contains(name))return false;
         if(com.tianmu.agent.memory.MemoryToolService.NAMES.contains(name) && (memories==null || !memories.available(name,run)))return false;
         return com.tianmu.agent.access.AssistantToolAccess.permits(name, run.owner) && com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification());
     }
@@ -72,18 +76,24 @@ public class ToolDispatcher {
         String group=registry.admit(calls.get(0).name(),run.execution().activeSkills(),snapshotTools(run)).suspensionGroup();
         return group!=null && calls.stream().allMatch(c->group.equals(registry.admit(c.name(),run.execution().activeSkills(),snapshotTools(run)).suspensionGroup()));
     }
+    /** All individual admissions succeeded; only this combination cannot safely suspend together. */
+    public static final class BatchAdmissionRejected extends AgentException {
+        public BatchAdmissionRejected(){super("INVALID_TOOL_BATCH","Run tools from different suspension groups in separate model turns; do not repeat this mixed batch.");}
+    }
     public void checkBatch(List<ToolCall> calls,RunState run) {
         if(calls.size()<2 || calls.size()>4)throw new AgentException("INVALID_DECISION","Native read batch must contain two to four calls");
         Set<ToolCall> unique=new HashSet<>();
-        if(calls.stream().anyMatch(c->registry.get(c.name()).suspensionGroup()!=null)
-                && (!sharedSuspension(calls,run) || calls.stream().map(ToolCall::name).distinct().count()!=calls.size()))
-            throw new AgentException("INVALID_DECISION","Source preparation batches contain one call per selected source only");
         for(var call:calls) {
             if (!permitted(call.name(), run)) throw new AgentException("TASK_CONSTRAINT_VIOLATION", "Tool is outside the frozen source selection");
             var tool=registry.admit(call.name(),run.execution().activeSkills(),snapshotTools(run));
             if(!tool.batchable() || !unique.add(new ToolCall(call.name(),call.arguments())))
                 throw new AgentException("INVALID_DECISION","Only distinct independent reads can share a native tool batch");
             ToolArguments.validate(call,registry.definition(call.name()));
+        }
+        if(calls.stream().anyMatch(c->registry.get(c.name()).suspensionGroup()!=null)) {
+            if(calls.stream().map(ToolCall::name).distinct().count()!=calls.size())
+                throw new AgentException("INVALID_DECISION","Source preparation batches contain one call per selected source only");
+            if(!sharedSuspension(calls,run))throw new BatchAdmissionRejected();
         }
     }
     public ToolResult execute(ToolCall call, RunState run) {
@@ -143,7 +153,7 @@ public class ToolDispatcher {
             var result=tool.execute(call,context);validate(result);return result;
         }
         public void validate(ToolResult result){
-            if(result==null || !result.tool().equals(call.name()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null || result.data().containsKey("input_validation"))
+            if(result==null || !result.tool().equals(call.name()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null || result.data().containsKey("input_validation") || result.data().containsKey("batch_validation"))
                 throw new AgentException("INVALID_TOOL_RESULT","Parallel read cannot mutate delivery state");
             if(result.evidenceId()!=null && !delta.snapshot().containsKey(result.evidenceId()) && !evidence.containsKey(result.evidenceId()))throw new AgentException("INVALID_EVIDENCE","Unknown branch evidence");
         }
@@ -174,7 +184,7 @@ public class ToolDispatcher {
             com.tianmu.agent.harness.trace.TraceAttributes.apply(span,Map.of("tool.handler_executed",true));
             ToolResult result = tool.execute(call, context);
             run.checkpoint();
-            if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation")
+            if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation") || result.data().containsKey("batch_validation")
                     || result.terminalClarification()!=null && !Set.of("ask_clarification","remember_memory","forget_memory").contains(call.name()))
                 throw new AgentException("INVALID_TOOL_RESULT", "Tool result does not match the registered handler or uses host-reserved feedback");
             TraceDetails.capture("output", result, "TOOL_RESULT");
@@ -311,6 +321,25 @@ public class ToolDispatcher {
             if(preparation.ready(job.id(),source))return com.tianmu.agent.application.FeedbackSourceEvidence.bind(run,job,preparation.result(job.id(),run.owner,source,run.callControl()));
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Source preparation cannot proceed");
             return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-sources",job.deadline()));
+        }
+        public ToolResult prepareFeedbackMaterials(){
+            if(preparation==null || !tool.name().equals("prepare_feedback_materials"))throw new AgentException("TOOL_CAPABILITY_DENIED","Material preparation unavailable");
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification());checkFeedback(request);
+            var job=preparation.requestMaterials(run.id,run.owner,request,run.deadline());
+            if(preparation.materialsReady(job.id()))return com.tianmu.agent.application.FeedbackMaterialEvidence.bind(run,job,preparation.materials(job.id(),run.owner,run.callControl()));
+            if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Material preparation cannot proceed");
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"feedback-materials",job.deadline()));
+        }
+        public ToolResult generateFeedbackReport(String materialsId,String videoEvidenceId){
+            if(preparation==null || !preparation.compressionEnabled() || !tool.name().equals("generate_feedback_report"))throw new AgentException("TOOL_CAPABILITY_DENIED","Representative reports unavailable");
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification());checkFeedback(request);
+            var material=evidence(materialsId);if(material.lookup()==null || !material.lookup().operation().equals("prepare_feedback_materials"))throw new AgentException("INVALID_EVIDENCE","Expected current materials reference");
+            var job=feedback.owned(UUID.fromString(material.lookup().data().get("job_id").toString()),run.owner);
+            if(!job.runId().equals(run.id) || !job.request().equals(request))throw new AgentException("INVALID_EVIDENCE","Material task mismatch");
+            VideoContent.Facts video=null;if(videoEvidenceId!=null){video=evidence(videoEvidenceId).videoContent();if(video==null)throw new AgentException("INVALID_EVIDENCE","Expected current video evidence");business.checkVideoQuery(run,video.videoId(),video.startMs(),video.endMs());}
+            job=preparation.startCompressedReport(job.id(),run.owner,video,run.callControl());
+            if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()) && job.phase()!=com.tianmu.agent.core.FeedbackAnalysis.Phase.READY)throw new AgentException("ANALYSIS_NOT_READY","Report cannot proceed");
+            return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,new com.tianmu.agent.core.PendingOperation(job.id(),"representative-report",job.deadline()));
         }
         public ToolResult createPreparedReport(String comment,String danmaku){
             if(preparation==null || !tool.name().equals("create_feedback_report") || analysisContract()==null || !analysisContract().reportRequired())throw new AgentException("TOOL_CAPABILITY_DENIED","Report was not requested");

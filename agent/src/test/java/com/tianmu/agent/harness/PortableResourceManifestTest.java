@@ -44,8 +44,10 @@ class PortableResourceManifestTest {
         assertEquals(linux.resourceVersions(),win.resourceVersions(),"New policy fingerprints must be independent of checkout line endings");
         var spec=new Specification("conversation",Map.of(),Map.of());var scope=new AccessScope("test","alice",Set.of(1001L));
         var task=new PreparedTask(UUID.randomUUID(),"question","question",LocalDate.now(),"Asia/Shanghai",scope,new PreparedRequest("question","question",Emotion.UNKNOWN,Set.of(),Set.of(),Intent.KNOWLEDGE,spec),spec,previous,tools,Instant.now().plusSeconds(30),16);
-        assertDoesNotThrow(()->linux.verify(task));assertDoesNotThrow(()->win.verify(task));
-        for(String name:lf.names())assertTrue(ResourceManifestCompatibility.skill(name,previous.get("skill-content:"+name),null,lf.fingerprint(name),lf.canonicalFingerprint(name)),name);
+        assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->linux.verify(task)).code());assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->win.verify(task)).code());
+        var current=new PreparedTask(task.runId(),task.originalQuery(),task.query(),task.businessDate(),task.timezone(),scope,task.preparation(),spec,linux.resourceVersions(),new ToolCatalog().all().keySet(),task.deadline(),16);
+        assertDoesNotThrow(()->linux.verify(current));assertDoesNotThrow(()->win.verify(current));
+        assertFalse(ResourceManifestCompatibility.skill("audience-report",previous.get("skill-content:audience-report"),null,lf.fingerprint("audience-report"),lf.canonicalFingerprint("audience-report")),"Changed report instructions must not reuse the legacy alias");
         var altered=new TaskAssembler(skills(false,true),prompts(false),new ToolCatalog());
         assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->altered.verify(task)).code());
         for(String name:lf.names())assertTrue(ResourceManifestCompatibility.skill(name,linux.resourceVersions().get("skill-content:"+name),"2",lf.fingerprint(name),lf.canonicalFingerprint(name)),name);

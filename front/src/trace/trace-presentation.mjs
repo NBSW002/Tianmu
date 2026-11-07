@@ -14,6 +14,7 @@ titles.compaction='上下文压缩'
 Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', finish: '运行结束' })
 Object.assign(phaseNames, { ANALYZING: '分析反馈' })
 Object.assign(toolNames, { analyze_danmaku: '分析弹幕', analyze_comments: '分析评论' })
+Object.assign(toolNames, { prepare_feedback_materials: '聚类并选择代表反馈', generate_feedback_report: '分析代表并生成报告' })
 const time = n => Number.isFinite(n.offsetMs) ? n.offsetMs : Infinity
 const end = n => Number.isFinite(n.offsetMs) && Number.isFinite(n.durationMs) ? n.offsetMs + n.durationMs : Infinity
 const compare = (a, b) => time(a) - time(b) || a.id.localeCompare(b.id)

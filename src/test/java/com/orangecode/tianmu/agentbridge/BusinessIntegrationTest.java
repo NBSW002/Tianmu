@@ -21,6 +21,27 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfEnvironmentVariable(named="BUSINESS_IT", matches="true")
 class BusinessIntegrationTest {
+    @Test void feedbackLikesAreActorBoundIdempotentAndFrozenInSnapshot()throws Exception {
+        new ResourceDatabasePopulator(new org.springframework.core.io.FileSystemResource("deploy/site/migrations/20261108_feedback_reactions.sql")).execute(source);
+        db.update("UPDATE video SET status=2 WHERE video_id=1001");long id=901234567L;
+        db.update("DELETE FROM comment WHERE comment_id=?",id);db.update("DELETE FROM feedback_reaction WHERE source='COMMENT' AND item_id=?",id);
+        comment(id,1001,882L,null,"背景音乐盖住人声了",start());
+        try{
+            var reactions=new com.orangecode.tianmu.application.FeedbackReactions(db);
+            assertEquals(1,reactions.set("COMMENT",id,881,true).likes());assertEquals(1,reactions.set("COMMENT",id,881,true).likes());
+            assertEquals(2,reactions.set("COMMENT",id,882,true).likes());assertEquals(1,reactions.set("COMMENT",id,881,false).likes());
+            assertTrue(reactions.get("COMMENT",id,882).liked());assertFalse(reactions.get("COMMENT",id,881).liked());
+            assertThrows(com.orangecode.tianmu.exception.BusinessException.class,()->reactions.set("COMMENT",id,0,true));
+            assertThrows(com.orangecode.tianmu.exception.BusinessException.class,()->reactions.set("UNKNOWN",id,881,true));
+            var service=new BusinessFeedbackSnapshot(db,new BridgeProperties("tianmu",Set.of("normal"),"Asia/Shanghai",10),new com.fasterxml.jackson.databind.ObjectMapper());
+            try(var export=service.export(principal(),new BusinessFeedbackSnapshot.Request(1001,day.atStartOfDay(),day.plusDays(1).atStartOfDay(),Set.of("COMMENT")))){
+                reactions.set("COMMENT",id,881,true);
+                var mapper=new com.fasterxml.jackson.databind.ObjectMapper();var row=java.nio.file.Files.readAllLines(export.file()).stream().map(line->{try{return mapper.readTree(line);}catch(Exception e){throw new AssertionError(e);}}).filter(n->n.path("unit").path("originalId").asText().equals(Long.toString(id))).findFirst().orElseThrow();
+                assertEquals(1,row.path("unit").path("likeCount").asLong());assertEquals(2,reactions.get("COMMENT",id,881).likes());
+            }
+            db.update("UPDATE video SET is_delete=1 WHERE video_id=1001");assertThrows(com.orangecode.tianmu.exception.BusinessException.class,()->reactions.set("COMMENT",id,881,true));
+        }finally{db.update("DELETE FROM feedback_reaction WHERE source='COMMENT' AND item_id=?",id);db.update("DELETE FROM comment WHERE comment_id=?",id);db.update("UPDATE video SET is_delete=0,status=1 WHERE video_id=1001");}
+    }
     @Test void feedbackExportStreamsTwentyThousandOriginalsWithExactCountsAndReplyContext()throws Exception {
         db.update("DELETE FROM comment WHERE video_id IN (1001,1002)");
         comment(900000,1001,881L,null,"区间外的作者问题",start().minusSeconds(1));

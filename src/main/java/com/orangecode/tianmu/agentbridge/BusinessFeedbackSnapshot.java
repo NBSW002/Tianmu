@@ -13,7 +13,9 @@ import java.util.*;
 /** One short consistent export to a private spool; HTTP transfer and model work occur after commit. */
 public final class BusinessFeedbackSnapshot {
     public record Request(long videoId,LocalDateTime start,LocalDateTime end,Set<String> sources) {}
-    public record Unit(String id,String source,String originalId,String text,String replyContext,boolean author,Long playbackMs,String userId,Instant createdAt) {}
+    public record Unit(String id,String source,String originalId,String text,String replyContext,boolean author,Long playbackMs,String userId,Instant createdAt,Long likeCount) {
+        public Unit(String id,String source,String originalId,String text,String replyContext,boolean author,Long playbackMs,String userId,Instant createdAt){this(id,source,originalId,text,replyContext,author,playbackMs,userId,createdAt,null);}
+    }
     public record Counts(long comments,long danmaku,long authorComments,long authorDanmaku,long uniqueAudience) {}
     public record Receipt(Instant dataAsOf,Counts counts) {}
     public record Export(Path file,long bytes) implements AutoCloseable {public void close(){try{Files.deleteIfExists(file);}catch(IOException ignored){}}}
@@ -40,6 +42,7 @@ public final class BusinessFeedbackSnapshot {
         if(!Objects.equals(1,db.queryForObject("SELECT COUNT(*) FROM video WHERE video_id=? AND user_id=? AND is_delete=0",Integer.class,r.videoId(),owner)))throw new BridgeException("FORBIDDEN",403);
         Double duration=db.queryForObject("SELECT duration FROM video WHERE video_id=?",Double.class,r.videoId());
         long comments=0,danmaku=0,authorComments=0,authorDanmaku=0,bytes=0;Set<Long> people=new HashSet<>();
+        boolean reactionsAvailable=Objects.equals(1,db.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='feedback_reaction'",Integer.class));
         for(String source:List.of("DANMAKU","COMMENT")){
             if(!r.sources().contains(source))continue;String table=source.equals("COMMENT")?"comment":"bullet",key=source.equals("COMMENT")?"comment_id":"bullet_id";
             ZoneId storage=storage(table);String from=BusinessDanmakuAnalysis.wall(r.start(),storage),to=BusinessDanmakuAnalysis.wall(r.end(),storage);long cursor=0;
@@ -47,13 +50,18 @@ public final class BusinessFeedbackSnapshot {
                 var rows=db.queryForList("SELECT *,DATE_FORMAT(create_time,'%Y-%m-%d %H:%i:%s.%f') AS created_wall FROM "+table+" WHERE video_id=? AND create_time>=? AND create_time<? AND "+key+">? ORDER BY "+key+" LIMIT 500",r.videoId(),from,to,cursor);
                 if(rows.isEmpty())break;
                 Map<Long,Comment> parents=source.equals("COMMENT")?parents(r.videoId(),rows):Map.of();
+                var likes=new HashMap<Long,Long>();
+                if(reactionsAvailable){var itemIds=rows.stream().map(row->((Number)row.get(key)).longValue()).toList();var args=new ArrayList<Object>();args.add(source);args.addAll(itemIds);
+                    String placeholders=String.join(",",Collections.nCopies(itemIds.size(),"?"));
+                    db.query("SELECT item_id,COUNT(*) likes FROM feedback_reaction WHERE source=? AND item_id IN ("+placeholders+") GROUP BY item_id",rs->{likes.put(rs.getLong("item_id"),rs.getLong("likes"));},args.toArray());
+                }
                 for(var row:rows){
                     long id=((Number)row.get(key)).longValue();cursor=id;Long user=positive(row.get("user_id"));boolean author=user!=null && user==owner;
                     String context=source.equals("COMMENT")?context(positive(row.get("parent_comment_id")),parents,owner):"";
                     Long at=null;if(source.equals("DANMAKU") && row.get("playback_time") instanceof Number time){double seconds=time.doubleValue();if(Double.isFinite(seconds) && seconds>=0 && duration!=null && seconds<duration)at=Math.round(seconds*1000);}
                     String text=BusinessDanmakuAnalysis.redact(Objects.toString(row.get("content"),""));if(text.length()>16384)throw new BridgeException("FEEDBACK_UNIT_TOO_LARGE",422);
                     Instant created=LocalDateTime.parse(row.get("created_wall").toString().replace(' ','T')).atZone(storage).toInstant();
-                    var unit=new Unit((source.equals("COMMENT")?"C:":"D:")+id,source,Long.toString(id),text,context,author,at,user==null?null:user.toString(),created);
+                    var unit=new Unit((source.equals("COMMENT")?"C:":"D:")+id,source,Long.toString(id),text,context,author,at,user==null?null:user.toString(),created,reactionsAvailable?likes.getOrDefault(id,0L):null);
                     bytes+=line(out,Map.of("unit",unit));
                     if(source.equals("COMMENT")){comments++;if(author)authorComments++;}else{danmaku++;if(author)authorDanmaku++;}
                     if(comments+danmaku>20000 || bytes>67108864)throw new BridgeException("FULL_ANALYSIS_TOO_LARGE",422);

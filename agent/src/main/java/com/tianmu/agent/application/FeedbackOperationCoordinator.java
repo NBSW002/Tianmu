@@ -19,6 +19,7 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
     private final com.tianmu.agent.harness.RuntimeHarness harness;
     private final TaskAssembler assembler;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.runtime.store.ReportStore reportStore;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private FeedbackPreparationService preparation;
     private final ThreadPoolExecutor workers;
     private final Set<String> submitted=ConcurrentHashMap.newKeySet();private final Map<UUID,Long> progress=new ConcurrentHashMap<>();
     public FeedbackOperationCoordinator(FeedbackAnalysisService service,RunService runs,com.tianmu.agent.harness.RuntimeHarness harness,TaskAssembler assembler) { this(service, runs, harness, assembler, com.tianmu.agent.feedback.FeedbackRuntimeProperties.defaults()); }
@@ -27,14 +28,14 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
         this.service=service;this.runs=runs;this.harness=harness;this.assembler=assembler;
         workers=new ThreadPoolExecutor(Math.max(2,service.parallelism()),Math.max(2,service.parallelism()),governance.workerKeepAliveSeconds(),TimeUnit.SECONDS,new ArrayBlockingQueue<>(Math.max(2,service.parallelism()*2)),r->{var t=new Thread(r,"feedback-worker");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
     }
-    public Set<String> kinds(){return Set.of("feedback-analysis","feedback-report");}
+    public Set<String> kinds(){return Set.of("feedback-analysis","feedback-report","representative-report");}
     @Scheduled(scheduler="maintenanceScheduler",fixedDelayString="${agent.feedback.runtime.poll-millis:500}")
     public void reconcileOrphans(){resume(List.of());}
     public void tick(){resume(runs.waiting());}
     public void resume(List<RunState> waiting){
         try {
             for(var run:waiting){
-                var op=run.snapshot().operation();if(op==null || !Set.of("feedback-analysis","feedback-report").contains(op.kind()))continue;
+                var op=run.snapshot().operation();if(op==null || !kinds().contains(op.kind()))continue;
                 try{
                     assembler.verify(run.task());
                     var job=service.forRun(run.id);if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
@@ -85,10 +86,15 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
     }
     private void deliver(RunState run,PendingOperation op,FeedbackJobStore.Job job){
         run.checkpoint();
-        var request=op.kind().equals("feedback-report")?FeedbackTaskPolicy.pipelineRequest(run.task().specification()):FeedbackTaskPolicy.request(run.task().specification());
+        var request=op.kind().equals("representative-report")?FeedbackTaskPolicy.compressedRequest(run.task().specification()):op.kind().equals("feedback-report")?FeedbackTaskPolicy.pipelineRequest(run.task().specification()):FeedbackTaskPolicy.request(run.task().specification());
         var asset=service.asset(job.id(),run.owner,request);var evidence=FeedbackEvidenceBinding.bind(run,asset);
         ToolResult result;
-        if(op.kind().equals("feedback-report")){
+        if(op.kind().equals("representative-report")){
+            if(preparation==null)throw new AgentException("COMPRESSION_DISABLED","Representative report service missing");
+            var reportJson=preparation.reportJson(job.id(),run.owner,run.callControl());
+            var report=new ReportArtifacts(reportStore).save(run,evidence.id(),reportJson.html());
+            result=new ToolResult("generate_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"json_url",report.url()+"/json","summary",reportJson.summary(),"topics",reportJson.topics().stream().map(FeedbackReportJson.TopicView::title).toList(),"method",reportJson.method(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
+        }else if(op.kind().equals("feedback-report")){
             var report=new ReportArtifacts(reportStore).save(run,evidence.id(),service.report(asset));
             result=new ToolResult("create_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
         }else result=new ToolResult("analyze_feedback",Map.of("status","READY","evidence_id",evidence.id(),"summary",service.read(asset,"summary",0,1)),evidence.id());

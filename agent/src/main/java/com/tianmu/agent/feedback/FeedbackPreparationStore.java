@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Child work under an existing feedback job; result acceptance is fenced, never last-writer-wins. */
 public interface FeedbackPreparationStore {
-    enum Step { SNAPSHOT, COMMENT, DANMAKU }
+    enum Step { SNAPSHOT, COMMENT, DANMAKU, MATERIALS, REPORT_JSON }
     record Work(UUID jobId,Step step,String state,long fence,int attempts,Instant leaseUntil,Blob result) {}
     void request(UUID job,Step step);
     Work get(UUID job,Step step);

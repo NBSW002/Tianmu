@@ -111,7 +111,9 @@ public class AgentRuntime {
         Progress progress = new Progress();
         for(var exchange:run.execution().exchanges()){
             if(!exchange.result().data().containsKey("error_code"))progress.success(exchange.call());
-            else{progress.failure(exchange.call().name());if(exchange.result().data().containsKey("input_validation"))progress.argumentCorrections++;}
+            else{progress.failure(exchange.call().name());if(exchange.result().data().containsKey("input_validation"))progress.argumentCorrections++;
+                if(exchange.result().data().get("batch_validation") instanceof Map<?,?> validation && validation.get("correction") instanceof Number count)
+                    progress.argumentCorrections=Math.max(progress.argumentCorrections,count.intValue());}
         }
         int max = maxTurns(run);
         for (int step = run.snapshot().steps(); step < max; step++) {
@@ -167,7 +169,34 @@ public class AgentRuntime {
     }
     private boolean executeBatch(RunState run,ModelContext context,List<ToolCall> requested,Progress progress){
         return harness.stage(run,"agent.tool.batch",null,null,Map.of("tool.batch_count",requested.size()),()->{
-            tools.checkBatch(requested,run);
+            try { tools.checkBatch(requested,run); }
+            catch(ToolDispatcher.BatchAdmissionRejected rejected) {
+                // No hooks or handlers have run. Pair every native call before asking the model to replan.
+                String group=requested.get(0).providerGroupId();
+                if(group==null || group.isBlank() || requested.stream().anyMatch(c->c.providerCallId()==null || c.providerCallId().isBlank() || !group.equals(c.providerGroupId()))
+                        || requested.stream().map(ToolCall::providerCallId).distinct().count()!=requested.size())
+                    throw new AgentException("INVALID_DECISION","Invalid native batch identities");
+                if(requested.stream().anyMatch(c->context.availableTools().stream().noneMatch(t->t.name().equals(c.name()))))
+                    throw new AgentException("TOOL_NOT_AVAILABLE","Tool is outside the exposed set");
+                run.checkpoint();
+                if(progress.argumentCorrections>=2)throw new AgentException("TOOL_FAILURE_LIMIT","Tool correction limit reached");
+                int correction=++progress.argumentCorrections;
+                var feedbacks=new ArrayList<ToolResult>();
+                for(var call:requested) {
+                    var feedback=new ToolResult(call.name(),Map.of("error_code",rejected.code(),"retryable",true,
+                            "batch_validation",Map.of("phase","BEFORE_HANDLER","handler_executed",false,
+                                    "correction",correction,"hint",rejected.getMessage())),null);
+                    feedbacks.add(harness.transform(run,TransformPoint.TOOL_RESULT,feedback));
+                }
+                run.checkpoint();
+                for(int i=0;i<requested.size();i++)run.execution().observe(requested.get(i),feedbacks.get(i));
+                for(var call:requested) {
+                    run.emit("PROGRESS",Map.of("stage","tool_failed","tool",call.name(),"code",rejected.code()));
+                }
+                TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("tool.batch_rejected",true,"tool.argument_correction",correction,
+                        "tool.error_code",rejected.code(),"tool.handler_executed",false));
+                return false;
+            }
             var calls=new ArrayList<ToolCall>();
             for(var original:requested){
                 harness.toolHook(run,HookPoint.PRE_TOOL,Map.of("tool.name",original.name()));

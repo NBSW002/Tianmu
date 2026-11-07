@@ -194,6 +194,14 @@ export async function getAgentReport(runId, path, signal) {
     throw new Error('报告格式不正确')
   return response.text()
 }
+export async function getAgentReportJson(runId, path, signal) {
+  if (!reportPath(runId, path)) throw new Error('无效的报告链接')
+  const response = await request(`${path}/json`, { signal })
+  const value = await response.json()
+  if (value?.schemaVersion !== 'feedback-report-json-v1' || !Array.isArray(value.topics) || value.topics.length > 5 || !value.method)
+    throw new Error('报告数据格式不正确')
+  return value
+}
 
 export async function getAssistantCapabilities(videoId, signal) {
   const query = videoId ? `?videoId=${encodeURIComponent(videoId)}` : ''

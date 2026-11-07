@@ -92,17 +92,18 @@ class InputValidationRecoveryTest {
             assertEquals(3,run.execution().observations().size());assertEquals(2,run.execution().observations().stream().filter(r->r.data().containsKey("input_validation")).count());
         }
     }
-    @ParameterizedTest @ValueSource(strings={"code","helper","exception","reserved"})
+    @ParameterizedTest @ValueSource(strings={"code","helper","exception","reserved","batch-reserved"})
     void handlerFailuresAndFabricatedMetadataNeverGrantCorrection(String mode) {
         try(var fixture=new HarnessLifecycleTest.Fixture()) {
             var effects=new AtomicInteger();var tools=dispatcher(fixture,effects,call->{
                 if(mode.equals("reserved"))return new ToolResult(call.name(),Map.of("input_validation",Map.of("handler_executed",false)),null);
+                if(mode.equals("batch-reserved"))return new ToolResult(call.name(),Map.of("batch_validation",Map.of("handler_executed",false)),null);
                 if(mode.equals("helper"))ToolArguments.validate(new ToolCall(call.name(),Map.of()),new ToolCatalog().all().get(call.name()));
                 if(mode.equals("exception"))throw new IllegalArgumentException("SECRET_HANDLER_FAILURE");
                 throw new AgentException("INVALID_ARGUMENTS","SECRET_HANDLER_FAILURE");
             });var count=new AtomicInteger();var run=fixture.run();
             com.tianmu.agent.application.AgentRuntimeFactory.create(context->{count.incrementAndGet();return Decision.tool("read_result",Map.of("result_id","ev_any"));},tools,fixture.harness).execute(run);
-            assertEquals(mode.equals("reserved")?"INVALID_TOOL_RESULT":"INVALID_ARGUMENTS",run.snapshot().errorCode());
+            assertEquals(mode.endsWith("reserved")?"INVALID_TOOL_RESULT":"INVALID_ARGUMENTS",run.snapshot().errorCode());
             assertEquals(1,effects.get());assertEquals(1,count.get());assertTrue(run.execution().observations().isEmpty());
         }
     }

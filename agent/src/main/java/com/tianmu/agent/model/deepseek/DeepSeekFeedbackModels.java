@@ -86,10 +86,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         var payload=new LinkedHashMap<String,Object>();payload.put("kind",input.kind());
         var childIds=new LinkedHashMap<String,String>();
         int max=input.kind()==FeedbackAnalysis.WorkKind.MERGE?Math.min(FeedbackSynthesis.MAX_TOPICS,input.children().size()):10;payload.put("max_topics",max);
-        if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY)payload.put("groups",input.groups().stream().map(g->{
-            var row=new LinkedHashMap<String,Object>();row.put("id",g.id());row.put("source",g.source());row.put("text",g.text());
-            row.put("reply_context",g.replyContext());row.put("author",g.author());row.put("playback_ms",g.playbackMs());row.put("count",g.messages());row.put("candidate_cluster",g.candidateCluster());return row;
-        }).toList());
+        if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY)payload.put("groups",input.groups().stream().map(g->FeedbackModelProjection.group(g,json)).toList());
         else {
             var material=FeedbackSynthesis.material(input.children());
             payload.putAll(material.payload());childIds.putAll(material.references());

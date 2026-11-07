@@ -68,6 +68,12 @@ public final class FeedbackPlanner {
         var missing=members.keySet().stream().filter(id->!supplied.contains(id)).toList();
         if(!missing.isEmpty() || !duplicates.isEmpty() || !unknown.isEmpty())
             throw new FeedbackCorrectionException(new Correction(proposals,missing,List.copyOf(duplicates),List.copyOf(unknown)));
+        var representativeAssignments=new HashMap<String,String>();
+        for(var group:input.groups())if(group.candidateCluster()!=null && group.id().equals(group.candidateCluster()+"_"+group.source().name())){
+            var key=proposals.stream().filter(p->p.members().contains(group.id())).map(Proposal::key).findFirst().orElseThrow();
+            var previous=representativeAssignments.putIfAbsent(group.candidateCluster(),key);
+            if(previous!=null && !previous.equals(key))throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"REPRESENTATIVE_CLUSTER_SPLIT"));
+        }
         for(Proposal p:proposals) {
             if(p.title()!=null && p.title().length()>100 || p.observation()!=null && p.observation().length()>2400 || p.recommendation()!=null && p.recommendation().length()>1200)
                 throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"TEXT_LIMIT_EXCEEDED"));

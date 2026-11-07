@@ -167,7 +167,7 @@
                 >
                   <div class="report-toolbar">
                     <div>
-                      <strong>观众反馈报告</strong><span>HTML 报告 · 数据概览与内容观察</span>
+                      <strong>观众反馈报告</strong><span>{{ turn.reportJson ? '代表反馈分析 · 五个主主题' : '数据概览与内容观察' }}</span>
                     </div>
                     <button
                       v-if="turn.reportHtml"
@@ -182,6 +182,7 @@
                     {{ turn.reportError }}
                     <button class="text-button" @click="loadReport(turn)">重新加载</button>
                   </div>
+                  <FeedbackReportView v-else-if="turn.reportJson" :report="turn.reportJson" />
                   <iframe
                     v-else-if="turn.reportHtml"
                     :srcdoc="reportDocument(turn)"
@@ -263,6 +264,7 @@ import QaKnowledge from '@/components/agent/QaKnowledge.vue';
 import MemoryManager from '@/components/agent/MemoryManager.vue';
 import MemoryUsage from '@/components/agent/MemoryUsage.vue';
 import CreatorDraft from '@/components/agent/CreatorDraft.vue';
+import FeedbackReportView from '@/components/agent/FeedbackReportView.vue';
 import { createCompositionGuard } from '@/agent/composer-input.mjs';
 import { isLogCommand, logReply } from '@/agent/local-commands.mjs';
 import { useRoute, useRouter } from 'vue-router';
@@ -275,6 +277,7 @@ import {
   cancelAgentRun,
   createAgentRun,
   getAgentReport,
+  getAgentReportJson,
   getAgentRun,
   resumeAgentAnalysis,
 } from '@/api/agent';
@@ -430,6 +433,9 @@ function failureLabel(code) {
       DEADLINE_EXCEEDED: '这次回复耗时较长，请稍后重试。',
       MODEL_UNAVAILABLE: '模型服务暂时不可用，请稍后重试。',
       MODEL_OUTPUT_LIMIT: '模型输出已达上限，结果未完整生成。',
+      MATERIAL_BUDGET_EXCEEDED: '反馈差异较多，当前代表材料预算无法完整覆盖。请缩小时间范围后重试。',
+      REPRESENTATIVE_SELECTION_FAILED: '部分反馈没有选出合适的代表，已停止生成报告，请调整分析范围。',
+      VECTOR_REQUIRED: '向量处理服务尚未就绪，本次报告未开始模型分析。',
       MODEL_QUOTA_EXHAUSTED: '模型服务额度不可用，本次分析已停止。请联系管理员检查模型账户。',
       MODEL_TOKEN_BUDGET_EXCEEDED: '本次分析已达到用量上限，已停止后续模型请求。',
       MODEL_CALL_BUDGET_EXCEEDED: '本次分析已达到调用次数上限，已停止后续模型请求。',
@@ -479,13 +485,16 @@ function stopMonitoring(cancelReports = true) {
 }
 
 async function loadReport(turn) {
-  if (turn.reportLoading || turn.reportHtml) return;
+  const structured = Boolean(turn.snapshot?.task?.resourceVersions?.['feedback:compression']);
+  if (turn.reportLoading || turn.reportHtml && (!structured || turn.reportJson)) return;
   const controller = new AbortController();
   reportControllers.add(controller);
   turn.reportLoading = true;
   turn.reportError = '';
   try {
     turn.reportHtml = await getAgentReport(turn.runId, turn.reportPath, controller.signal);
+    if (structured)
+      turn.reportJson = await getAgentReportJson(turn.runId, turn.reportPath, controller.signal);
   } catch (error) {
     if (error.name !== 'AbortError') turn.reportError = error.message;
   } finally {

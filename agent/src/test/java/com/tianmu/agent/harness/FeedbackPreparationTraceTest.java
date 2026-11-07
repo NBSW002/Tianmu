@@ -21,7 +21,7 @@ class FeedbackPreparationTraceTest {
     @Test void rejectedSemanticAttemptIsFailedInTraceWhileItsJobRemainsRetryable(){
         try(var f=new HarnessLifecycleTest.Fixture()){
             var run=f.run();var jobs=new MemoryFeedbackJobStore();var models=mock(FeedbackModels.class);
-            when(models.modelName()).thenReturn("fixture");when(models.policyHash()).thenReturn("fixture");
+            when(models.modelName()).thenReturn("fixture");when(models.policyHash()).thenReturn("fixture");when(models.pipelinePolicyHash()).thenReturn("fixture");
             when(models.analyze(any(),any())).thenThrow(new AgentException("INVALID_ANALYSIS","fixture"));
             FeedbackSnapshotPort source=new FeedbackSnapshotPort(){
                 public void authorize(com.tianmu.agent.core.AgentTypes.AccessScope owner,long id){}
@@ -48,7 +48,7 @@ class FeedbackPreparationTraceTest {
                 public void authorize(com.tianmu.agent.core.AgentTypes.AccessScope owner,long video){}
                 public Receipt export(Request request,com.tianmu.agent.core.AgentTypes.AccessScope owner,CallControl c,java.util.function.Consumer<List<Unit>> sink){throw new AgentException(error,"fixture");}
             };
-            var models=mock(FeedbackModels.class);when(models.modelName()).thenReturn("fixture");when(models.policyHash()).thenReturn("fixture");
+            var models=mock(FeedbackModels.class);when(models.modelName()).thenReturn("fixture");when(models.policyHash()).thenReturn("fixture");when(models.pipelinePolicyHash()).thenReturn("fixture");
             var objects=new FeedbackObjects(new FileObjectStore(files),new ObjectMapper().findAndRegisterModules());
             var service=new FeedbackAnalysisService(jobs,objects,source,models,FeedbackPolicy.defaults());
             var prep=new FeedbackPreparationService(service,ledger,objects,FeedbackPolicy.defaults(),new FeedbackClusters(null,null));

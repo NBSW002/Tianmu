@@ -168,6 +168,8 @@ export function progressLabel(data = {}) {
   if (data.stage === 'tool_failed')
     return '这一步遇到一点小问题，我试着调整一下～'
   if (data.stage === 'tool') {
+    if (data.tool === 'prepare_feedback_materials') return '我来把评论和弹幕整理成少量代表反馈～'
+    if (data.tool === 'generate_feedback_report') return '我在分析代表观点，整理报告啦 φ(゜▽゜*)♪'
     if (data.tool === 'analyze_video_content') return '我在认真看视频，稍等我一下呀～'
     if (['create_feedback_report','create_video_report'].includes(data.tool)) return '我来把分析结果整理成报告啦 (๑•̀ㅂ•́)و✧'
     return null

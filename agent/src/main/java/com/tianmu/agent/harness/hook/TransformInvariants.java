@@ -8,7 +8,7 @@ import java.util.*;
 final class TransformInvariants {
     private TransformInvariants() {}
     private static final Set<String> FACT_KEYS = Set.of("video_id", "date", "metric", "value", "metric_version",
-            "source", "data_as_of", "complete", "demo", "evidence_id", "skill", "tool_schemas", "error_code", "retryable", "attempt", "analysis", "sampling_method", "classification", "input_validation",
+            "source", "data_as_of", "complete", "demo", "evidence_id", "skill", "tool_schemas", "error_code", "retryable", "attempt", "analysis", "sampling_method", "classification", "input_validation", "batch_validation",
             "summary","counts","topics","next_offset","status","operation_id","job_id","grounding","request",
             "items","candidate_only","historical","freshness","content","source_run_id","artifact_id","matches","matched_records","coverage","match_method","snapshot_counts");
     static void require(boolean condition) {

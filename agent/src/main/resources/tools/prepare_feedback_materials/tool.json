@@ -1,0 +1,5 @@
+{
+  "name": "prepare_feedback_materials",
+  "description": "Prepare COMMENT and DANMAKU selected by the frozen current task. Host freezes a shared snapshot, processes sources concurrently, filters and deduplicates, jointly clusters vectors, and selects a small ranked representative package. Does not require video evidence and does not call a generative LLM. Returns materials_id and statistics only, never all originals. PENDING is durably resumed by host; do not poll. READY means materials prepared, not report generated.",
+  "inputSchema": {"type":"object","properties":{},"required":[],"additionalProperties":false}
+}

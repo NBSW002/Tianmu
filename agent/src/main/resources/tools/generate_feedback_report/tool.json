@@ -1,0 +1,25 @@
+{
+  "name": "generate_feedback_report",
+  "description": "Generate the final structured report JSON from current-run prepared representative materials and, only when VIDEO was selected, matching current video evidence. Host joins inputs, reads only representatives and bounded context, batches model analysis, synthesizes up to five main topics, verifies statistics, and saves JSON/HTML automatically. No separate save call. PENDING is managed by host; do not poll. Only READY with a persisted receipt means report complete.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "materials_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Current-run materials_id returned by prepare_feedback_materials; never an arbitrary job ID."
+      },
+      "video_evidence_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Current-run video evidence returned by analyze_video_content; required only when VIDEO is selected."
+      }
+    },
+    "required": [
+      "materials_id"
+    ],
+    "additionalProperties": false
+  }
+}

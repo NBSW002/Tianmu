@@ -103,8 +103,8 @@ class PolicySnapshotContractTest {
         var assembler=new TaskAssembler(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.prompt.PromptCatalog(),new com.tianmu.agent.tool.ToolCatalog());
         var task=assembler.assemble(run);
         var previous=new com.tianmu.agent.core.TaskTypes.PreparedTask(task.runId(),task.originalQuery(),task.query(),task.businessDate(),task.timezone(),task.scope(),task.preparation(),task.specification(),legacy,tools,task.deadline(),task.maxModelCalls());
-        assertDoesNotThrow(()->assembler.verify(previous));assertFalse(previous.resourceVersions().containsKey("manifest:format"));
-        var fixed=factory(true).capture(run.createdAt,null);assertDoesNotThrow(()->assembler.verifyPolicy(fixed.finalized(fixed.initialDeadline(),"PREPARATION",fixed.foreground().configuredTurns(),legacy)));
+        assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->assembler.verify(previous)).code());assertFalse(previous.resourceVersions().containsKey("manifest:format"));
+        var fixed=factory(true).capture(run.createdAt,null);assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->assembler.verifyPolicy(fixed.finalized(fixed.initialDeadline(),"PREPARATION",fixed.foreground().configuredTurns(),legacy))).code());
         assertEquals("2",assembler.resourceVersions().get("manifest:format"));
         var partial=new HashMap<>(assembler.resourceVersions());partial.remove("prompt-content:harness.system");
         assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->assembler.verifyPolicy(fixed.finalized(fixed.initialDeadline(),"PREPARATION",fixed.foreground().configuredTurns(),partial))).code());

@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "agent/docs"
 JAVA = ROOT / "agent/src/main/java/com/tianmu/agent"
 POLICIES = (
+    "feedback/FeedbackCompressionProperties.java",
     "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java",
     "feedback/FeedbackRuntimeProperties.java", "video/VideoRuntimeProperties.java",
     "adapters/storage/StorageRuntimeProperties.java", "harness/trace/TraceDeliveryProperties.java",
@@ -30,6 +31,11 @@ def catalog():
              "", "前台Loop/Context/Preparation、现有FeedbackPolicy/VideoCachePolicy等既有配置见[统一技术设计](Agent架构与工程治理技术设计.md)第9、15.5、16节及application*.yml；本表列出新增模块数值声明。",
              "", "## agent.policy-snapshot", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
              "| `agent.policy-snapshot.enabled` | false | PolicySnapshotProperties → ExecutionPolicyFactory；YAML显式环境别名 `AGENT_POLICY_SNAPSHOT_ENABLED`。仅新Run创建时捕获，旧记录永不补造；关闭写者仍兼容读取已保存v1。先部署兼容reader再启用writer。 |", ""]
+    lines += ["## agent.feedback.compression协议", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+              "| `agent.feedback.compression.enabled` | false | FeedbackCompressionProperties → TaskAssembler在受理时冻结feedback:compression资源标记，ToolDispatcher按任务标记选择三Tool；只影响新任务，旧任务不自动升级。显式别名FEEDBACK_COMPRESSION_ENABLED。启动生效，启用须有Embedding/Milvus；缺失不得EXACT_ONLY回退。 |",
+              "| `agent.feedback.compression.min-similarity` | 0.90 | FeedbackCompression任务内星形聚类的余弦下限，finite且(0,1]；FEEDBACK_CLUSTER_MIN_SIMILARITY。进入材料/后台policyHash，重启生效，已封存assignment不重算。 |",
+              "| `agent.feedback.compression.min-centrality` | 0.75 | FeedbackCompression代表准入的质心余弦阈值，finite且[-1,1]；FEEDBACK_MIN_CENTRALITY。缺来源代表明确失败，进入材料policyHash。 |",
+              "| `agent.feedback.compression.near-duplicate-similarity` | 0.96 | FeedbackCompression可选代表的近重复门槛，finite且[min-similarity,1]；FEEDBACK_NEAR_DUPLICATE_SIMILARITY。来源mandatory优先，进入材料policyHash。 |", ""]
     lines += ["## agent.models", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.models.thinking-enabled` | true | DeepSeekProperties → DeepSeekClient；YAML环境别名 `AGENT_MODEL_THINKING_ENABLED`。启动绑定，主循环原生工具及后台反馈分析启用；短输出前置识别、记忆模型仍关闭。仅DeepSeek端点或deepseek模型名发送thinking协议。模式和协议版本进入模型revision，变更需排空在途Run；不是执行策略快照字段。旧Trace不补造思考。 |", ""]
     lines += ["## agent.models思考预算", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",

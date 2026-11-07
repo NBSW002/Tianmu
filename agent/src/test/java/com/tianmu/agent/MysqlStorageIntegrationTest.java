@@ -25,7 +25,56 @@ import static org.mockito.Mockito.*;
 /** Opt-in real MySQL/Redis integration. Refuses URLs outside a database ending in _it. */
 @EnabledIfEnvironmentVariable(named="AGENT_STORAGE_IT", matches="true")
 class MysqlStorageIntegrationTest {
-    @Test void priorReleaseManifestRemainsResumableWithoutInventingContentHashes() throws Exception {
+    @Test void representativeMaterialsAndReportSurviveTwoWaitingRestartsWithoutRepeatingCalls()throws Exception {
+        var exports=new java.util.concurrent.atomic.AtomicInteger();var embeddings=new java.util.concurrent.atomic.AtomicInteger();var modelCalls=new java.util.concurrent.atomic.AtomicInteger();
+        var policy=new com.tianmu.agent.feedback.FeedbackCompressionProperties(true,3,15000,.90,32,.75,2,3,60,.96,300,600,32768,67108864,512);
+        com.tianmu.agent.feedback.FeedbackEmbedding embedding=new com.tianmu.agent.feedback.FeedbackEmbedding(){public String version(){return "sql-fixture-v1";}public int dimension(){return 3;}public List<List<Float>> embed(List<String> texts,com.tianmu.agent.runtime.control.CallControl c){embeddings.incrementAndGet();return texts.stream().map(t->List.of(1f,0f,0f)).toList();}};
+        var vectors=mock(com.tianmu.agent.feedback.FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(3);when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());
+        com.tianmu.agent.feedback.FeedbackSnapshotPort snapshotSource=new com.tianmu.agent.feedback.FeedbackSnapshotPort(){
+            public void authorize(AccessScope caller,long id){if(!caller.tenantId().equals(owner.tenantId()) || !caller.userId().equals(owner.userId()) || !caller.videoIds().contains(id))throw new AgentException("FORBIDDEN","fixture");}
+            public Receipt export(FeedbackAnalysis.Request request,AccessScope caller,com.tianmu.agent.runtime.control.CallControl control,java.util.function.Consumer<List<FeedbackAnalysis.Unit>> sink){
+                authorize(caller,request.query().videoId());exports.incrementAndGet();var at=request.query().end().minusSeconds(1).atZone(DanmakuTypes.ZONE).toInstant();
+                sink.accept(List.of(new FeedbackAnalysis.Unit("C:1",FeedbackAnalysis.Source.COMMENT,"1","背景音乐盖住人声了","父评论说明了播放场景",false,null,"viewer1",at,100L),new FeedbackAnalysis.Unit("C:2",FeedbackAnalysis.Source.COMMENT,"2","音乐太大听不清楚","父评论说明了播放场景",false,null,"viewer2",at,1L),new FeedbackAnalysis.Unit("D:3",FeedbackAnalysis.Source.DANMAKU,"3","手机外放听不清楚","",false,1000L,"viewer3",at,null)));
+                return new Receipt(Instant.now(),new FeedbackAnalysis.Counts(2,1,0,0,3));
+            }
+        };
+        com.tianmu.agent.feedback.FeedbackModels models=new com.tianmu.agent.feedback.FeedbackModels(){
+            public String modelName(){return "sql-fixture";}public String policyHash(){return "sql-fixture-v1";}
+            public List<Proposal> analyze(Input input,com.tianmu.agent.runtime.control.CallControl control){
+                modelCalls.incrementAndGet();com.tianmu.agent.runtime.control.ModelBudget.execute(control,"sql-fixture",true,8192,()->mapper.createObjectNode().set("usage",mapper.createObjectNode().put("prompt_tokens",100).put("completion_tokens",40)));
+                var ids=input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY?input.groups().stream().map(Group::id).toList():input.children().stream().map(FeedbackAnalysis.Topic::id).toList();return List.of(new Proposal("T1","音频清晰度","代表反馈提到配乐与人声的平衡。","建议检查音量。",ids));
+            }
+        };
+        record Fixture(com.tianmu.agent.feedback.FeedbackAnalysisService analysis,com.tianmu.agent.feedback.FeedbackPreparationService preparation){}
+        java.util.function.Supplier<Fixture> fixture=()->{
+            var jobs=new MysqlFeedbackJobStore(source,mapper,()->repository.verifyReady());var work=new com.tianmu.agent.adapters.storage.MysqlFeedbackPreparationStore(source,mapper,()->repository.verifyReady());
+            var objects=new com.tianmu.agent.feedback.FeedbackObjects(new FileObjectStore(directory),mapper,new com.tianmu.agent.adapters.storage.MysqlFeedbackObjectIndex(source,()->repository.verifyReady()));
+            var service=new com.tianmu.agent.feedback.FeedbackAnalysisService(jobs,objects,snapshotSource,models,com.tianmu.agent.feedback.FeedbackPolicy.defaults());
+            var prep=new com.tianmu.agent.feedback.FeedbackPreparationService(service,work,objects,com.tianmu.agent.feedback.FeedbackPolicy.defaults(),new com.tianmu.agent.feedback.FeedbackClusters(null,null),com.tianmu.agent.feedback.FeedbackRuntimeProperties.defaults(),new com.tianmu.agent.feedback.FeedbackCompression(embedding,vectors,policy,mapper));return new Fixture(service,prep);
+        };
+        var run=create("只根据视频1001最近30天的评论和弹幕生成报告，不读取视频内容");run.start();run.configureBudget(LoopPolicy.defaults());
+        var spec=com.tianmu.agent.preparation.TaskMeaning.defaults().resolve(run.query(),run.businessDate,run.createdAt);
+        run.prepared(new Result(Route.HARNESS,new PreparedRequest(run.message,run.query(),Emotion.NEUTRAL,Set.of(),Set.of(),Intent.DANMAKU_REPORT,spec),null,null));
+        var assembler=new com.tianmu.agent.application.TaskAssembler(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.prompt.PromptCatalog(),new com.tianmu.agent.tool.ToolCatalog());org.springframework.test.util.ReflectionTestUtils.invokeMethod(assembler,"compressionPolicy",policy);run.task(assembler.assemble(run));
+        var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification());var first=fixture.get();var job=first.preparation().requestMaterials(run.id,owner,request,run.deadline());
+        var materialOp=new PendingOperation(job.id(),"feedback-materials",job.deadline());run.execution().observe(new ToolCall("prepare_feedback_materials",Map.of(),"material-call","material-group","","先筛选代表。"),new ToolResult("prepare_feedback_materials",Map.of("status","PENDING"),null,null,materialOp));run.waitFor(materialOp);
+        for(int n=0;n<8 && !first.preparation().materialsReady(job.id());n++)for(var step:first.preparation().pending(job.id()))first.preparation().advance(job.id(),step,new com.tianmu.agent.runtime.control.CancellationToken());
+        assertEquals(2,embeddings.get());repository.close();repository=new MysqlRunRepository(source,mapper,cache,new FileObjectStore(directory),Duration.ofSeconds(30),16);
+        var recovered=repository.recoverWaiting().stream().filter(r->r.id.equals(run.id)).findFirst().orElseThrow();var second=fixture.get();assertEquals(Status.WAITING_OPERATION,recovered.snapshot().status());
+        var control=new com.tianmu.agent.runtime.control.CallControl(recovered.deadline(),recovered.cancellation());var material=second.preparation().materials(job.id(),owner,control);assertEquals(2,material.representativeCount());
+        var result=com.tianmu.agent.application.FeedbackMaterialEvidence.bind(recovered,second.analysis().forJob(job.id()),material);assertTrue(recovered.completeOperation(materialOp,result));
+        second.preparation().startCompressedReport(job.id(),owner,null,control);var reportOp=new PendingOperation(job.id(),"representative-report",job.deadline());recovered.execution().observe(new ToolCall("generate_feedback_report",Map.of("materials_id",result.evidenceId()),"report-call","report-group"),new ToolResult("generate_feedback_report",Map.of("status","PENDING"),null,null,reportOp));recovered.waitFor(reportOp);
+        for(int n=0;n<12 && second.analysis().forJob(job.id()).phase()!=FeedbackAnalysis.Phase.READY;n++)second.analysis().advance(job.id());
+        assertEquals(FeedbackAnalysis.Phase.READY,second.analysis().forJob(job.id()).phase());assertEquals(1,modelCalls.get());assertEquals(1,exports.get());
+        repository.close();repository=new MysqlRunRepository(source,mapper,cache,new FileObjectStore(directory),Duration.ofSeconds(30),16);var finalRun=repository.recoverWaiting().stream().filter(r->r.id.equals(run.id)).findFirst().orElseThrow();var third=fixture.get();
+        var reportJson=third.preparation().reportJson(job.id(),owner,new com.tianmu.agent.runtime.control.CallControl(finalRun.deadline(),finalRun.cancellation()));
+        var asset=third.analysis().asset(job.id(),owner,request);var evidence=com.tianmu.agent.application.FeedbackEvidenceBinding.bind(finalRun,asset);var receipt=new com.tianmu.agent.application.ReportArtifacts(repository).save(finalRun,evidence.id(),reportJson.html());
+        assertTrue(finalRun.completeOperation(reportOp,new ToolResult("generate_feedback_report",Map.of("status","READY","url",receipt.url()),evidence.id())));
+        assertInstanceOf(com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver.class,new com.tianmu.agent.application.BusinessCompletionEvaluator().evaluate(com.tianmu.agent.runtime.AgentRuntime.completionInput(finalRun)));
+        assertEquals(2,embeddings.get());assertEquals(1,modelCalls.get());assertEquals(1,db.queryForObject("SELECT model_calls FROM agent_feedback_job WHERE job_id=?",Integer.class,job.id().toString()));assertEquals(2,db.queryForObject("SELECT embedding_calls FROM agent_feedback_preparation WHERE job_id=? AND step='SNAPSHOT'",Integer.class,job.id().toString()));
+        assertEquals(reportJson,third.preparation().storedReportJson(job.id(),owner));assertTrue(repository.report(run.id,owner,receipt.artifactId()).length>0);finalRun.cancel();
+    }
+    @Test void changedReportResourcesRejectPriorManifestWithoutInventingContentHashes() throws Exception {
         var fixture=mapper.readTree(getClass().getResourceAsStream("/compat/agent-59a1746-resource-manifest.json"));
         Map<String,String> resources=mapper.convertValue(fixture.get("resourceVersions"),new com.fasterxml.jackson.core.type.TypeReference<Map<String,String>>(){});
         Set<String> tools=mapper.convertValue(fixture.get("allowedTools"),new com.fasterxml.jackson.core.type.TypeReference<Set<String>>(){});
@@ -37,7 +86,7 @@ class MysqlStorageIntegrationTest {
         var op=new PendingOperation(UUID.randomUUID(),"feedback-analysis",run.deadline());run.execution().observe(new ToolCall("analyze_feedback",Map.of()),new ToolResult("analyze_feedback",Map.of("status","PENDING"),null,null,op));run.waitFor(op);
         repository.close();repository=new MysqlRunRepository(source,mapper,cache,new FileObjectStore(directory),Duration.ofSeconds(30),16);
         var restored=repository.recoverWaiting().stream().filter(value->value.id.equals(run.id)).findFirst().orElseThrow();
-        assertDoesNotThrow(()->assembler.verify(restored.task()));assertEquals(resources,restored.task().resourceVersions());assertNull(restored.executionPolicy());
+        assertEquals("RESOURCE_VERSION_MISMATCH",assertThrows(AgentException.class,()->assembler.verify(restored.task())).code());assertEquals(resources,restored.task().resourceVersions());assertNull(restored.executionPolicy());
         assertFalse(restored.task().resourceVersions().containsKey("prompt-content:harness.system"));restored.cancel();
     }
     @Test void versionedWaitingSurvivesRestartAndWriterRollbackWithoutResettingUsage() {

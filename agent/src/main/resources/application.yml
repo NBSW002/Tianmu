@@ -48,6 +48,23 @@ agent:
       retention: ${VIDEO_CACHE_RETENTION:0s}
       max-entries: ${VIDEO_CACHE_MAX_ENTRIES:1024}
   feedback:
+    compression:
+      enabled: ${FEEDBACK_COMPRESSION_ENABLED:false}
+      min-effective-chars: ${FEEDBACK_MIN_EFFECTIVE_CHARS:3}
+      playback-bucket-ms: ${FEEDBACK_PLAYBACK_BUCKET_MS:15000}
+      min-similarity: ${FEEDBACK_CLUSTER_MIN_SIMILARITY:0.90}
+      neighbors: ${FEEDBACK_CLUSTER_NEIGHBORS:32}
+      min-centrality: ${FEEDBACK_MIN_CENTRALITY:0.75}
+      representatives-per-cluster: ${FEEDBACK_REPRESENTATIVES_PER_CLUSTER:2}
+      max-per-cluster: ${FEEDBACK_MAX_PER_CLUSTER:3}
+      max-representatives: ${FEEDBACK_MAX_REPRESENTATIVES:60}
+      near-duplicate-similarity: ${FEEDBACK_NEAR_DUPLICATE_SIMILARITY:0.96}
+      text-chars: ${FEEDBACK_REPRESENTATIVE_TEXT_CHARS:300}
+      context-chars: ${FEEDBACK_REPRESENTATIVE_CONTEXT_CHARS:600}
+      package-bytes: ${FEEDBACK_REPRESENTATIVE_PACKAGE_BYTES:32768}
+      vector-bytes: ${FEEDBACK_VECTOR_MEMORY_BYTES:67108864}
+      embedding-calls: ${FEEDBACK_EMBEDDING_CALL_LIMIT:512}
+      batch-bytes: ${FEEDBACK_REPRESENTATIVE_BATCH_BYTES:12000}
     read-parallelism: ${FEEDBACK_READ_PARALLELISM:1}
     reuse:
       enabled: ${FEEDBACK_RESULT_REUSE_ENABLED:true}

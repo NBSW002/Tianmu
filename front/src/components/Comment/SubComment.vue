@@ -77,6 +77,7 @@
           <span class="sub-reply-time">{{
             formatStandardDateTime(item.createTime)
           }}</span>
+          <FeedbackLikeButton :item-id="item.commentId" />
           <span class="sub-reply-btn" @click="handleReply(item)">回复</span>
           <div
             class="sub-reply-operation-wrap"
@@ -119,6 +120,7 @@
 
 <script>
 import VAvatar from "../avatar/VAvatar.vue";
+import FeedbackLikeButton from "@/components/Comment/FeedbackLikeButton.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { handleNum, formatStandardDateTime } from "@/lib/utils.js";
 import { useUserStore } from "@/store/user";
@@ -129,6 +131,7 @@ export default {
   name: "SubComment",
   components: {
     VAvatar,
+    FeedbackLikeButton,
   },
   props: {
     // 是否是宽屏
