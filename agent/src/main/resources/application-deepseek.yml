@@ -16,6 +16,9 @@ agent:
     harness-model: ${HARNESS_MODEL:deepseek-flash}
     analysis-model: ${ANALYSIS_MODEL:deepseek-flash}
     thinking-enabled: ${AGENT_MODEL_THINKING_ENABLED:true}
+    thinking-effort: ${AGENT_MODEL_THINKING_EFFORT:high}
+    analysis-thinking-effort: ${AGENT_ANALYSIS_THINKING_EFFORT:low}
+    analysis-max-tokens: ${AGENT_ANALYSIS_MAX_OUTPUT_TOKENS:16384}
     connect-timeout: 3s
     preparation-max-tokens: 384
     harness-max-tokens: ${HARNESS_MAX_OUTPUT_TOKENS:3072}

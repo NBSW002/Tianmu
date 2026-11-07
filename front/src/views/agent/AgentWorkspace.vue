@@ -429,6 +429,7 @@ function failureLabel(code) {
       FORBIDDEN: '你没有权限分析这项内容，请确认视频或直播间 ID。',
       DEADLINE_EXCEEDED: '这次回复耗时较长，请稍后重试。',
       MODEL_UNAVAILABLE: '模型服务暂时不可用，请稍后重试。',
+      MODEL_OUTPUT_LIMIT: '模型输出已达上限，结果未完整生成。',
       MODEL_QUOTA_EXHAUSTED: '模型服务额度不可用，本次分析已停止。请联系管理员检查模型账户。',
       MODEL_TOKEN_BUDGET_EXCEEDED: '本次分析已达到用量上限，已停止后续模型请求。',
       MODEL_CALL_BUDGET_EXCEEDED: '本次分析已达到调用次数上限，已停止后续模型请求。',

@@ -39,6 +39,13 @@ class RuntimeModelCatalogTest {
         assertSame(old.model(),run.modelOr(next.model()));assertThrows(IllegalStateException.class,()->run.selectModel(next));
         assertFalse(json.writeValueAsString(catalog.choices()).contains("secret"));assertFalse(json.writeValueAsString(catalog.choices()).contains("example.com"));
     }
+    @Test void mainThinkingEffortChangeCannotRestoreThePriorPinnedCatalog() throws Exception {
+        write("deepseek-flash");var high=catalog();var selected=high.select("fast").choice();
+        var low=new DeepSeekProperties(defaults.baseUrl(),defaults.apiKey(),defaults.preparationModel(),defaults.harnessModel(),defaults.connectTimeout(),defaults.preparationMaxTokens(),defaults.harnessMaxTokens(),defaults.analysisModel(),true,"low",defaults.analysisThinkingEffort(),defaults.analysisMaxTokens());
+        var changed=new RuntimeModelCatalog(low,json,ContextPolicy.defaults(),new PromptCatalog(),null,file().toString(),key->"test-secret");
+        assertNotEquals(selected.revision(),changed.select("fast").choice().revision());
+        assertEquals("MODEL_REVISION_UNAVAILABLE",assertThrows(AgentException.class,()->changed.restore(selected)).code());
+    }
     @Test void invalidCatalogNeverPublishesAndRestartCannotSilentlyChangePinnedModel() throws Exception {
         write("model-one");var catalog=catalog();var old=catalog.select("fast");Files.writeString(file(),"{invalid");
         assertEquals("MODEL_CATALOG_INVALID",assertThrows(AgentException.class,catalog::reload).code());assertSame(old,catalog.restore(old.choice()));

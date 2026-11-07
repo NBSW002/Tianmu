@@ -29,6 +29,7 @@ class DeepSeekAdapterTest {
     Function<JsonNode, String> answer = input -> "{\"kind\":\"CLARIFY\",\"clarification\":\"Date?\"}";
     Function<JsonNode,Map<String,Object>> nativeAnswer;
     int status = 200;
+    String finishReason;
     CountDownLatch entered, release;
     @BeforeEach void start() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -38,7 +39,7 @@ class DeepSeekAdapterTest {
             if (entered != null) entered.countDown();
             if (release != null) try { release.await(3, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             var message=nativeAnswer==null ? Map.<String,Object>of("content",answer.apply(request)):nativeAnswer.apply(request);
-            byte[] body = mapper.writeValueAsBytes(Map.of("choices", List.of(Map.of("finish_reason", message.containsKey("tool_calls")?"tool_calls":"stop",
+            byte[] body = mapper.writeValueAsBytes(Map.of("choices", List.of(Map.of("finish_reason", finishReason!=null?finishReason:message.containsKey("tool_calls")?"tool_calls":"stop",
                     "message", message)), "usage", Map.of("prompt_tokens", 10, "completion_tokens", 5)));
             try { exchange.sendResponseHeaders(status, body.length); exchange.getResponseBody().write(body); }
             finally { exchange.close(); }
@@ -50,6 +51,17 @@ class DeepSeekAdapterTest {
     }
     @AfterEach void stop() { if (release != null) release.countDown(); server.stop(0); }
     CallControl control() { return new CallControl(Instant.now().plusSeconds(2), new CancellationToken()); }
+    @Test void mainAndBatchAnalysisSendTheirOwnThinkingEffortAndBudget(){
+        client.complete(properties.analysisModel(),List.of(Map.of("role","user","content","Return JSON")),properties.analysisMaxTokens(),control(),true);
+        assertEquals("enabled",requests.get(0).path("thinking").path("type").asText());assertEquals("low",requests.get(0).path("reasoning_effort").asText());assertEquals(16384,requests.get(0).path("max_tokens").asInt());
+        client.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","Answer")),List.of(),properties.harnessMaxTokens(),control());
+        assertEquals("high",requests.get(1).path("reasoning_effort").asText());
+    }
+    @Test void outputExhaustedByThinkingIsExplicitAndNeverAcceptedAsStructuredResult(){
+        finishReason="length";nativeAnswer=request->Map.of("reasoning_content","still reasoning","content","{\"topics\":");
+        var error=assertThrows(AgentException.class,()->client.complete(properties.analysisModel(),List.of(Map.of("role","user","content","Return JSON")),properties.analysisMaxTokens(),control(),true));
+        assertEquals("MODEL_OUTPUT_LIMIT",error.code());
+    }
     Input input() { return new Input("视频1001昨天的弹幕数", LocalDate.of(2026, 10, 21), new AccessScope("private-tenant", "private-user", Set.of(1001L))); }
     @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans={false,true})
     void revokedContextBarrierPreventsAnyActualHttpDispatch(boolean streaming){

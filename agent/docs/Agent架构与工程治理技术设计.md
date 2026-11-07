@@ -819,7 +819,7 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 
 本节描述本轮代码行为；发布及验证证据另见[策略快照续项发布与验收](策略快照续项发布与验收.md)末尾记录。不能用源码通过代替生产验收。
 
-- **模型协议**：`agent.models.thinking-enabled=true`，环境别名`AGENT_MODEL_THINKING_ENABLED`，由DeepSeekProperties绑定、DeepSeekClient消费，重启生效。主循环原生工具请求和后台反馈分析开启DeepSeek thinking；前置意图/情绪/澄清、短输出记忆调用继续关闭。兼容端点仅在DeepSeek主机或deepseek模型名时发送thinking参数。开关及`native-thinking-v1`进入模型revision；发布必须排空QUEUED/RUNNING/WAITING_OPERATION，不能将旧模型revision当作新协议恢复。关闭开关同样改变revision。
+- **模型协议**：`agent.models.thinking-enabled=true`，环境别名`AGENT_MODEL_THINKING_ENABLED`，由DeepSeekProperties绑定、DeepSeekClient消费，重启生效。主循环原生工具请求和后台反馈分析开启DeepSeek thinking；前置意图/情绪/澄清、短输出记忆调用继续关闭。兼容端点仅在DeepSeek主机或deepseek模型名时发送thinking参数。开关及`native-thinking-v2`进入模型revision；发布必须排空QUEUED/RUNNING/WAITING_OPERATION，不能将旧模型revision当作新协议恢复。关闭开关同样改变revision。
 - **思考与正文分离**：只收集服务商实际返回的`reasoning_content`，SSE逐块组装，绝不流入聊天正文。ToolCall追加可空reasoningContent，原生assistant消息回放完整内容；并行调用分组校验一致，Transform不得修改，WAITING持久化和恢复保留。旧数据缺字段仍读为null；兼容回放仅在线路上填空字符串，不补造历史思考。
 - **私有Trace详情**：每个model.request保存独立reasoning引用，公共span仅导出引用、状态、字节数。既有provider_output仍对reasoning字段脱敏；详情执行凭据/邮箱/手机号清理以及既有单项和单Run限额、截断标记。memory或compaction保护开启时reasoning信封标记requiresSourceGuard；接口先验证Run所有权，再通过TraceSourceAuthority/MemoryLedger复验来源，缺authority拒绝返回。来源删除、暂停或撤权后不能重新读取衍生思考；私有对象遵循既有存储保留清理，不宣称即时物理抹除。
 - **前端正文**：TEXT_END将已显示文字移入完成段落，下一轮继续追加。事件高水位保存在turn，重新订阅及游标重置不能重复追加；成功快照显示权威答案，无答案的失败/取消保留已流文字。完成段落目前是当前页面状态，刷新历史时以服务端已持久答案为准，不宣称保存所有中间措辞。
@@ -831,6 +831,8 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 生产报告对照暴露了旧30秒后台调用时限不足：三次model.request均在约30秒结束、没有HTTP响应头，终态MODEL_UNAVAILABLE，保留该失败证据。随后新增deepseek profile默认`agent.feedback.model-timeout=120s`、显式`FEEDBACK_MODEL_TIMEOUT`，基础profile保留30s；精确合法范围1–180秒。租约仍由modelTimeout加既有margin生成，调用受job剩余deadline、预算、取消和fence约束，不增加工作并发或重置预算。必须以真实报告复测成功作为验收，不能用延长配置代替上游诊断。
 
 节点详情沿用workbench颜色、边框、字体及圆角：上下文模块采用名称/字节数行布局，协议版本收进技术信息；调用参数和执行结果统一折叠，真实正文仍可展开和复制。memoryProtected占位载荷显示中文保护说明，保留服务端保护策略，不把占位JSON当成真实调用参数；代码区统一字号并限制高度。已打开的SPA需刷新才能加载新脚本；用户确认bd231布局在刷新后正常，不能把旧脚本截图解释为新布局已验证失败。
+
+120秒对照进一步暴露输出耗尽：第一批32.9秒正常返回，后续批次HTTP 200但finish_reason=length，8192个completion Token全部为reasoning，尚无最终JSON。为此将主循环thinking-effort（默认high）、后台analysis-thinking-effort（默认low）和analysis-max-tokens（默认16384，8192–32768 Token）纳入DeepSeekProperties启动配置；后台仍开启思考，预算包括思考与最终结果，调用/Token总上限不变。主循环模式及effort进入native-thinking-v2目录revision；后台baseUrl/model/mode/effort/maxTokens进入两种反馈policyHash，旧结果缓存与旧job不冒充新配置。finish_reason=length明确报MODEL_OUTPUT_LIMIT，在使用量结算及私有思考采集后失败，不再按同配置重复付费重试。配置边界见[配置目录](配置目录.md)。
 
 截至2026-11-07，官方`deepseek-flash`对应DeepSeek-V4.1-Flash-1017，[官方模型表](https://api-docs.deepseek.com/quick_start/pricing/)与服务端/models列表已核对。目录展示名为V4.1-Flash-1017；线路继续使用官方别名deepseek-flash，不伪造服务商未提供的固定版本ID。
 

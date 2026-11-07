@@ -104,6 +104,7 @@ public final class DeepSeekClient {
             boolean supportsThinking=config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek");
             boolean thinking=supportsThinking && config.thinkingEnabled() && (nativeTools!=null || external);
             TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state",thinking?"ENABLED":"DISABLED"));
+            if(thinking){String effort=external?config.analysisThinkingEffort():config.thinkingEffort();requestBody.put("reasoning_effort",effort);TraceAttributes.apply(Span.current(),Map.of("model.reasoning_effort",effort));}
             if(nativeTools!=null && thinking) {
                 var replay=new ArrayList<Map<String,Object>>();
                 for(var message:messages){var copy=new LinkedHashMap<String,Object>(message);if("assistant".equals(copy.get("role")))copy.putIfAbsent("reasoning_content","");replay.add(copy);}
@@ -141,6 +142,7 @@ public final class DeepSeekClient {
                 TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state","RECEIVED"));TraceDetails.reasoning(reasoning.asText());
             }
             if (choice.path("finish_reason").isTextual()) TraceAttributes.apply(Span.current(), Map.of("model.finish_reason", choice.path("finish_reason").asText()));
+            if("length".equals(choice.path("finish_reason").asText()))throw new AgentException("MODEL_OUTPUT_LIMIT","Model output budget exhausted before a complete result");
             if(nativeTools!=null && choice.path("message").path("tool_calls").isArray() && !choice.path("message").path("tool_calls").isEmpty()) {
                 if(nativeTools.isEmpty() || !"tool_calls".equals(choice.path("finish_reason").asText()))throw new AgentException("INVALID_DECISION","Unexpected native tool call");
                 if(requiredTool!=null && !"required".equals(requiredTool))for(var call:choice.path("message").path("tool_calls"))

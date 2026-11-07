@@ -71,6 +71,13 @@ class FeedbackAnalysisTest {
         f.proposals=null;Thread.sleep(2100);assertTrue(f.service.advance(job.id(),null,()->{}).isEmpty());
         assertEquals(Phase.READY,f.finish(job.id()).phase());assertEquals(2,f.store.get(job.id()).modelCalls());
     }
+    @Test void exhaustedOutputBudgetFailsOnceInsteadOfRepeatingTheSamePaidRequest(){
+        var f=new Fixture();var job=f.start(2);f.service.advance(job.id());
+        f.proposals=input->{throw new AgentException("MODEL_OUTPUT_LIMIT","incomplete output");};
+        var failure=f.service.advance(job.id(),null,()->{});assertEquals("MODEL_OUTPUT_LIMIT",failure.orElseThrow().code());
+        assertEquals(Phase.FAILED,f.store.get(job.id()).phase());assertEquals("MODEL_OUTPUT_LIMIT",f.store.get(job.id()).errorCode());
+        f.service.advance(job.id());assertEquals(1,f.calls.get());assertEquals(1,f.store.get(job.id()).modelCalls());assertEquals(0,f.store.get(job.id()).completedWork());
+    }
     @Test void observationIndexSurvivesRestartAndDeepPagesReadOnlyIntersectingBatches() throws Exception {
         var f=new Fixture();
         f.proposals=input->{

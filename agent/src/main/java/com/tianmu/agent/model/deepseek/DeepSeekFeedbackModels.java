@@ -15,8 +15,8 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
     private final DeepSeekClient client;private final DeepSeekProperties config;private final ObjectMapper json;
     private final String instruction,hash,pipelineInstruction,pipelineHash;
     public DeepSeekFeedbackModels(DeepSeekClient client,DeepSeekProperties config,ObjectMapper json,PromptCatalog prompts){
-        this.client=client;this.config=config;this.json=json;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha(instruction.getBytes(StandardCharsets.UTF_8));
-        pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha((pipelineInstruction+"\n"+FeedbackSynthesis.VERSION+"\n"+config.baseUrl()+"\n"+config.analysisModel()).getBytes(StandardCharsets.UTF_8));
+        this.client=client;this.config=config;this.json=json;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha((instruction+"\n"+config.analysisProtocolRevision()).getBytes(StandardCharsets.UTF_8));
+        pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha((pipelineInstruction+"\n"+FeedbackSynthesis.VERSION+"\n"+config.analysisProtocolRevision()).getBytes(StandardCharsets.UTF_8));
     }
     public String modelName(){return config.analysisModel();}
     public String policyHash(){return hash;}
@@ -102,13 +102,13 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             payload.put("correction",Map.of("missing",input.correction().missing().stream().map(id->aliases.getOrDefault(id,id)).toList(),
                     "duplicates",input.correction().duplicates().stream().map(id->aliases.getOrDefault(id,id)).toList(),"unknown_count",input.correction().unknown().size(),"issue",input.correction().issue()));
         }
-        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),8192,control,true),max,true);
+        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),config.analysisMaxTokens(),control,true),max,true);
         if(childIds.isEmpty())return result;
         return result.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),
                 p.members().stream().map(id->childIds.getOrDefault(id,id)).toList())).toList();
     }
     private com.fasterxml.jackson.databind.JsonNode complete(Input input,Map<String,Object> payload,CallControl control){
-        if(input.correction()==null)return client.complete(config.analysisModel(),client.messages(instruction,payload),6144,control,true);
+        if(input.correction()==null)return client.complete(config.analysisModel(),client.messages(instruction,payload),config.analysisMaxTokens(),control,true);
         var c=input.correction();var expected=new HashSet<String>();
         input.groups().forEach(g->expected.add(g.id()));input.children().forEach(t->expected.add(t.id()));
         var previous=new LinkedHashMap<String,String>();
@@ -120,7 +120,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
                 "duplicates",c.duplicates().stream().filter(expected::contains).toList(),
                 "unknown_count",c.unknown().size(),"issue",c.issue()));
         for(int detail=0;;detail++){
-            try { return client.complete(config.analysisModel(),client.messages(instruction,payload),6144,control,true); }
+            try { return client.complete(config.analysisModel(),client.messages(instruction,payload),config.analysisMaxTokens(),control,true); }
             catch(AgentException tooLarge){
                 if(!"MODEL_CONTEXT_TOO_LARGE".equals(tooLarge.code()) || detail==2)throw tooLarge;
                 // Both messages and the full provider envelope are guarded before any network call or model charge.

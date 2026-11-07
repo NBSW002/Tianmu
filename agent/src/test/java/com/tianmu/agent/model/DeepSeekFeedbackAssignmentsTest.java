@@ -23,7 +23,7 @@ class DeepSeekFeedbackAssignmentsTest {
     List<Proposal> analyze(String assignments,Input input)throws Exception {
         when(client.messages(anyString(),anyMap())).thenReturn(List.of(Map.of("role","user","content","fixture")));
         var response=json.readTree("{\"topics\":[{\"key\":\"T1\",\"title\":\"topic\",\"observation\":\"observed\",\"recommendation\":\"\"}],\"assignments\":"+assignments+"}");
-        when(client.complete(anyString(),anyList(),eq(6144),any(CallControl.class),eq(true))).thenReturn(response);
+        when(client.complete(anyString(),anyList(),eq(16384),any(CallControl.class),eq(true))).thenReturn(response);
         var config=new DeepSeekProperties(URI.create("http://localhost"),"fixture","fixture","fixture",Duration.ofSeconds(1),384,3072);
         return new DeepSeekFeedbackModels(client,config,json,new PromptCatalog()).analyze(input,new CallControl(Instant.now().plusSeconds(30),new CancellationToken()));
     }
@@ -37,13 +37,13 @@ class DeepSeekFeedbackAssignmentsTest {
     @Test void unassignedCatalogDeclarationsAreIgnoredWithoutAcceptingUnsupportedProseOrRetrying()throws Exception {
         when(client.messages(anyString(),anyMap())).thenReturn(List.of(Map.of("role","user","content","fixture")));
         var response=json.readTree("{\"topics\":[{\"key\":\"T1\",\"title\":\"当前主题\",\"observation\":\"本批观点\",\"recommendation\":\"\"},{\"key\":\"T9\",\"title\":\"旧目录主题\",\"observation\":\"没有本批依据的文字\",\"recommendation\":\"\"}],\"assignments\":{\"G1\":\"T1\",\"G2\":\"T1\"}}");
-        when(client.complete(anyString(),anyList(),eq(6144),any(CallControl.class),eq(true))).thenReturn(response);
+        when(client.complete(anyString(),anyList(),eq(16384),any(CallControl.class),eq(true))).thenReturn(response);
         var config=new DeepSeekProperties(URI.create("http://localhost"),"fixture","fixture","fixture",Duration.ofSeconds(1),384,3072);
         var proposals=new DeepSeekFeedbackModels(client,config,json,new PromptCatalog()).analyze(input(),new CallControl(Instant.now().plusSeconds(30),new CancellationToken()));
         assertEquals(1,proposals.size());assertEquals("T1",proposals.get(0).key());
         var result=new FeedbackPlanner(new FeedbackObjects(mock(com.tianmu.agent.runtime.store.ObjectStore.class),json),FeedbackPolicy.defaults()).validate("work",input(),proposals);
         assertEquals(2,result.covered());assertEquals(List.of("G1","G2"),result.topics().get(0).members());
-        verify(client,times(1)).complete(anyString(),anyList(),eq(6144),any(CallControl.class),eq(true));
+        verify(client,times(1)).complete(anyString(),anyList(),eq(16384),any(CallControl.class),eq(true));
     }
     @Test void missingAndUnknownIdsRemainRejectedInsteadOfAutoClassified()throws Exception {
         var objects=new FeedbackObjects(mock(com.tianmu.agent.runtime.store.ObjectStore.class),json);var planner=new FeedbackPlanner(objects,FeedbackPolicy.defaults());
