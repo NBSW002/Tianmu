@@ -817,6 +817,8 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 
 **输入与错误。** 报告支持数字1–30天、既有中文“七天”及两裸日期的半开区间；歧义/非法日期不退化全量。澄清保留评论/弹幕和不读视频约束，video-only补充以原受理时刻锚定相对时间。新增错误区分POLICY_VERSION_UNAVAILABLE、POLICY_SNAPSHOT_INVALID、MODEL_REVISION_UNAVAILABLE、RESOURCE_VERSION_MISMATCH、OPERATION_KIND_UNAVAILABLE、HOOK_TIMEOUT/HOOK_CAPACITY_EXCEEDED/HOOK_INTERRUPTED/HOOK_REJECTED。第15.5未逐项迁出的历史运行旋钮仍保留为后续模块工作，不能宣称所有硬编码已消除。
 
+本节所列续项最终发布源码为5be4caf，当前线上writer已开启；源码默认开关仍为false。最终CI、专用库、七项真实场景、Trace图谱、writer关闭/重启读取和独立证据复核见[续项发布与验收](策略快照续项发布与验收.md)。该记录单独列出剩余治理路线，不能把本节验收扩大为整个项目已完成。
+
 ## 附录 A：配置声明与散落参数证据
 
 由本次只读扫描生成的附录随本文保存。范围与局限见附录开头；配置声明不是线上有效值。

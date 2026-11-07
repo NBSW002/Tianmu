@@ -130,3 +130,37 @@ Prompt内容哈希刚加入时，本审查发现新的P1：全局versions增加p
 - 新增compat/agent-59a1746-resource-manifest.json夹具包含上一发布版本50个资源键及23个工具，仅保存兼容元数据。本Agent检查文件内容与其消费测试，未独立连接服务器证明抽取来源。单元用例覆盖旧manifest可读和新格式缺键拒绝；真实SQL用例持久旧manifest WAITING、重建Repository后复验并断言policy为空且没有回填内容hash。该SQL用例是否执行通过仍等待主Agent日志。
 
 当前上述静态发现均已修正，未发现新的已确认P0/P1/P2；此结论限当前代码审阅，不预先覆盖正在运行的测试，也不扩大成原整条治理路线、生产发布或完整回滚矩阵均已完成。
+
+## 最终发布与执行证据复核（5be4caf）
+
+本节为当前所列续项的最终验收证据复核，覆盖前面仍标“等待执行结果”的项目。审查方式为直接阅读主Agent保存的日志、JSON结果与验收断言源码，没有亲自重新运行测试、连接服务器、部署或调用模型；只修改本审查报告。源码HEAD为5be4caffa629ea70d3b2a1256856356e23597f5e。
+
+### 工程执行证据
+
+- policy-ci-state-auth.json对应运行42371352871，整体completed/success，frontend、java(agent)、java(business)、publication四作业均success。policy-ci-agent-success.log的checkout为5be4caf，Agent790项、0失败/错误、4跳过、BUILD SUCCESS，实际执行786项。4项是PaidContextCostEvaluationTest与CompactionRealModelTest各2项，不是存储测试门禁被跳过。
+- full-isolated-verify.log为跨平台资源兼容补丁前的Windows全量789项、0失败/错误、4跳过；不能将它说成最终补丁的Windows全量。最终源码policy-isolated-contracts.log为99项、0失败/错误/跳过，含MysqlStorageIntegrationTest36项真实SQL；portable-manifest-tests-r2.log为38项、0失败/错误/跳过。这两组定向结果补充最终Linux全量，不互相冒充覆盖范围。
+- 最终打包legacy并行、snapshot并行、snapshot规则回退三条policy-smoke日志均PASS，报告Trace分别49/49/47个span，paidModelCalls=0。此前记录的真实SQL丢ACK、版本化WAITING预算、旧manifest恢复，以及隔离Hook/Transform等新增用例由最终全量/定向执行结果支持，不能再笼统称“尚未执行数据库测试”。
+
+### 线上受控场景与Trace
+
+直接核对policy-evidence/summary.json的七项：reader-legacy成功4 dispatch、snapshot-general成功4、recent30-report成功11、two-date-question为NEEDS_INPUT且3、two-date-resume成功6、snapshot-cancellation为CANCELLED且4、rollback-legacy成功4；加总36个实际dispatch。逐项input/output求和分别101537/8933，与新验收文档一致。取消用量不完整，不能将已报告Token当完整计费总量。
+
+summary各项traceChecks为PASS且authorizationIsolation=true；验收脚本将后者写为bool(other)，另一账号请求断言因此没有在本次结果中被静默跳过。最近30天范围长度、COMMENT/DANMAKU来源、两日期续接边界及policyHash一致有明确断言；HTML私有访问、匿名401和另一账号403/404亦在相应断言范围内。
+
+policy-graph-audit.json实际位于var/governance-release根目录，七图谱均PASS；取消样本usageComplete=false保留。图谱审计使用当前parser/layout，没有把真实耗时或未知usage补成正常值。正式终态、唯一DONE、取消answer为空及stopReason保持由验收和postcheck脚本检查。这里确认实际保存结果及断言范围，不把读取汇总等同对模型回答质量做独立人工全量评价。
+
+### Reader/writer顺序和制品身份
+
+policy-preflight.json记录发布前activeRuns=0、284条legacy保留记录。部署后postcheck记录release为20261107-5be4caf-policy-reader，revision为5be4caf完整SHA，jarSha256为1415435368506fbbe12c2e012a2539a4477296d3644d34d06d1cc8910b55d29c，Agent healthy、writerEnabled=true。
+
+证据链覆盖writer关闭的兼容reader基线→开启writer的五项v1→关闭writer重启且保留读取六条旧Run→新legacy对照→重新开启writer重启并读取全部七条。policy-rollback-acceptance-r2.log记录保留六条PASS，最终postcheck列出七条原终态和legacy/v1来源。这是同一兼容reader上的writer开关回退，**不是退回不识别v1的旧二进制**；不应将其扩展成完整跨版本二进制回滚矩阵。
+
+preflight与postcheck中frontend及business的容器ID逐字一致，revision分别仍为2aaf8b9和bb09d4f；Agent容器更新到5be4caf。policy-preserved-user-check.json六项均true，支持所抽查独立工作区文件未变的声明，不把六项抽查说成审计了所有无关文件。
+
+### 最新结论与保留限制
+
+**当前所列策略快照、上下文职责、完成校验、操作注册、Hook/Transform隔离及资源兼容续项，静态发现已关闭，最终Linux工程回归、所列真实SQL和七项线上受控Trace证据复核通过。当前没有未关闭的已确认P0/P1/P2。** 此结论只覆盖上述明确范围与5be4caf。
+
+新文档《策略快照续项发布与验收》的主要数字和边界与已读证据一致：区分补丁前后、本地/CI、模拟/真实、已报告/完整计费用量、兼容reader关闭writer/旧二进制回滚，并保留FAQ首次命中诊断，不用该命中冒充三路真实模型对照。没有发现需要据此阻止本次所列续项验收的事实矛盾。
+
+原路线仍未因此全部完成：RunState其余写者全面收敛、剩余模块运行旋钮清理、通用自然语言组合目标与长期跨版本回滚矩阵继续保留。旧Prompt没有历史正文指纹，不补证同版本正文；format2提供新保证。RUNNING交接崩溃仍RUNNER_LOST，未宣称自动重放副作用。四项付费专项评测仍未运行，七场景不能替代它们。
