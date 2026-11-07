@@ -12,6 +12,24 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void fiveBucketProtocolHandlesSparseAndSingleSourceData(){
+        var vectors=mock(FeedbackVectorIndex.class);var s=service(vectors);s.bucketPolicy(new FeedbackBucketProperties(5,.65,2,50,64));var c=control();
+        var scope=new Request(request.query(),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var manifest=new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64));
+        var one=List.of(unit(1,Source.COMMENT,"画面非常清楚",3L));
+        var sparse=s.compress(UUID.randomUUID(),owner,scope,manifest,new Counts(1,0,0,0,1),List.of(s.prepare(Source.COMMENT,one,c),s.prepare(Source.DANMAKU,List.of(),c)),c,()->{});
+        assertTrue(sparse.clusters().isEmpty());assertEquals(List.of("C:1"),sparse.unclassified());assertEquals("画面非常清楚",sparse.unclassifiedExamples().get(0).text());
+        var two=List.of(one.get(0),unit(2,Source.COMMENT,"画面看得很清晰",2L));
+        var grouped=s.compress(UUID.randomUUID(),owner,scope,manifest,new Counts(2,0,0,0,2),List.of(s.prepare(Source.COMMENT,two,c),s.prepare(Source.DANMAKU,List.of(),c)),c,()->{});
+        assertEquals(1,grouped.clusters().size());assertTrue(grouped.unclassified().isEmpty());assertEquals(2,grouped.inputs().get(0).groups().get(0).messages());
+    }
+    @Test void contextDependentRepliesDoNotBorrowAnotherParentsMeaning(){
+        var s=service(mock(FeedbackVectorIndex.class));var c=control();
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var at=Instant.parse("2026-11-01T01:00:00Z");var rows=List.of(new Unit("C:1",Source.COMMENT,"1","非常赞同","父评论：音乐太吵",false,null,"u1",at,0L),new Unit("C:2",Source.COMMENT,"2","非常赞同","父评论：音乐很好",false,null,"u2",at,0L));
+        var material=s.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(2,0,0,0,2),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertTrue(material.clusters().isEmpty());assertEquals(Set.of("C:1","C:2"),Set.copyOf(material.unclassified()));assertTrue(material.inputs().isEmpty());
+    }
     @Test void byteLimitsUseTheExactProductionProjectionIncludingEscapesAndGroupMetadata()throws Exception {
         var s=service(mock(FeedbackVectorIndex.class));var c=control();
         var row=new Unit("C:1",Source.COMMENT,"1","abc"+"\"".repeat(297),"\\".repeat(600),false,null,"viewer",Instant.parse("2026-11-01T01:00:00Z"),1L);
@@ -62,6 +80,10 @@ class FeedbackCompressionTest {
         var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.VERSION);var c=control();
         var material=s.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(6,0,0,0,6),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
         assertEquals(3,material.clusters().size());assertEquals(3,material.representativeCount());assertTrue(material.clusters().stream().allMatch(k->k.representatives().size()==1));
+        s.bucketPolicy(new FeedbackBucketProperties(5,.90,2,50,64));
+        var fiveScope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var five=s.compress(UUID.randomUUID(),owner,fiveScope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(6,0,0,0,6),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertEquals(3,five.clusters().size());assertEquals(3,five.representativeCount());assertTrue(five.clusters().stream().allMatch(k->k.representatives().size()==1));
     }
     @Test void contextExcerptHasSealedProvenanceAndBoundedCodePointOffsets(){
         var s=service(mock(FeedbackVectorIndex.class));String context="父评论原话😀".repeat(150);var u=new Unit("C:1",Source.COMMENT,"1","背景音乐盖住人声了",context,false,null,"viewer",Instant.parse("2026-11-01T01:00:00Z"),10L);

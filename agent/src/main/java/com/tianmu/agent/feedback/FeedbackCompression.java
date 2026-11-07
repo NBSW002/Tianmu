@@ -11,6 +11,8 @@ import java.util.*;
 /** Pure task-member clustering and representative selection. Full membership never enters model projection. */
 public final class FeedbackCompression {
     public static final String VERSION="feedback-representatives-v1";
+    public static final String FIVE_VERSION="feedback-five-buckets-v2";
+    public static boolean representativeVersion(String version){return VERSION.equals(version) || FIVE_VERSION.equals(version);}
     public record Excluded(String id,String reason) {}
     public record SourceMaterial(Source source,List<Unit> eligible,List<Excluded> excluded) {
         public SourceMaterial {eligible=List.copyOf(eligible);excluded=List.copyOf(excluded);}
@@ -23,16 +25,18 @@ public final class FeedbackCompression {
     }
     public record Material(String version,FeedbackCompressionProperties policy,String protocolRevision,Blob manifest,Counts rawCounts,
                            Counts eligibleCounts,List<Excluded> excluded,int exactExpressions,List<Cluster> clusters,
-                           List<FeedbackModels.Input> inputs,int representativeCount,int modelBytes) {
-        public Material {excluded=List.copyOf(excluded);clusters=List.copyOf(clusters);inputs=List.copyOf(inputs);}
+                           List<FeedbackModels.Input> inputs,int representativeCount,int modelBytes,List<String> unclassified,List<Representative> unclassifiedExamples) {
+        public Material {excluded=List.copyOf(excluded);clusters=List.copyOf(clusters);inputs=List.copyOf(inputs);unclassified=unclassified==null?List.of():List.copyOf(unclassified);unclassifiedExamples=unclassifiedExamples==null?List.of():List.copyOf(unclassifiedExamples);}
         public Map<String,Object> summary(){return Map.of("raw",rawCounts.total(),"excluded",excluded.size(),"eligible",eligibleCounts.total(),
                 "exact",exactExpressions,"clusters",clusters.size(),"representatives",representativeCount,"model_bytes",modelBytes,
-                "method",version,"policy",protocolRevision);}
+                "method",version,"policy",protocolRevision,"unclassified",unclassified.size());}
     }
     private record Exact(Source source,String text,String context,boolean author,Long bucket) {}
     private record Expression(Unit exemplar,List<Unit> members) {}
     private final FeedbackEmbedding embedding;private final FeedbackVectorIndex vectors;
     private final FeedbackCompressionProperties policy;private final ObjectMapper json;
+    private FeedbackBucketProperties buckets=new FeedbackBucketProperties(5,.65,2,50,64);
+    public void bucketPolicy(FeedbackBucketProperties value){buckets=Objects.requireNonNull(value);}
     public FeedbackCompression(FeedbackEmbedding embedding,FeedbackVectorIndex vectors,FeedbackCompressionProperties policy,ObjectMapper json){
         this.embedding=embedding;this.vectors=vectors;this.policy=policy;this.json=json;
         if(policy.enabled() && (embedding==null || vectors==null))throw new IllegalArgumentException("Compression requires Embedding and vector storage");
@@ -40,6 +44,7 @@ public final class FeedbackCompression {
     }
     public FeedbackCompressionProperties policy(){return policy;}
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-v2").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
         var accepted=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();
         for(var u:rows){check(control);if(u.source()!=source)throw new AgentException("INVALID_EVIDENCE","Mixed preparation partition");
@@ -67,6 +72,7 @@ public final class FeedbackCompression {
         for(var members:exact.values()){members.sort(ranking);expressions.add(new Expression(members.get(0),List.copyOf(members)));}
         if((long)expressions.size()*embedding.dimension()*Float.BYTES*3>policy.vectorBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Task vector memory quota exceeded");
         var encoded=encode(owner,request,expressions,control,reserveEmbedding);
+        if(FIVE_VERSION.equals(request.rulesVersion()))return fiveBuckets(manifest,raw,excluded,rows,expressions,encoded,control);
         var assigned=new BitSet(expressions.size());var clusters=new ArrayList<Cluster>();var inputs=new ArrayList<FeedbackModels.Input>();
         var allGroups=new ArrayList<FeedbackModels.Group>();int reps=0,bytes=0;
         for(int seed=0;seed<expressions.size();seed++){
@@ -131,7 +137,54 @@ public final class FeedbackCompression {
         if(!batch.isEmpty())inputs.add(new FeedbackModels.Input(WorkKind.CLASSIFY,batch,List.of(),null));
         var people=new HashSet<String>();rows.stream().filter(u->u.userId()!=null).forEach(u->people.add(u.userId()));long comments=rows.stream().filter(u->u.source()==Source.COMMENT).count();
         bytes=projectedBytes(allGroups);if(bytes>policy.packageBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative model projection exceeds global byte quota");
-        return new Material(VERSION,policy,revision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,reps,bytes);
+        return new Material(VERSION,policy,revision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,reps,bytes,List.of(),List.of());
+    }
+    private Material fiveBuckets(Blob manifest,Counts raw,List<Excluded> excluded,List<Unit> rows,List<Expression> expressions,List<float[]> encoded,CallControl control){
+        var eligibleIndices=new ArrayList<Integer>();var unclassified=new ArrayList<String>();
+        for(int n=0;n<expressions.size();n++){if(contextDependent(expressions.get(n).exemplar()))expressions.get(n).members().forEach(u->unclassified.add(u.id()));else eligibleIndices.add(n);}
+        var partition=FiveBucketClustering.cluster(eligibleIndices.stream().map(encoded::get).toList(),buckets.maxBuckets(),buckets.maxIterations(),buckets.minSimilarity(),buckets.minMembers(),buckets.candidateSamples(),control);
+        var clusters=new ArrayList<Cluster>();var groupRows=new ArrayList<FeedbackModels.Group>();var inputs=new ArrayList<FeedbackModels.Input>();int representatives=0;
+        for(int n:partition.unclassified())expressions.get(eligibleIndices.get(n)).members().forEach(u->unclassified.add(u.id()));
+        for(var bucket:partition.buckets()){
+            var indices=bucket.stream().map(eligibleIndices::get).toList();
+            check(control);float[] center=new float[embedding.dimension()];for(int n:indices)for(int d=0;d<center.length;d++)center[d]+=encoded.get(n)[d];normalize(center);
+            var members=new ArrayList<Unit>();indices.forEach(n->members.addAll(expressions.get(n).members()));var selected=new ArrayList<Integer>();
+            for(var source:Source.values()){
+                var candidates=new ArrayList<>(indices.stream().filter(n->expressions.get(n).exemplar().source()==source).toList());
+                if(candidates.isEmpty())continue;candidates.sort((a,b)->compare(expressions.get(a),expressions.get(b),encoded.get(a),encoded.get(b),center));selected.add(candidates.get(0));
+            }
+            if(representatives+selected.size()>policy.maxRepresentatives())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative quota cannot cover all buckets");
+            var reps=new ArrayList<Representative>();for(int n:selected){var e=expressions.get(n);reps.add(representative(e.exemplar(),e.members().size(),manifest.sha256()));}
+            String id="B"+(clusters.size()+1);clusters.add(new Cluster(id,members.stream().map(Unit::id).toList(),reps));groupRows.addAll(groups(id,members,reps));representatives+=reps.size();
+        }
+        int bytes=projectedBytes(groupRows);if(bytes>policy.packageBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative model projection exceeds global byte quota");
+        var byId=new HashMap<String,Unit>();rows.forEach(u->byId.put(u.id(),u));
+        var order=new ArrayList<Integer>();for(int n=0;n<clusters.size();n++)order.add(n);order.sort(Comparator.<Integer>comparingInt(n->clusters.get(n).members().size()).reversed().thenComparingInt(n->n));
+        for(int index:order){
+            if(representatives>=policy.maxRepresentatives())break;check(control);var cluster=clusters.get(index);var ids=new HashSet<>(cluster.members());var selected=new ArrayList<>(cluster.representatives());var choices=new ArrayList<Integer>();
+            for(int n=0;n<expressions.size();n++)if(ids.contains(expressions.get(n).exemplar().id()))choices.add(n);
+            float[] center=new float[embedding.dimension()];for(int n:choices)for(int d=0;d<center.length;d++)center[d]+=encoded.get(n)[d];normalize(center);choices.sort((a,b)->compare(expressions.get(a),expressions.get(b),encoded.get(a),encoded.get(b),center));
+            var members=cluster.members().stream().map(byId::get).toList();
+            for(int n:choices){
+                if(selected.size()>=Math.min(policy.representativesPerCluster(),policy.maxPerCluster()) || representatives>=policy.maxRepresentatives())break;
+                var e=expressions.get(n);if(selected.stream().anyMatch(r->r.id().equals(e.exemplar().id())))continue;
+                boolean duplicate=false;for(var r:selected)for(int previous:choices)if(expressions.get(previous).exemplar().id().equals(r.id()) && cosine(encoded.get(n),encoded.get(previous))>=policy.nearDuplicateSimilarity()){duplicate=true;break;}if(duplicate)continue;
+                var next=new ArrayList<>(selected);next.add(representative(e.exemplar(),e.members().size(),manifest.sha256()));int delta=projectedBytes(groups(cluster.id(),members,next))-projectedBytes(groups(cluster.id(),members,selected));
+                if(bytes+delta>policy.packageBytes())continue;selected=next;bytes+=delta;representatives++;
+            }
+            clusters.set(index,new Cluster(cluster.id(),cluster.members(),selected));
+        }
+        groupRows.clear();for(var cluster:clusters)groupRows.addAll(groups(cluster.id(),cluster.members().stream().map(byId::get).toList(),cluster.representatives()));
+        bytes=projectedBytes(groupRows);if(bytes>policy.packageBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative model projection exceeds global byte quota");
+        var batch=new ArrayList<FeedbackModels.Group>();int batchBytes=0;
+        for(var cluster:clusters){var groups=groupRows.stream().filter(g->cluster.id().equals(g.candidateCluster())).toList();int size=projectedBytes(groups);
+            if(size>policy.batchBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","One bucket exceeds model batch quota");
+            if(batchBytes+size>policy.batchBytes() && !batch.isEmpty()){inputs.add(new FeedbackModels.Input(WorkKind.CLASSIFY,batch,List.of(),null));batch=new ArrayList<>();batchBytes=0;}batch.addAll(groups);batchBytes+=size;}
+        if(!batch.isEmpty())inputs.add(new FeedbackModels.Input(WorkKind.CLASSIFY,batch,List.of(),null));
+        var people=new HashSet<String>();rows.stream().filter(u->u.userId()!=null).forEach(u->people.add(u.userId()));long comments=rows.stream().filter(u->u.source()==Source.COMMENT).count();
+        var examples=new ArrayList<Representative>();var unclassifiedSet=new HashSet<>(unclassified);
+        rows.stream().filter(u->unclassifiedSet.contains(u.id())).sorted(Comparator.<Unit,Boolean>comparing(u->u.likeCount()==null).thenComparing(u->u.likeCount()==null?0L:u.likeCount(),Comparator.reverseOrder()).thenComparing(Unit::id)).limit(3).forEach(u->examples.add(representative(u,1,manifest.sha256())));
+        return new Material(FIVE_VERSION,policy,fiveRevision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,representatives,bytes,unclassified,examples);
     }
     private int projectedBytes(List<FeedbackModels.Group> groups){return write(groups.stream().map(g->FeedbackModelProjection.group(g,json)).toList()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;}
     private List<FeedbackModels.Group> groups(String id,List<Unit> members,List<Representative> reps){
@@ -176,6 +229,7 @@ public final class FeedbackCompression {
     }
     private boolean compatible(Unit a,Unit b){if(a.source()==Source.COMMENT && b.source()==Source.COMMENT)return a.replyContext().equals(b.replyContext());if(a.playbackMs()!=null && b.playbackMs()!=null)return Math.abs(a.playbackMs()-b.playbackMs())<=policy.playbackBucketMs();return !a.text().matches(".*(这里|这个|这段|那里|刚才).*?") && !b.text().matches(".*(这里|这个|这段|那里|刚才).*?");}
     private static double cosine(float[] a,float[] b){double dot=0;for(int i=0;i<a.length;i++)dot+=(double)a[i]*b[i];return dot;}
+    private static boolean contextDependent(Unit unit){String text=unit.text();String context=unit.replyContext();return unit.source()==Source.COMMENT && !context.isBlank() && !context.equals("[]") || text.matches(".*(这里|这个|这段|那里|刚才).*") || text.matches("^(完全同意|同意|说得对|我也是|就是|没错|确实|是的|不对|不行)[\\p{P}\\p{Z}\\s]*$");}
     private static void check(CallControl c){c.checkpoint();if(!java.time.Instant.now().isBefore(c.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Material preparation deadline exceeded");}
     private static void normalize(float[] a){double norm=0;for(float v:a)norm+=(double)v*v;if(!Double.isFinite(norm) || norm<=0)throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Empty embedding norm");float scale=(float)(1/Math.sqrt(norm));for(int i=0;i<a.length;i++)a[i]*=scale;}
     private static String clip(String s,int length){int n=s.codePointCount(0,s.length());return n<=length?s:s.substring(0,s.offsetByCodePoints(0,length));}

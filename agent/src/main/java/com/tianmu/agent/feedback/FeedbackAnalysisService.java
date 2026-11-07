@@ -30,7 +30,10 @@ public final class FeedbackAnalysisService {
     public FeedbackAnalysisService(FeedbackJobStore store,FeedbackObjects objects,FeedbackSnapshotPort source,FeedbackModels models,FeedbackPolicy policy, com.tianmu.agent.feedback.FeedbackRuntimeProperties governance) { this.governance=governance;
         this.store=store;this.objects=objects;this.source=source;this.models=models;this.policy=policy;planner=new FeedbackPlanner(objects,policy);directory=new FeedbackTopicDirectory(store,objects,governance);
     }
-    private String compressionRevision="disabled";
+    private String compressionRevision="disabled",fiveCompressionRevision="disabled";
+    private java.util.function.Function<UUID,Map<String,Object>> representativeMethod=id->{throw new AgentException("RESULT_NOT_FOUND","Representative method unavailable");};
+    public void representativeMethodProvider(java.util.function.Function<UUID,Map<String,Object>> provider){representativeMethod=Objects.requireNonNull(provider);}
+    public void fiveCompressionRevision(String revision){this.fiveCompressionRevision=Objects.requireNonNull(revision);}
     public void compressionRevision(String revision){this.compressionRevision=Objects.requireNonNull(revision);}
     public void verifyProtocol(FeedbackJobStore.Job job){if(!job.model().equals(models.modelName()) || !job.policyHash().equals(policyHash(job.request())))throw new AgentException("RESOURCE_VERSION_MISMATCH","Feedback protocol changed");}
     public FeedbackJobStore.Job submit(UUID run,AccessScope owner,Request request,VideoContent.Facts video) {
@@ -39,7 +42,7 @@ public final class FeedbackAnalysisService {
     public FeedbackJobStore.Job submit(UUID run,AccessScope owner,Request request,VideoContent.Facts video,Instant executionDeadline) {
         if(!owner.videoIds().contains(request.query().videoId()))throw new AgentException("FORBIDDEN","Video outside current authorization");
         request.query().checkTime(Instant.now());source.authorize(owner,request.query().videoId());
-        if(!FeedbackCompression.VERSION.equals(request.rulesVersion()) && request.grounding()==Grounding.VIDEO_GROUNDED && (video==null || video.videoId()!=request.query().videoId()
+        if(!FeedbackCompression.representativeVersion(request.rulesVersion()) && request.grounding()==Grounding.VIDEO_GROUNDED && (video==null || video.videoId()!=request.query().videoId()
                 || request.videoStartMs()!=null && (video.startMs()!=request.videoStartMs() || video.endMs()!=request.videoEndMs())))
             throw new AgentException("INVALID_EVIDENCE","Read the required video evidence before starting analysis");
         if(request.grounding()==Grounding.FEEDBACK_ONLY && video!=null)throw new AgentException("TASK_CONSTRAINT_VIOLATION","Video was not selected");
@@ -68,11 +71,11 @@ public final class FeedbackAnalysisService {
         store.initialize(job.id(),job.version(),snapshot,job.video(),inputs);
     }
     public void initializeCompressed(FeedbackJobStore.Job job,Snapshot snapshot,VideoContent.Facts video,List<Blob> inputs){
-        if(!FeedbackCompression.VERSION.equals(job.request().rulesVersion()))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Representative contract required");
+        if(!FeedbackCompression.representativeVersion(job.request().rulesVersion()))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Representative contract required");
         source.authorize(job.owner(),job.request().query().videoId());store.initialize(job.id(),job.version(),snapshot,video,inputs);
     }
-    private static boolean pipeline(Request r){return FeedbackPreparationService.VERSION.equals(r.rulesVersion()) || FeedbackCompression.VERSION.equals(r.rulesVersion());}
-    private String policyHash(Request r){return FeedbackCompression.VERSION.equals(r.rulesVersion())?FeedbackObjects.sha((models.pipelinePolicyHash()+compressionRevision).getBytes(java.nio.charset.StandardCharsets.UTF_8)):pipeline(r)?models.pipelinePolicyHash():models.policyHash();}
+    private static boolean pipeline(Request r){return FeedbackPreparationService.VERSION.equals(r.rulesVersion()) || FeedbackCompression.representativeVersion(r.rulesVersion());}
+    private String policyHash(Request r){return FeedbackCompression.representativeVersion(r.rulesVersion())?FeedbackObjects.sha((models.pipelinePolicyHash()+(FeedbackCompression.FIVE_VERSION.equals(r.rulesVersion())?fiveCompressionRevision:compressionRevision)).getBytes(java.nio.charset.StandardCharsets.UTF_8)):pipeline(r)?models.pipelinePolicyHash():models.policyHash();}
     public List<FeedbackJobStore.Job> active(){return store.active(32);}
     public void cancel(UUID id){var active=running.get(id);if(active!=null)active.forEach(token->token.cancel(StopReason.USER_CANCELLED));store.cancel(id);directory.invalidate(id);}
     public void resume(UUID id,AccessScope caller){owned(id,caller);if(!store.reauthorize(id,caller))throw new AgentException("ANALYSIS_NOT_PAUSED","Analysis is not waiting for authorization");}
@@ -111,7 +114,7 @@ public final class FeedbackAnalysisService {
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),
                         "analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));
                 Input stored=objects.get(work.input(),Input.class);
-                input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || FeedbackCompression.VERSION.equals(j.request().rulesVersion()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
+                input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || FeedbackCompression.representativeVersion(j.request().rulesVersion()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
                         work.kind()==WorkKind.CLASSIFY?(pipeline(j.request()) && policy.readParallelism()>1?directory.seeded(work,token):directory.before(work,token)):List.of());
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work,governance.tokenReservation()),accountAttempt);
                 List<Proposal> proposals=null;boolean cacheHit=false;
@@ -190,6 +193,12 @@ public final class FeedbackAnalysisService {
         if(job.snapshot().counts().total()==0){saveAsset(job,List.of());return;}
         int level=0;while(store.hasLevel(job.id(),level+1))level++;
         var rows=store.completedLevel(job.id(),level);if(rows.isEmpty())return;
+        if(FeedbackCompression.FIVE_VERSION.equals(job.request().rulesVersion()) && level==0){
+            long covered=0,authors=0;var roots=new ArrayList<Blob>();
+            for(var row:rows){var node=objects.get(row.result(),ResultNode.class);covered+=node.covered();authors+=node.authorCovered();roots.add(row.result());}
+            if(covered!=job.snapshot().counts().total() || authors!=job.snapshot().counts().authorComments()+job.snapshot().counts().authorDanmaku())throw new AgentException("INVALID_ANALYSIS","Bucket coverage differs from snapshot");
+            saveAsset(job,roots);return;
+        }
         if(rows.size()==1 && level>0){
             var result=objects.get(rows.get(0).result(),ResultNode.class);
             if(result.covered()!=job.snapshot().counts().total() || result.authorCovered()!=job.snapshot().counts().authorComments()+job.snapshot().counts().authorDanmaku())
@@ -231,7 +240,7 @@ public final class FeedbackAnalysisService {
         if(!asset.model().equals(models.modelName()) || !asset.policyHash().equals(policyHash(asset.request())))throw new AgentException("RESOURCE_VERSION_MISMATCH","Analysis rules or model changed");
         return asset;
     }
-    public List<Topic> topics(Asset asset){return asset.roots().isEmpty()?List.of():objects.get(asset.roots().get(0),ResultNode.class).topics();}
+    public List<Topic> topics(Asset asset){return FeedbackCompression.FIVE_VERSION.equals(asset.request().rulesVersion())?asset.roots().stream().flatMap(root->objects.get(root,ResultNode.class).topics().stream()).toList():asset.roots().isEmpty()?List.of():objects.get(asset.roots().get(0),ResultNode.class).topics();}
     public Asset historicalAsset(UUID id,AccessScope caller){
         var job=owned(id,caller);if(job.phase()!=Phase.READY || job.asset()==null)throw new AgentException("RESULT_NOT_FOUND","Completed analysis not found");
         var asset=objects.get(job.asset(),Asset.class);asset.requireCompatible(caller,asset.request());return asset;
@@ -307,7 +316,7 @@ public final class FeedbackAnalysisService {
         return page("observations",topics,offset,limit,FeedbackAnalysisService::topicView);
     }
     public byte[] report(Asset asset){
-        if(FeedbackCompression.VERSION.equals(asset.request().rulesVersion()))throw new AgentException("STRUCTURED_REPORT_REQUIRED","Render the persisted representative report JSON");
+        if(FeedbackCompression.representativeVersion(asset.request().rulesVersion()))throw new AgentException("STRUCTURED_REPORT_REQUIRED","Render the persisted representative report JSON");
         var roots=topics(asset);var graph=new LinkedHashMap<String,Topic>();
         var leaves=new LinkedHashMap<String,List<Group>>();var loaded=new HashSet<UUID>();
         var batches=store.completedLevel(asset.jobId(),0);
@@ -338,7 +347,7 @@ public final class FeedbackAnalysisService {
         return FeedbackReportRenderer.render(FeedbackReportDocument.build(asset,roots,graph,leaves,daily));
     }
     public FeedbackReportJson compressedReport(Asset asset,FeedbackCompression.Material material){
-        if(!FeedbackCompression.VERSION.equals(asset.request().rulesVersion()))throw new AgentException("INVALID_EVIDENCE","Representative analysis required");
+        if(!FeedbackCompression.representativeVersion(asset.request().rulesVersion()))throw new AgentException("INVALID_EVIDENCE","Representative analysis required");
         return FeedbackReportJson.build(asset,material,topics(asset),topic->representativeGroups(asset,topic,new HashSet<>()));
     }
     private List<Group> representativeGroups(Asset asset,Topic topic,Set<String> seen){
@@ -385,14 +394,17 @@ public final class FeedbackAnalysisService {
         }
         throw new AgentException("STORAGE_CORRUPT","Original not found");
     }
-    private static void representativeReadBarrier(Asset asset){if(FeedbackCompression.VERSION.equals(asset.request().rulesVersion()))throw new AgentException("REPRESENTATIVE_ONLY","This analysis exposes sealed representatives; full-original model expansion is disabled");}
+    private static void representativeReadBarrier(Asset asset){if(FeedbackCompression.representativeVersion(asset.request().rulesVersion()))throw new AgentException("REPRESENTATIVE_ONLY","This analysis exposes sealed representatives; full-original model expansion is disabled");}
     public Map<String,Object> read(Asset asset,String section,String topicId,int offset,int limit) {
         return PRESENTATION.convertValue(readRaw(asset,section,topicId,offset,limit),new com.fasterxml.jackson.core.type.TypeReference<Map<String,Object>>(){});
     }
     private Map<String,Object> readRaw(Asset asset,String section,String topicId,int offset,int limit) {
         if(section.equals("originals") || section.equals("original_text"))representativeReadBarrier(asset);
         if(offset<0 || limit<1 || limit>10)throw new AgentException("INVALID_ARGUMENTS","Invalid analysis result page");
-        if(section.equals("summary"))return Map.of("job_id",asset.jobId(),"status","READY","counts",asset.snapshot().counts(),"request",asset.request(),"data_as_of",asset.snapshot().dataAsOf(),"model",asset.model(),"grounding",asset.request().grounding(),"limitations",FeedbackCompression.VERSION.equals(asset.request().rulesVersion())?"Representative-based interpretation; full original texts were not read. Counts represent cluster membership, not individually verified semantic agreement.":"Coverage is checked by code; topic meaning is model-generated. Sampled video frames do not verify sound or continuous actions.");
+        if(section.equals("summary")){
+            if(FeedbackCompression.FIVE_VERSION.equals(asset.request().rulesVersion()))return Map.of("job_id",asset.jobId(),"status","READY","assigned_counts",asset.snapshot().counts(),"method",representativeMethod.apply(asset.jobId()),"request",asset.request(),"data_as_of",asset.snapshot().dataAsOf(),"model",asset.model(),"grounding",asset.request().grounding(),"limitations","Assigned counts are approximate vector-bucket membership; unclassified feedback is excluded from these counts. The model did not read every original.");
+            return Map.of("job_id",asset.jobId(),"status","READY","counts",asset.snapshot().counts(),"request",asset.request(),"data_as_of",asset.snapshot().dataAsOf(),"model",asset.model(),"grounding",asset.request().grounding(),"limitations",FeedbackCompression.representativeVersion(asset.request().rulesVersion())?"Representative-based interpretation; full original texts were not read. Counts represent cluster membership, not individually verified semantic agreement.":"Coverage is checked by code; topic meaning is model-generated. Sampled video frames do not verify sound or continuous actions.");
+        }
         if(section.equals("children")){
             if(topicId==null)throw new AgentException("INVALID_ARGUMENTS","Select a topic before reading its children");
             var selected=topic(asset,topicId);var work=topicWork(asset,topicId);

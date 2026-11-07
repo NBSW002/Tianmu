@@ -74,6 +74,11 @@ public final class FeedbackPlanner {
             var previous=representativeAssignments.putIfAbsent(group.candidateCluster(),key);
             if(previous!=null && !previous.equals(key))throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"REPRESENTATIVE_CLUSTER_SPLIT"));
         }
+        var topicBuckets=new HashMap<String,String>();
+        for(var entry:representativeAssignments.entrySet())if(entry.getKey().matches("B[1-5]")){
+            var previous=topicBuckets.putIfAbsent(entry.getValue(),entry.getKey());
+            if(previous!=null && !previous.equals(entry.getKey()))throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"REPRESENTATIVE_BUCKET_MERGED"));
+        }
         for(Proposal p:proposals) {
             if(p.title()!=null && p.title().length()>100 || p.observation()!=null && p.observation().length()>2400 || p.recommendation()!=null && p.recommendation().length()>1200)
                 throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"TEXT_LIMIT_EXCEEDED"));

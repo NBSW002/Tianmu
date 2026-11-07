@@ -65,6 +65,12 @@ agent:
       vector-bytes: ${FEEDBACK_VECTOR_MEMORY_BYTES:67108864}
       embedding-calls: ${FEEDBACK_EMBEDDING_CALL_LIMIT:512}
       batch-bytes: ${FEEDBACK_REPRESENTATIVE_BATCH_BYTES:12000}
+    buckets:
+      max-buckets: ${FEEDBACK_BUCKETS_MAX:5}
+      min-similarity: ${FEEDBACK_BUCKETS_MIN_SIMILARITY:0.65}
+      min-members: ${FEEDBACK_BUCKETS_MIN_MEMBERS:2}
+      max-iterations: ${FEEDBACK_BUCKETS_MAX_ITERATIONS:50}
+      candidate-samples: ${FEEDBACK_BUCKETS_CANDIDATE_SAMPLES:64}
     read-parallelism: ${FEEDBACK_READ_PARALLELISM:1}
     reuse:
       enabled: ${FEEDBACK_RESULT_REUSE_ENABLED:true}

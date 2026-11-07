@@ -19,7 +19,8 @@ defineProps({ report: { type: Object, required: true } })
       </details>
     </article>
     <details v-if="report.otherTopics?.length"><summary>其他话题 · {{ report.otherTopics.length }} 项</summary><p v-for="topic in report.otherTopics" :key="topic.id">{{ topic.title }} · 评论 {{ topic.commentCount }} 条 · 弹幕 {{ topic.danmakuCount }} 条</p></details>
-    <footer><strong>处理口径</strong><p>原始 {{ report.method.raw }} 条，排除 {{ report.method.excluded }} 条，纳入 {{ report.method.eligible }} 条；联合聚类 {{ report.method.clusters }} 簇，模型读取 {{ report.method.representatives }} 条代表表达及有界语境。</p><p>{{ report.method.interpretation }}</p><p>点赞未知时按频次及代表性排序。视频采样不等于完整逐帧或音频理解。</p></footer>
+    <details v-if="report.unclassifiedExamples?.length" open><summary>尚未成组的反馈 · {{ report.method.unclassified }} 条（展示最多 3 条）</summary><blockquote v-for="item in report.unclassifiedExamples" :key="item.id"><p>{{ item.text }}</p><small>{{ item.source === 'COMMENT' ? '评论' : '弹幕' }} · 点赞 {{ item.likes ?? '未知' }}</small><p v-if="item.context" class="context">回复语境：{{ item.context }}</p></blockquote></details>
+    <footer><strong>处理口径</strong><p>原始 {{ report.method.raw }} 条，排除 {{ report.method.excluded }} 条，纳入 {{ report.method.eligible }} 条；联合聚类 {{ report.method.clusters }} 簇，未归类 {{ report.method.unclassified ?? 0 }} 条，模型读取 {{ report.method.representatives }} 条代表表达及有界语境。</p><p>{{ report.method.interpretation }}</p><p>点赞未知时按频次及代表性排序。视频采样不等于完整逐帧或音频理解。</p></footer>
   </section>
 </template>
 

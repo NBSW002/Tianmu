@@ -10,14 +10,14 @@ import org.springframework.context.annotation.*;
 import java.nio.file.Path;
 
 @Configuration(proxyBeanMethods=false)
-@EnableConfigurationProperties({FeedbackPolicy.class,FeedbackReusePolicy.class,FeedbackRuntimeProperties.class,FeedbackCompressionProperties.class})
+@EnableConfigurationProperties({FeedbackPolicy.class,FeedbackReusePolicy.class,FeedbackRuntimeProperties.class,FeedbackCompressionProperties.class,FeedbackBucketProperties.class})
 public class FeedbackConfiguration {
     @Bean @ConditionalOnProperty(name="agent.storage.mode",havingValue="mysql")
     FeedbackPreparationStore mysqlFeedbackPreparation(com.zaxxer.hikari.HikariDataSource source,org.flywaydb.core.Flyway migrations,ObjectMapper json,com.tianmu.agent.runtime.store.RunRepository runs,FeedbackRuntimeProperties governance){return new com.tianmu.agent.adapters.storage.MysqlFeedbackPreparationStore(source,json,runs::verifyReady,governance);}
     @Bean @ConditionalOnMissingBean(FeedbackPreparationStore.class)
     FeedbackPreparationStore memoryFeedbackPreparation(){return new MemoryFeedbackPreparationStore();}
     @Bean FeedbackClusters feedbackClusters(ObjectProvider<FeedbackVectorIndex> vectors,ObjectProvider<FeedbackEmbedding> embedding){return new FeedbackClusters(vectors.getIfAvailable(),embedding.getIfAvailable());}
-    @Bean FeedbackCompression feedbackCompression(ObjectProvider<FeedbackEmbedding> embedding,ObjectProvider<FeedbackVectorIndex> vectors,FeedbackCompressionProperties policy,ObjectMapper json){return new FeedbackCompression(embedding.getIfAvailable(),vectors.getIfAvailable(),policy,json);}
+    @Bean FeedbackCompression feedbackCompression(ObjectProvider<FeedbackEmbedding> embedding,ObjectProvider<FeedbackVectorIndex> vectors,FeedbackCompressionProperties policy,FeedbackBucketProperties buckets,ObjectMapper json){var compression=new FeedbackCompression(embedding.getIfAvailable(),vectors.getIfAvailable(),policy,json);compression.bucketPolicy(buckets);return compression;}
     @Bean FeedbackPreparationService feedbackPreparationService(FeedbackAnalysisService analysis,FeedbackPreparationStore store,FeedbackObjects objects,FeedbackPolicy policy,FeedbackClusters clusters,FeedbackRuntimeProperties governance,FeedbackCompression compression){return new FeedbackPreparationService(analysis,store,objects,policy,clusters,governance,compression);}
     @Bean @ConditionalOnProperty(name="agent.storage.mode",havingValue="mysql")
     FeedbackJobStore mysqlFeedbackJobs(com.zaxxer.hikari.HikariDataSource source,org.flywaydb.core.Flyway migrations,ObjectMapper json,com.tianmu.agent.runtime.store.RunRepository runs,FeedbackRuntimeProperties governance){return new MysqlFeedbackJobStore(source,json,runs::verifyReady,governance);}

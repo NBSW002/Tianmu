@@ -20,12 +20,13 @@ public final class FeedbackPreparationService {
     private FeedbackCompression.SourceMaterial loadPart(Blob ref){var part=objects.get(ref,SourcePart.class);var rows=new ArrayList<Unit>();for(var chunk:part.chunks())rows.addAll(Arrays.asList(objects.get(chunk,Unit[].class)));return new FeedbackCompression.SourceMaterial(part.source(),rows,part.excluded());}
     private Blob savePart(UUID id,FeedbackCompression.SourceMaterial part){var chunks=new ArrayList<Blob>();var chunk=new ArrayList<Unit>();int bytes=0;for(var u:part.eligible()){int size=objects.bytes(u);if(bytes+size>524288 && !chunk.isEmpty()){chunks.add(objects.put(id,List.copyOf(chunk)));chunk.clear();bytes=0;}chunk.add(u);bytes+=size;}if(!chunk.isEmpty())chunks.add(objects.put(id,chunk));return objects.put(id,new SourcePart(part.source(),chunks,part.excluded()));}
     public FeedbackPreparationService(FeedbackAnalysisService analysis,FeedbackPreparationStore store,FeedbackObjects objects,FeedbackPolicy policy,FeedbackClusters clusters,com.tianmu.agent.feedback.FeedbackRuntimeProperties governance,FeedbackCompression compression){
-        this(analysis,store,objects,policy,clusters,governance);this.compression=compression;analysis.compressionRevision(compression.revision());
+        this(analysis,store,objects,policy,clusters,governance);this.compression=compression;analysis.compressionRevision(compression.revision());analysis.fiveCompressionRevision(compression.fiveRevision());
+        analysis.representativeMethodProvider(id->{var work=store.get(id,Step.MATERIALS);if(work==null || !"COMPLETE".equals(work.state()))throw new AgentException("RESULT_NOT_FOUND","Representative method unavailable");return objects.get(work.result(),FeedbackCompression.Material.class).summary();});
     }
     public boolean compressionEnabled(){return compression!=null && compression.policy().enabled();}
     public FeedbackReportJson reportJson(UUID id,AccessScope owner,CallControl control){
         var job=analysis.owned(id,owner);if(job.phase()!=Phase.READY)throw new AgentException("ANALYSIS_NOT_READY","Report analysis not ready");
-        if(!FeedbackCompression.VERSION.equals(job.request().rulesVersion()))throw new AgentException("RESULT_NOT_FOUND","Structured representative report unavailable");
+        if(!FeedbackCompression.representativeVersion(job.request().rulesVersion()))throw new AgentException("RESULT_NOT_FOUND","Structured representative report unavailable");
         store.request(id,Step.REPORT_JSON);var existing=store.get(id,Step.REPORT_JSON);
         if(existing.state().equals("COMPLETE"))return objects.get(existing.result(),FeedbackReportJson.class);
         var claim=store.claim(id,Step.REPORT_JSON,Instant.now(),Duration.ofSeconds(governance.preparationLeaseSeconds()));
@@ -34,9 +35,9 @@ public final class FeedbackPreparationService {
             if(!store.complete(claim,objects.put(id,value)))throw new AgentException("STORAGE_UNAVAILABLE","Report JSON acceptance failed");return value;
         }catch(RuntimeException failure){store.release(claim);throw failure;}
     }
-    public FeedbackReportJson storedReportJson(UUID id,AccessScope owner){var job=analysis.owned(id,owner);if(job.phase()!=Phase.READY || !FeedbackCompression.VERSION.equals(job.request().rulesVersion()))throw new AgentException("RESULT_NOT_FOUND","Structured representative report unavailable");var work=store.get(id,Step.REPORT_JSON);if(work==null || !work.state().equals("COMPLETE"))throw new AgentException("RESULT_NOT_FOUND","Report JSON not saved");return objects.get(work.result(),FeedbackReportJson.class);}
+    public FeedbackReportJson storedReportJson(UUID id,AccessScope owner){var job=analysis.owned(id,owner);if(job.phase()!=Phase.READY || !FeedbackCompression.representativeVersion(job.request().rulesVersion()))throw new AgentException("RESULT_NOT_FOUND","Structured representative report unavailable");var work=store.get(id,Step.REPORT_JSON);if(work==null || !work.state().equals("COMPLETE"))throw new AgentException("RESULT_NOT_FOUND","Report JSON not saved");return objects.get(work.result(),FeedbackReportJson.class);}
     public FeedbackJobStore.Job requestMaterials(UUID run,AccessScope owner,Request request,Instant deadline){
-        if(!compressionEnabled() || !FeedbackCompression.VERSION.equals(request.rulesVersion()))throw new AgentException("COMPRESSION_DISABLED","Representative pipeline is not enabled");
+        if(!compressionEnabled() || !FeedbackCompression.representativeVersion(request.rulesVersion()))throw new AgentException("COMPRESSION_DISABLED","Representative pipeline is not enabled");
         var job=analysis.forRun(run);if(job!=null){job=analysis.owned(job.id(),owner);if(!job.request().equals(request))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Material request changed");analysis.verifyProtocol(job);}else job=analysis.submit(run,owner,request,null,deadline);
         store.request(job.id(),Step.SNAPSHOT);
         for(var source:request.sources())store.request(job.id(),Step.valueOf(source.name()));store.request(job.id(),Step.MATERIALS);return job;
@@ -45,7 +46,7 @@ public final class FeedbackPreparationService {
     public FeedbackCompression.Material materials(UUID id,AccessScope owner,CallControl control){
         var job=analysis.owned(id,owner);var w=store.get(id,Step.MATERIALS);if(w==null || !w.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Representative materials are not ready");
         var result=objects.get(w.result(),FeedbackCompression.Material.class);
-        if(!FeedbackCompression.VERSION.equals(result.version()) || !compression.revision().equals(result.protocolRevision()))throw new AgentException("RESOURCE_VERSION_MISMATCH","Material policy changed");
+        if(!FeedbackCompression.representativeVersion(result.version()) || !(FeedbackCompression.FIVE_VERSION.equals(result.version())?compression.fiveRevision():compression.revision()).equals(result.protocolRevision()))throw new AgentException("RESOURCE_VERSION_MISMATCH","Material policy changed");
         snapshots.resolve(result.manifest(),job.runId(),owner,job.request(),control);return result;
     }
     public FeedbackJobStore.Job startCompressedReport(UUID id,AccessScope owner,VideoContent.Facts video,CallControl control){
@@ -54,15 +55,17 @@ public final class FeedbackPreparationService {
                 || job.request().videoStartMs()!=null && (video.startMs()!=job.request().videoStartMs() || video.endMs()!=job.request().videoEndMs())))throw new AgentException("INVALID_EVIDENCE","Matching video evidence is required");
         if(job.request().grounding()==Grounding.FEEDBACK_ONLY && video!=null)throw new AgentException("TASK_CONSTRAINT_VIOLATION","Video not selected");
         if(job.snapshot()==null){
-            var chunks=new ArrayList<Blob>();
+            var chunks=new ArrayList<Blob>();var assigned=new HashSet<String>();material.clusters().forEach(cluster->assigned.addAll(cluster.members()));
+            var people=new HashSet<String>();long[] counts={0,0};
             for(var source:job.request().sources()){
                 var part=loadPart(store.get(id,Step.valueOf(source.name())).result());
                 var chunk=new ArrayList<Unit>();int bytes=0;
-                for(var row:part.eligible()){int size=objects.bytes(row);if(bytes+size>524288 && !chunk.isEmpty()){chunks.add(objects.put(id,List.copyOf(chunk)));chunk.clear();bytes=0;}chunk.add(row);bytes+=size;}
+                for(var row:part.eligible()){if(!assigned.contains(row.id()))continue;if(row.userId()!=null)people.add(row.userId());counts[source==Source.COMMENT?0:1]++;int size=objects.bytes(row);if(bytes+size>524288 && !chunk.isEmpty()){chunks.add(objects.put(id,List.copyOf(chunk)));chunk.clear();bytes=0;}chunk.add(row);bytes+=size;}
                 if(!chunk.isEmpty())chunks.add(objects.put(id,chunk));
             }
             var shared=snapshots.resolve(material.manifest(),job.runId(),owner,job.request(),control);
-            analysis.initializeCompressed(job,new Snapshot("feedback-snapshot-v1",shared.dataAsOf(),material.eligibleCounts(),chunks,store.get(id,Step.MATERIALS).result().sha256()),video,material.inputs().stream().map(input->objects.put(id,input)).toList());
+            if(counts[0]+counts[1]+material.unclassified().size()!=material.eligibleCounts().total())throw new AgentException("STORAGE_CORRUPT","Bucket and unclassified counts do not reconcile");
+            analysis.initializeCompressed(job,new Snapshot("feedback-snapshot-v1",shared.dataAsOf(),new Counts(counts[0],counts[1],0,0,people.size()),chunks,store.get(id,Step.MATERIALS).result().sha256()),video,material.inputs().stream().map(input->objects.put(id,input)).toList());
         }else if(!Objects.equals(video,job.video()))throw new AgentException("INVALID_EVIDENCE","Report video changed");
         return analysis.forJob(id);
     }
@@ -80,7 +83,7 @@ public final class FeedbackPreparationService {
         var snapshot=store.get(job,Step.SNAPSHOT);if(snapshot==null)return List.of();
         if(!snapshot.state().equals("COMPLETE"))return claimable(snapshot)?List.of(Step.SNAPSHOT):List.of();
         var current=analysis.forJob(job);
-        if(current!=null && FeedbackCompression.VERSION.equals(current.request().rulesVersion())){
+        if(current!=null && FeedbackCompression.representativeVersion(current.request().rulesVersion())){
             var sourceSteps=current.request().sources().stream().map(s->Step.valueOf(s.name())).toList();
             boolean sourcesReady=sourceSteps.stream().allMatch(s->{var w=store.get(job,s);return w!=null && w.state().equals("COMPLETE");});
             if(sourcesReady){var w=store.get(job,Step.MATERIALS);return w!=null && claimable(w)?List.of(Step.MATERIALS):List.of();}
@@ -110,7 +113,7 @@ public final class FeedbackPreparationService {
             var control=new CallControl(job.deadline().isBefore(claim.leaseUntil())?job.deadline():claim.leaseUntil(),cancellation);
             Blob result;
             if(step==Step.SNAPSHOT)result=snapshots.materialize(id,job.runId(),job.owner(),job.request(),control);
-            else if(FeedbackCompression.VERSION.equals(job.request().rulesVersion()) && step==Step.MATERIALS){
+            else if(FeedbackCompression.representativeVersion(job.request().rulesVersion()) && step==Step.MATERIALS){
                 var manifest=store.get(id,Step.SNAPSHOT);if(manifest==null || !manifest.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Shared snapshot missing");
                 var parts=new ArrayList<FeedbackCompression.SourceMaterial>();
                 for(var source:job.request().sources()){var w=store.get(id,Step.valueOf(source.name()));if(w==null || !w.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Source preparation incomplete");parts.add(loadPart(w.result()));}
@@ -118,13 +121,13 @@ public final class FeedbackPreparationService {
                 FeedbackCompressionProperties settings=compression.policy();
                 var material=compression.compress(id,job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls()));
                 result=objects.put(id,material);
-                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.raw_records",shared.counts().total(),"analysis.filtered_records",material.excluded().size(),"analysis.exact_expressions",material.exactExpressions(),"analysis.clusters",material.clusters().size(),"analysis.representatives",material.representativeCount(),"analysis.representative_bytes",material.modelBytes()));
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.raw_records",shared.counts().total(),"analysis.filtered_records",material.excluded().size(),"analysis.exact_expressions",material.exactExpressions(),"analysis.clusters",material.clusters().size(),"analysis.representatives",material.representativeCount(),"analysis.representative_bytes",material.modelBytes(),"analysis.unclassified_records",material.unclassified().size()));
             }
             else {
                 var manifest=store.get(id,Step.SNAPSHOT);if(manifest==null || !manifest.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Shared snapshot is not ready");
                 Source source=Source.valueOf(step.name());var rows=new ArrayList<Unit>();
                 var partition=snapshots.read(manifest.result(),job.runId(),job.owner(),job.request(),source,control,rows::addAll);
-                if(FeedbackCompression.VERSION.equals(job.request().rulesVersion())){
+                if(FeedbackCompression.representativeVersion(job.request().rulesVersion())){
                     result=savePart(id,compression.prepare(source,rows,control));
                 }else{
                 var organized=clusters.organize(id,job.owner(),job.request(),source,rows,control,()->store.reserveEmbedding(id,512));

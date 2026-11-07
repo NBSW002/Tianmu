@@ -26,7 +26,7 @@ public class TaskAssembler {
     void compressionPolicy(com.tianmu.agent.feedback.FeedbackCompressionProperties policy){compression=policy;}
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     private com.tianmu.agent.feedback.FeedbackCompression compressionRuntime;
-    private String compressionRevision(){return compressionRuntime==null?compression.revision():compressionRuntime.revision();}
+    private String compressionRevision(){return compressionRuntime==null?compression.revision():compressionRuntime.fiveRevision();}
     public static final String COMPRESSION_RESOURCE="feedback:compression";
     private Map<String,String> pinCompression(Map<String,String> base,boolean feedback,Specification spec){
         if(!compression.enabled())return base;

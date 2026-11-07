@@ -240,6 +240,12 @@ function downloadExample() {
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
             <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
+            <section v-if="selected.attributes?.['analysis.raw_records'] != null" class="intent-selection" aria-label="反馈聚类统计">
+              <h3>反馈聚类统计</h3>
+              <p>原始 {{ selected.attributes['analysis.raw_records'] }} 条 · 过滤 {{ selected.attributes['analysis.filtered_records'] }} 条</p>
+              <p>主题桶 {{ selected.attributes['analysis.clusters'] }} 个 · 未归类 {{ selected.attributes['analysis.unclassified_records'] ?? 0 }} 条</p>
+              <p>模型读取 {{ selected.attributes['analysis.representatives'] }} 条代表；桶数量是向量近似分配。</p>
+            </section>
             <section v-if="compactionSelection.visible" class="intent-selection" aria-label="上下文压缩范围">
               <h3>压缩范围</h3>
               <p v-if="compactionSelection.trigger">{{ compactionSelection.trigger }}</p>
