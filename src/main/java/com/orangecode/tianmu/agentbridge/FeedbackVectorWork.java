@@ -7,7 +7,12 @@ import java.util.*;
 
 /** Durable, coalesced CDC work; completion is fenced by the lease and captured generation. */
 public final class FeedbackVectorWork {
-    public record Lease(long videoId,long generation,String token,String tenantId,String ownerId) {}
+    public static final class LongAsNumber extends com.fasterxml.jackson.databind.JsonSerializer<Long> {
+        @Override public void serialize(Long value,com.fasterxml.jackson.core.JsonGenerator out,com.fasterxml.jackson.databind.SerializerProvider provider)throws java.io.IOException {out.writeNumber(value);}
+    }
+    public record Lease(@com.fasterxml.jackson.databind.annotation.JsonSerialize(using=LongAsNumber.class) long videoId,
+                        @com.fasterxml.jackson.databind.annotation.JsonSerialize(using=LongAsNumber.class) long generation,
+                        String token,String tenantId,String ownerId) {}
     private final JdbcTemplate db; private final TransactionTemplate tx; private final String tenant;
     public FeedbackVectorWork(JdbcTemplate db,String tenant){this.db=db;this.tenant=tenant;this.tx=new TransactionTemplate(new DataSourceTransactionManager(Objects.requireNonNull(db.getDataSource())));}
     public void changed(long video){
