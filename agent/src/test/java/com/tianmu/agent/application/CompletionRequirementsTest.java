@@ -11,6 +11,11 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CompletionRequirementsTest {
+    @Test void unconfirmedMemoryClaimsDoNotFailOrdinaryAnswersOrRemoveTheirContent() {
+        assertEquals("好的，你喜欢通过例子学习。", MemoryReceiptRequirement.withoutUnconfirmedClaims("记住了，你喜欢通过例子学习。"));
+        assertEquals("你好。好的，你喜欢简洁的回答。", MemoryReceiptRequirement.withoutUnconfirmedClaims("你好。已经记下了，你喜欢简洁的回答。"));
+        assertEquals("这是一个例子。", MemoryReceiptRequirement.withoutUnconfirmedClaims("这是一个例子。"));
+    }
     final UUID id=UUID.randomUUID();final AccessScope owner=new AccessScope("test","alice",Set.of(1001L));
     final BusinessCompletionEvaluator evaluator=new BusinessCompletionEvaluator();
     PreparedTask task(String query) {

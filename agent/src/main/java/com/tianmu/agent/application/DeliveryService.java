@@ -71,6 +71,8 @@ public class DeliveryService implements com.tianmu.agent.runtime.spi.ResponseDel
                 Map.of("answer.evidence_count", raw == null ? 0 : raw.evidenceIds().size()), () -> {
             com.tianmu.agent.harness.trace.TraceDetails.input(raw);
             Answer answer = harness.transform(run, TransformPoint.ANSWER, raw);
+            if (answer != null && answer.text() != null)
+                answer = new Answer(MemoryReceiptRequirement.withoutUnconfirmedClaims(answer.text()), answer.evidenceIds());
             if (run.task()!=null && run.task().specification().analysis()!=null && run.task().specification().analysis().reportRequired()
                     && (answer==null || answer.evidenceIds().stream().noneMatch(run.execution()::hasReport)))
                 throw new AgentException("REPORT_REQUIRED", "No persisted report artifact exists for the delivered evidence");

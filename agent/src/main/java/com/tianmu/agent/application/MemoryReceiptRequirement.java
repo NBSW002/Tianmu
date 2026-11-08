@@ -8,6 +8,11 @@ import java.util.*;
 /** A queued operation is not a persisted-memory receipt. */
 @Component
 public final class MemoryReceiptRequirement implements CompletionRequirement {
+    private static final java.util.regex.Pattern CLAIM = java.util.regex.Pattern.compile("(?m)(^|[。！!\\n])\\s*(?:好的[，, ]*)?(?:(?:我|已经|已)[，, ]*)?(?:已经|已)?(?:记住了|记下了|记住|保存到(?:长期|个人)?记忆|保存了)");
+    /** Keep the answer useful without representing a queued background task as a committed write. */
+    public static String withoutUnconfirmedClaims(String text) {
+        return CLAIM.matcher(text).replaceAll("$1好的");
+    }
     public String name(){return "memory-write-receipt";}
     public void verify(CompletionEvaluator.Input input,CompletionEvaluator.Deliver proposal){
         String text=proposal.draft().text();
