@@ -75,6 +75,25 @@ public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSou
         }else sql+=" ORDER BY r.valid_from_seq DESC LIMIT ?";args.add(Math.min(governance.candidateFetchLimit(),limit));var refs=db.query(sql,(r,n)->new Ref(UUID.fromString(r.getString(1)),r.getLong(2)),args.toArray());
         var out=new ArrayList<Entry>();for(var ref:refs)try{out.add(read(o,ref.id(),ref.version(),sequence));}catch(AgentException e){if(!e.code().equals("MEMORY_NOT_FOUND"))throw e;}return List.copyOf(out);
     }
+    public List<Entry> overview(AccessScope o,long sequence,String kind,long before,String afterId,int limit){
+        if(limit<1 || limit>1001 || !Set.of("","PROFILE","PREFERENCE","GOAL").contains(kind))throw PersonalMemory.invalid();
+        return db.query("SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.scope_type='USER' AND r.scope_key='self' AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND (r.valid_from_seq<? OR (r.valid_from_seq=? AND r.memory_id>?)) AND (?='' OR r.kind=?) AND i.status='ACTIVE' AND r.content<>'' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.REVISION_READABLE+" ORDER BY r.valid_from_seq DESC,r.memory_id ASC LIMIT ?",
+                (r,n)->new Entry(UUID.fromString(r.getString("memory_id")),r.getLong("version"),r.getLong("valid_from_seq"),new Content(Scope.user(),Kind.valueOf(r.getString("kind")),r.getString("content"),r.getTimestamp("expires_at")==null?null:r.getTimestamp("expires_at").toInstant()),r.getTimestamp("created_at").toInstant()),o.tenantId(),o.userId(),sequence,sequence,before,before,afterId,kind,kind,limit);
+    }
+    public com.fasterxml.jackson.databind.JsonNode recallManifest(RunState run,UUID id){
+        var rows=db.queryForList("SELECT manifest_json FROM agent_memory_recall_manifest WHERE tenant_id=? AND owner_user_id=? AND session_id=? AND run_id=?",String.class,run.owner.tenantId(),run.owner.userId(),run.sessionId.toString(),id.toString());
+        if(rows.isEmpty())return json.createObjectNode();
+        try{return json.readTree(rows.get(0));}catch(java.io.IOException e){throw new AgentException("STORAGE_CORRUPT","Invalid recall manifest");}
+    }
+    public void commitOverview(RunState run,List<Entry> entries,Map<String,Object> manifest){
+        tx.executeWithoutResult(status->{
+            long deadline=((Number)manifest.get("deadlineNano")).longValue();
+            Runnable checkpoint=()->{run.checkpoint();if(System.nanoTime()>deadline)throw new AgentException("MEMORY_RECALL_TIMEOUT","Memory overview deadline exceeded");};
+            checkpoint.run();commitRecall(run,entries,checkpoint);var b=boundary(run.owner,run.id);checkpoint.run();
+            var stored=new LinkedHashMap<>(manifest);stored.remove("deadlineNano");
+            db.update("INSERT INTO agent_memory_recall_manifest(tenant_id,owner_user_id,run_id,session_id,snapshot_seq,consent_epoch,erase_epoch,mode,manifest_json,created_at) VALUES(?,?,?,?,?,?,?,'OVERVIEW',?,UTC_TIMESTAMP(6))",run.owner.tenantId(),run.owner.userId(),run.id.toString(),run.sessionId.toString(),b.sequence(),b.consent(),b.erase(),encode(stored));
+        });
+    }
     public List<Entry> core(AccessScope o,long sequence,int limit){
         var refs=db.query("SELECT r.memory_id,r.version FROM agent_memory_revision r JOIN agent_memory_index x ON x.tenant_id=r.tenant_id AND x.owner_user_id=r.owner_user_id AND x.memory_id=r.memory_id AND x.version=r.version JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.scope_type='USER' AND r.kind='PREFERENCE' AND x.is_core=1 AND i.status='ACTIVE' AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.REVISION_READABLE+" ORDER BY x.importance DESC,r.valid_from_seq DESC LIMIT ?",(r,n)->new Ref(UUID.fromString(r.getString(1)),r.getLong(2)),o.tenantId(),o.userId(),sequence,sequence,limit);
         var out=new ArrayList<Entry>();for(var ref:refs)try{out.add(read(o,ref.id(),ref.version(),sequence));}catch(AgentException e){if(!e.code().equals("MEMORY_NOT_FOUND"))throw e;}return List.copyOf(out);
@@ -89,14 +108,15 @@ public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSou
     }
     public void recalled(RunState run){db.update("UPDATE agent_memory_run SET recalled=1 WHERE tenant_id=? AND owner_user_id=? AND run_id=?",run.owner.tenantId(),run.owner.userId(),run.id.toString());}
     /** Initial references and the empty/non-empty recalled marker commit atomically. */
-    public List<Entry> commitRecall(RunState run,List<Entry> entries){return tx.execute(status->{
+    public List<Entry> commitRecall(RunState run,List<Entry> entries){return commitRecall(run,entries,run::checkpoint);}
+    private List<Entry> commitRecall(RunState run,List<Entry> entries,Runnable checkpoint){return tx.execute(status->{
         db.queryForList("SELECT memory_seq FROM agent_memory_account WHERE tenant_id=? AND owner_user_id=? FOR UPDATE",run.owner.tenantId(),run.owner.userId());
         db.queryForList("SELECT run_id FROM agent_memory_run WHERE tenant_id=? AND owner_user_id=? AND run_id=? FOR UPDATE",run.owner.tenantId(),run.owner.userId(),run.id.toString());
         var b=boundary(run.owner,run.id);if(b==null)throw invalidated();
         if(b.recalled())return restoreInitial(run);
         var now=store.settings(run.owner);
         if(now.consentEpoch()!=b.consent() || now.eraseEpoch()!=b.erase() || now.mode()!=b.mode())throw invalidated();
-        for(var entry:entries)read(run.owner,entry.id(),entry.version(),b.sequence());
+        for(var entry:entries){checkpoint.run();read(run.owner,entry.id(),entry.version(),b.sequence());}
         consume(run,entries,true);recalled(run);return List.copyOf(entries);
     });}
     public List<Entry> restoreInitial(RunState run){

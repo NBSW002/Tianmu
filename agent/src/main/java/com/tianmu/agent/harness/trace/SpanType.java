@@ -21,7 +21,7 @@ public enum SpanType {
             case "agent.prepare.understanding" -> QUERY_UNDERSTANDING;
             case "agent.memory.load" -> MEMORY_LOAD;
             case "agent.memory.snapshot" -> MEMORY_LOAD;
-            case "agent.memory.recall" -> MEMORY_RECALL;
+            case "agent.memory.recall", "agent.memory.overview" -> MEMORY_RECALL;
             case "agent.context.compact" -> CONTEXT_COMPACT;
             case "agent.context.compaction_load" -> CONTEXT_BUILD;
             case "agent.context", "agent.assemble" -> CONTEXT_BUILD;

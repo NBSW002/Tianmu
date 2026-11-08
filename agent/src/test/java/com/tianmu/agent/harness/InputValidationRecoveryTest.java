@@ -116,7 +116,7 @@ class InputValidationRecoveryTest {
         }
     }
     @ParameterizedTest @ValueSource(booleans={false,true})
-    void rawAndTransformedBatchErrorsKeepFailFastWithoutPartialRecovery(boolean transform) {
+    void rawBatchErrorsHaveBoundedFeedbackAndTransformedErrorsFailBeforeHandlers(boolean transform) {
         var rewrite=TransformHookTest.hook("drop-second-id",TransformPoint.TOOL_CALL,0,(input,context)->
                 "second".equals(input.arguments().get("result_id"))?new ToolCall(input.name(),Map.of(),input.providerCallId(),input.providerGroupId()):input);
         try(var fixture=new HarnessLifecycleTest.Fixture(transform?List.of(rewrite):List.of())) {
@@ -124,7 +124,8 @@ class InputValidationRecoveryTest {
             com.tianmu.agent.application.AgentRuntimeFactory.create(context->{count.incrementAndGet();return new Decision(Kind.TOOL,
                     new ToolCall("read_result",transform?Map.of("result_id","first"):Map.of(),"p1","group"),null,null,
                     List.of(new ToolCall("read_result",Map.of("result_id","second"),"p2","group")));},tools,fixture.harness).execute(run);
-            assertEquals("INVALID_ARGUMENTS",run.snapshot().errorCode());assertEquals(1,count.get());assertEquals(0,effects.get()); // Final whole-batch re-admission precedes every handler.
+            assertEquals(transform?"INVALID_ARGUMENTS":"TOOL_FAILURE_LIMIT",run.snapshot().errorCode());assertEquals(transform?1:3,count.get());assertEquals(0,effects.get());
+            if(!transform)assertEquals(4,run.execution().exchanges().size(),"Both rejected calls must have paired feedback before retry");
             assertTrue(run.execution().observations().stream().noneMatch(r->r.data().containsKey("input_validation")));
         }
     }

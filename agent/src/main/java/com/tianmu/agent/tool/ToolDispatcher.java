@@ -20,7 +20,6 @@ import com.tianmu.agent.harness.trace.TraceDetails;
 @Component
 public class ToolDispatcher {
     @org.springframework.beans.factory.annotation.Autowired private org.springframework.beans.factory.ObjectProvider<com.tianmu.agent.runtime.OperationRegistry> operations;
-    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryToolService memories;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryLedger memoryLedger;
     public sealed interface DispatchOutcome permits Completed, ValidationRejected {}
     public record Completed(ToolResult result) implements DispatchOutcome {}
@@ -65,7 +64,6 @@ public class ToolDispatcher {
                 && run.task().specification().reading()!=null && run.task().specification().reading().reportRequired();
         if(Set.of("prepare_feedback_materials","generate_feedback_report").contains(name) && !compressed)return false;
         if(compressed && Set.of("analyze_comments","analyze_danmaku","create_feedback_report","analyze_feedback").contains(name))return false;
-        if(com.tianmu.agent.memory.MemoryToolService.NAMES.contains(name) && (memories==null || !memories.available(name,run)))return false;
         return com.tianmu.agent.access.AssistantToolAccess.permits(name, run.owner) && com.tianmu.agent.application.AnalysisExecutionPolicy.permits(name, run.task() == null ? null : run.task().specification());
     }
     private static Evidence bindFeedback(RunState run,com.tianmu.agent.core.FeedbackAnalysis.Asset asset){return com.tianmu.agent.application.FeedbackEvidenceBinding.bind(run,asset);}
@@ -80,6 +78,9 @@ public class ToolDispatcher {
     public static final class BatchAdmissionRejected extends AgentException {
         public BatchAdmissionRejected(){super("INVALID_TOOL_BATCH","Run tools from different suspension groups in separate model turns; do not repeat this mixed batch.");}
     }
+    public static final class BatchInputRejected extends AgentException {
+        public BatchInputRejected(){super("INVALID_ARGUMENTS","Correct the arguments using the declared tool schema; no handler has executed.");}
+    }
     public void checkBatch(List<ToolCall> calls,RunState run) {
         if(calls.size()<2 || calls.size()>4)throw new AgentException("INVALID_DECISION","Native read batch must contain two to four calls");
         Set<ToolCall> unique=new HashSet<>();
@@ -88,7 +89,7 @@ public class ToolDispatcher {
             var tool=registry.admit(call.name(),run.execution().activeSkills(),snapshotTools(run));
             if(!tool.batchable() || !unique.add(new ToolCall(call.name(),call.arguments())))
                 throw new AgentException("INVALID_DECISION","Only distinct independent reads can share a native tool batch");
-            ToolArguments.validate(call,registry.definition(call.name()));
+            if(!ToolArguments.inspect(call,registry.definition(call.name())).valid())throw new BatchInputRejected();
         }
         if(calls.stream().anyMatch(c->registry.get(c.name()).suspensionGroup()!=null)) {
             if(calls.stream().map(ToolCall::name).distinct().count()!=calls.size())
@@ -200,7 +201,7 @@ public class ToolDispatcher {
             ToolResult result = tool.execute(call, context);
             run.checkpoint();
             if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation") || result.data().containsKey("batch_validation")
-                    || result.terminalClarification()!=null && !Set.of("ask_clarification","remember_memory","forget_memory").contains(call.name()))
+                    || result.terminalClarification()!=null && !call.name().equals("ask_clarification"))
                 throw new AgentException("INVALID_TOOL_RESULT", "Tool result does not match the registered handler or uses host-reserved feedback");
             TraceDetails.capture("output", result, "TOOL_RESULT");
             if(result.pending()!=null && operations!=null)operations.getObject().require(result.pending().kind());
@@ -214,13 +215,12 @@ public class ToolDispatcher {
         private final com.tianmu.agent.application.HistoryQueryService history;
         HostContext(RunState run, AgentTool tool) {
             this.run = run; this.tool = tool;
-            this.history = new com.tianmu.agent.application.HistoryQueryService(conversations, run.sessionId, run.owner, run.turnSeq,messages->memoryLedger!=null?memoryLedger.inherit(run,messages):memories==null?messages:memories.inherit(run,messages));
+            this.history = new com.tianmu.agent.application.HistoryQueryService(conversations, run.sessionId, run.owner, run.turnSeq,messages->memoryLedger!=null?memoryLedger.inherit(run,messages):messages);
         }
         public UUID runId() { return run.id; }
         public AccessScope scope() { return run.owner; }
         public LocalDate businessDate() { return run.businessDate; }
         public void checkpoint() { run.checkpoint(); }
-        public ToolResult memory(ToolCall call){if(memories==null)throw new AgentException("MEMORY_DISABLED","Personal memory is disabled");return memories.execute(run,call);}
         public Map<String,Object> history(long before,int limit,String query) {
             run.checkpoint();
             return history.read(before,limit,query);

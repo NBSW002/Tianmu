@@ -170,7 +170,7 @@ public class AgentRuntime {
     private boolean executeBatch(RunState run,ModelContext context,List<ToolCall> requested,Progress progress){
         return harness.stage(run,"agent.tool.batch",null,null,Map.of("tool.batch_count",requested.size()),()->{
             try { tools.checkBatch(requested,run); }
-            catch(ToolDispatcher.BatchAdmissionRejected rejected) {
+            catch(ToolDispatcher.BatchAdmissionRejected | ToolDispatcher.BatchInputRejected rejected) {
                 // No hooks or handlers have run. Pair every native call before asking the model to replan.
                 String group=requested.get(0).providerGroupId();
                 if(group==null || group.isBlank() || requested.stream().anyMatch(c->c.providerCallId()==null || c.providerCallId().isBlank() || !group.equals(c.providerGroupId()))

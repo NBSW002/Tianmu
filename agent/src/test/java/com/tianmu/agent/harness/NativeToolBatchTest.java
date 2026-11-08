@@ -13,6 +13,16 @@ import java.util.concurrent.atomic.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class NativeToolBatchTest {
+    @Test void invalidBatchArgumentsReturnPairedCorrectionWithoutExecutingAnyHandler(){
+        try(var f=new HarnessLifecycleTest.Fixture()){
+            var run=f.run();run.execution().activateSkill("video-metrics");var turns=new AtomicInteger();
+            f.execute(run,context->{
+                if(turns.getAndIncrement()==0){var good=call(1);var bad=new ToolCall("query_video_metrics",Map.of("video_id",1001,"date","not-a-date","metric","bullet_count"),"bad","batch-1");return new Decision(Kind.TOOL,good,null,null,List.of(bad));}
+                assertEquals(2,context.exchanges().size());assertTrue(context.exchanges().stream().allMatch(e->e.result().data().get("error_code").equals("INVALID_ARGUMENTS")));assertEquals(0,f.queries.get());return Decision.clarify("请补充日期");
+            });
+            assertEquals(Status.NEEDS_INPUT,run.snapshot().status());assertEquals(2,turns.get());assertEquals(0,f.queries.get());
+        }
+    }
     ToolCall call(int days){return new ToolCall("query_video_metrics",Map.of("video_id",1001,"date",LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(days).toString(),"metric","bullet_count"),"call-"+days,"batch-1");}
     Decision mixed(int n) {
         String group="g-"+n;

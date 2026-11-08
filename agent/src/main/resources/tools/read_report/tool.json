@@ -23,7 +23,8 @@
           "summary",
           "topics",
           "observations"
-        ]
+        ],
+        "minLength": 1
       },
       "offset": {
         "description": "Zero-based section offset; continue using the returned next_offset.",

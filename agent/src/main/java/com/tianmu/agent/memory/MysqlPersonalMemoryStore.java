@@ -168,6 +168,7 @@ public final class MysqlPersonalMemoryStore implements PersonalMemoryStore {
         db.update("UPDATE agent_memory_fact SET identity_json=JSON_OBJECT(),value_hash=REPEAT('0',64) WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",o.tenantId(),o.userId(),id.toString());
         db.update("UPDATE agent_memory_candidate SET details_json=JSON_OBJECT() WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",o.tenantId(),o.userId(),id.toString());
         db.update("DELETE FROM agent_memory_index WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",o.tenantId(),o.userId(),id.toString());
+        db.update("DELETE FROM agent_memory_embedding WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",o.tenantId(),o.userId(),id.toString());
         // Both source declarations and every historical body are erased in the same transaction.
         db.update("UPDATE agent_memory_source s JOIN agent_memory_dependency d ON d.tenant_id=s.tenant_id AND d.owner_user_id=s.owner_user_id AND d.source_id=s.source_id SET s.declaration='',s.content_hash=?,s.status='DELETED' WHERE d.tenant_id=? AND d.owner_user_id=? AND d.memory_id=?",hash(""),o.tenantId(),o.userId(),id.toString());
         db.update("UPDATE agent_memory_revision SET content='',valid_to_seq=COALESCE(valid_to_seq,?) WHERE tenant_id=? AND owner_user_id=? AND memory_id=?",seq,o.tenantId(),o.userId(),id.toString());
@@ -195,6 +196,8 @@ public final class MysqlPersonalMemoryStore implements PersonalMemoryStore {
             db.update("DELETE FROM agent_memory_fact WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
             db.update("DELETE FROM agent_memory_candidate WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
             db.update("DELETE FROM agent_memory_index WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
+            db.update("DELETE FROM agent_memory_embedding WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
+            db.update("DELETE FROM agent_memory_recall_manifest WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
             db.update("DELETE FROM agent_memory_dream WHERE tenant_id=? AND owner_user_id=?",o.tenantId(),o.userId());
             // Set-based reset stays bounded even at the account quota and with many revisions.
             db.update("INSERT INTO agent_memory_tombstone(tenant_id,owner_user_id,target_id,erase_epoch,created_at) SELECT tenant_id,owner_user_id,memory_id,?,? FROM agent_memory_item WHERE tenant_id=? AND owner_user_id=? AND status='ACTIVE' ON DUPLICATE KEY UPDATE erase_epoch=VALUES(erase_epoch)",epoch,now(),o.tenantId(),o.userId());

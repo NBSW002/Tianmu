@@ -12,7 +12,8 @@
       "video_evidence_id": {
         "type": "string",
         "maxLength": 80,
-        "description": "Same-run evidence_id returned by analyze_video_content for this video and the authorized playback scope; not feedback evidence or a report artifact."
+        "description": "Same-run evidence_id returned by analyze_video_content for this video and the authorized playback scope; not feedback evidence or a report artifact.",
+        "minLength": 1
       },
       "items": {
         "type": "array",
@@ -36,7 +37,8 @@
             "feedback_topic_id": {
               "type": "string",
               "maxLength": 120,
-              "description": "Topic ID from the selected feedback evidence. Required per item for feedback-driven drafts; omit for ordinary video-only drafts."
+              "description": "Topic ID from the selected feedback evidence. Required per item for feedback-driven drafts; omit for ordinary video-only drafts.",
+              "minLength": 1
             }
           },
           "required": [
@@ -50,7 +52,8 @@
       "feedback_evidence_id": {
         "type": "string",
         "maxLength": 80,
-        "description": "Same-run completed feedback evidence required only when feedback sources were frozen for this draft."
+        "description": "Same-run completed feedback evidence required only when feedback sources were frozen for this draft.",
+        "minLength": 1
       }
     },
     "required": [

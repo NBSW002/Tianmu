@@ -429,3 +429,10 @@ test('nested parallel tool batch remains linked to its actual model round',()=>{
   assert.equal(t.length,2);assert.equal(t[0].position.x,t[1].position.x);assert.notEqual(t[0].position.y,t[1].position.y)
   assert.equal((t[0].position.y+t[1].position.y)/2,graph.nodes.find(n=>n.id==='m').position.y)
 })
+
+test('host memory overview shows coverage without inventing model or search calls',()=>{
+  const p=buildTracePresentation([{id:'overview',name:'agent.memory.overview',type:'memory_recall',status:'SUCCEEDED',attributes:{'memory.mode':'OVERVIEW','memory.selected_count':3,'memory.has_more':true,'memory.coverage_complete':false}}])
+  const n=p.allCards.get('overview')
+  assert.equal(n.cardKind,'memory')
+  assert.match(n.summary,/个人总览 · 本页 3 条 · 还有更多/)
+})

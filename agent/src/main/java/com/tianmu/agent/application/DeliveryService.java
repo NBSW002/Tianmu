@@ -78,7 +78,6 @@ public class DeliveryService implements com.tianmu.agent.runtime.spi.ResponseDel
                 throw new AgentException("REPORT_REQUIRED", "No persisted report artifact exists for the delivered evidence");
             if (reason == StopReason.FINALIZED_ANSWER) answer = new Answer("【轮次已达上限，仅基于已获取证据收尾】\n" + answer.text(), answer.evidenceIds());
             validateAnswer(answer, run);
-            new MemoryReceiptRequirement().verify(new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(run.task(),run.execution().exchanges(),Set.of(),answer,null,reason),new com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver(answer,reason));
             // Notes are derived from validated, owned evidence rather than model-generated metadata.
             List<Evidence> evidence = answer.evidenceIds().stream().distinct().map(id -> run.execution().evidence().get(id)).toList();
             if (run.task() != null) {

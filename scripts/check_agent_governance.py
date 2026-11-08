@@ -15,7 +15,7 @@ POLICIES = (
     "feedback/FeedbackWarmProperties.java",
     "feedback/FeedbackBucketProperties.java",
     "feedback/FeedbackCompressionProperties.java",
-    "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java", "memory/MemoryPolicyProperties.java",
+    "memory/MemoryRecallPolicy.java", "memory/MemorySemanticPolicy.java", "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java", "memory/MemoryPolicyProperties.java",
     "feedback/FeedbackRuntimeProperties.java", "video/VideoRuntimeProperties.java",
     "adapters/storage/StorageRuntimeProperties.java", "harness/trace/TraceDeliveryProperties.java",
     "harness/hook/HookPolicy.java",
@@ -67,7 +67,7 @@ def catalog():
         path = JAVA / relative
         source = sources[path]
         prefix = re.search(r'@ConfigurationProperties\("([^"]+)"\)', source).group(1)
-        fields = re.findall(r'@DefaultValue\("([^"\n]+)"\)\s+int\s+(\w+)', source)
+        fields = re.findall(r'@DefaultValue\("([^"\n]+)"\)\s+(?:int|double)\s+(\w+)', source)
         lines += [f"## {prefix}", "", f"声明与完整校验：[源码](../src/main/java/com/tianmu/agent/{relative})。", "",
                   "| 属性键 | 默认值 | 消费类 |", "|---|---:|---|"]
         for default, name in fields:

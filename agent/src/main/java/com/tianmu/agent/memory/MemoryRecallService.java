@@ -20,6 +20,7 @@ public final class MemoryRecallService implements com.tianmu.agent.runtime.spi.C
     private final PersonalMemoryStore store;
     private final RuntimeHarness harness;
     private final ObjectMapper json;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private MemorySemanticIndex semantic;
     public MemoryRecallService(MemoryLedger ledger,PersonalMemoryStore store,RuntimeHarness harness,ObjectMapper json) { this(ledger, store, harness, json, com.tianmu.agent.memory.MemoryRuntimeProperties.defaults()); }
     @org.springframework.beans.factory.annotation.Autowired
     public MemoryRecallService(MemoryLedger ledger,PersonalMemoryStore store,RuntimeHarness harness,ObjectMapper json, com.tianmu.agent.memory.MemoryRuntimeProperties governance) { this.governance=governance;this.ledger=ledger;this.store=store;this.harness=harness;this.json=json;}
@@ -52,15 +53,20 @@ public final class MemoryRecallService implements com.tianmu.agent.runtime.spi.C
                 query+=" " + recent.stream().skip(Math.max(0,recent.size()-policy.queryHistoryMessages())).map(MemoryTypes.Message::text).collect(java.util.stream.Collectors.joining(" "));
             }
             query=MemorySelection.expand(query);
-            var core=ledger.core(run.owner,boundary.sequence(),governance.coreCandidates());
+            var core=new ArrayList<>(ledger.core(run.owner,boundary.sequence(),governance.coreCandidates()));
+            // Old and manually entered user facts remain useful without a new semantic projection.
+            var coreIds=new HashSet<UUID>();core.forEach(e->coreIds.add(e.id()));
+            for(var e:ledger.overview(run.owner,boundary.sequence(),"PROFILE",Long.MAX_VALUE,"",governance.coreCandidates()))if(coreIds.add(e.id()))core.add(e);
             for(var entry:ledger.candidates(run.owner,Scope.user(),boundary.sequence(),query,governance.queryCandidates()))selected.put(entry.id(),entry);
-            if(run.pageContext()!=null)for(var entry:ledger.candidates(run.owner,new Scope(ScopeType.VIDEO,run.pageContext().videoId()),boundary.sequence(),"",governance.scopedCandidates()))selected.put(entry.id(),entry);
+            if(run.pageContext()!=null && run.message.matches("(?s).*(这个视频|该视频|当前视频|视频.*(?:评论|弹幕|报告|内容)).*"))for(var entry:ledger.candidates(run.owner,new Scope(ScopeType.VIDEO,run.pageContext().videoId()),boundary.sequence(),"",governance.scopedCandidates()))selected.put(entry.id(),entry);
             for(var topic:ledger.topics(run.owner)) {
                 String name=topic.get("name").toString();
                 if(!Collections.disjoint(MemorySelection.terms(name),MemorySelection.terms(query)))
                     for(var entry:ledger.candidates(run.owner,new Scope(ScopeType.TOPIC,topic.get("id").toString()),boundary.sequence(),"",governance.scopedCandidates()))selected.put(entry.id(),entry);
             }
-            var ranked=MemorySelection.rank(selected.values(),query,run.pageContext()==null?null:run.pageContext().videoId());
+            var semanticEntries=semantic==null?List.<Entry>of():semantic.search(run,query,boundary.sequence());
+            var ranked=MemorySelection.fuse(MemorySelection.rank(selected.values(),query,run.pageContext()==null?null:run.pageContext().videoId()),semanticEntries);
+            for(var entry:semanticEntries)selected.put(entry.id(),entry);
             var accepted=new ArrayList<Entry>();int bytes=0,coreBytes=0,coreCount=0;var roots=new HashSet<String>();boundary.refs().forEach(ref->roots.add(ref.id()+":"+ref.version()));
             var reasons=new ArrayList<Map<String,Object>>();var queue=new ArrayList<Entry>(core);queue.addAll(ranked);var seen=new HashSet<UUID>();var texts=new HashSet<String>();
             for(var entry:queue) {

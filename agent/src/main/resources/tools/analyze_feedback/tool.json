@@ -7,7 +7,8 @@
       "video_evidence_id": {
         "type": "string",
         "maxLength": 80,
-        "description": "Current-run video evidence required when VIDEO is selected. Must match the authorized playback range."
+        "description": "Current-run video evidence required when VIDEO is selected. Must match the authorized playback range.",
+        "minLength": 1
       },
       "analysis_id": {
         "type": "string",

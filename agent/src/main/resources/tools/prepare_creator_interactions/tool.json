@@ -12,7 +12,8 @@
       "video_evidence_id": {
         "type": "string",
         "maxLength": 80,
-        "description": "Same-run evidence_id returned by analyze_video_content for this video and the authorized playback scope; not feedback evidence or a report artifact."
+        "description": "Same-run evidence_id returned by analyze_video_content for this video and the authorized playback scope; not feedback evidence or a report artifact.",
+        "minLength": 1
       },
       "kind": {
         "type": "string",
@@ -20,7 +21,8 @@
           "COMMENT",
           "DANMAKU"
         ],
-        "description": "Draft kind matching the frozen creator.draft task: COMMENT or DANMAKU. Creating a draft does not publish it; sending requires the page confirmation flow."
+        "description": "Draft kind matching the frozen creator.draft task: COMMENT or DANMAKU. Creating a draft does not publish it; sending requires the page confirmation flow.",
+        "minLength": 1
       },
       "items": {
         "type": "array",

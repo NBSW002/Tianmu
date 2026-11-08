@@ -226,7 +226,7 @@ export const cardIcon = n => ({ faq: 'search', intent: 'route', emotion: 'emotio
 export function semanticKind(n) {
   const t = n.type, name = n.name
   if (t === 'context_compact' || name === 'agent.context.compact') return 'compaction'
-  if (t === 'memory_recall' || name === 'agent.memory.recall') return 'memory'
+  if (t === 'memory_recall' || name === 'agent.memory.recall' || name === 'agent.memory.overview') return 'memory'
   if (name === 'agent.memory.restore') return 'memory_restore'
   if (name === 'agent.memory.extract') return 'memory_write'
   if (name === 'agent.memory.dream') return 'memory_dream'
@@ -278,7 +278,7 @@ export function cardSummary(n) {
       return ({ HARNESS: '条件已确认，进入 Agent', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
     }
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
-    case 'memory': if (Number.isFinite(a['memory.core_count'])) return `核心 ${a['memory.core_count']} 条 · 相关 ${a['memory.related_count'] || 0} 条 · ${a['memory.context_bytes'] || 0} B`; return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
+    case 'memory': if (a['memory.mode'] === 'OVERVIEW') return a['memory.status'] === 'DISABLED' ? '个人记忆已关闭' : `个人总览 · 本页 ${a['memory.selected_count'] || 0} 条 · ${a['memory.has_more'] === true ? '还有更多' : a['memory.coverage_complete'] === true ? '已查看全部可见记录' : '状态见详情'}`; if (Number.isFinite(a['memory.core_count'])) return `核心 ${a['memory.core_count']} 条 · 相关 ${a['memory.related_count'] || 0} 条 · ${a['memory.context_bytes'] || 0} B`; return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
     case 'memory_dream': return `检查 ${a['memory.candidate_count'] || 0} 条 · 整理 ${a['memory.dream_changes'] || 0} 项`
     case 'memory_request': return '后台将判断保存价值 · 当前仅确认入队'
     case 'memory_restore': return `恢复原快照 ${a['memory.selected_count'] || 0} 条 · 未重新检索`

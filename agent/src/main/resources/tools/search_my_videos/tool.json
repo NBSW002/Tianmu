@@ -13,12 +13,14 @@
       "start_date": {
         "type": "string",
         "format": "date",
-        "description": "Inclusive publication date in Asia/Shanghai. Supply with end_date."
+        "description": "Inclusive publication date in Asia/Shanghai. Supply with end_date.",
+        "minLength": 1
       },
       "end_date": {
         "type": "string",
         "format": "date",
-        "description": "Exclusive publication date in Asia/Shanghai. Supply with start_date."
+        "description": "Exclusive publication date in Asia/Shanghai. Supply with start_date.",
+        "minLength": 1
       },
       "offset": {
         "description": "Zero-based candidate offset; continue using next_offset.",

@@ -6,6 +6,16 @@ import java.util.*;
 /** Only schedules a source-grounded background decision; never authorizes model-proposed facts. */
 public final class MemoryIntent {
     private MemoryIntent(){}
+    public static boolean management(String text){return text!=null && text.matches("(?s).*(记住|记一下|记下|记忆|忘记|忘掉|存一下|存起来).*");}
+    public static boolean manageInUi(String text){
+        String q=Objects.toString(text,"").strip();
+        return q.matches("(?s)^(?:请|帮我|麻烦)*(?:忘记|忘掉)(?:我|学校|姓名|名字|偏好|目标|这条记忆).*")
+            || q.matches("(?s)^(?:请|帮我|麻烦)*(?:删除|修改|更正|更新|清空).*(?:记忆|我的信息|我的偏好|我的姓名|我的名字|我的学校|我的目标).*" );
+    }
+    public static boolean automaticCandidate(String text){
+        var plan=MemoryRecallPlan.of(text);
+        return !manageInUi(text) && plan.mode()!=MemoryRecallPlan.Mode.OVERVIEW && !plan.continuation();
+    }
     public static boolean exclusive(String text){
         if(text.matches("(?s).*(顺便|同时|另外|然后|并且|再帮|也帮|分析|生成报告|搜索|推荐视频|给我|帮我看看|告诉我|解释一下|列一下).*"))return false;
         String rest=text.strip().replaceFirst("^(?:帮我|请|麻烦)?(?:记住|记一下|记下|保存到记忆|存入记忆)[：:，,\\s]*","");

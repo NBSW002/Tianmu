@@ -8,6 +8,12 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ToolInputValidationTest {
+    @Test void emptyStringsFollowTheDeclaredSchemaRatherThanAnImplicitGlobalRule(){
+        var optional=new ToolDefinition("example","Example",Map.of("type","object","properties",Map.of("query",Map.of("type","string","maxLength",128)),"required",List.of("query"),"additionalProperties",false));
+        assertTrue(ToolArguments.inspect(new ToolCall("example",Map.of("query","")),optional).valid());
+        var required=new ToolDefinition("example","Example",Map.of("type","object","properties",Map.of("query",Map.of("type","string","minLength",1)),"required",List.of("query"),"additionalProperties",false));
+        assertFalse(ToolArguments.inspect(new ToolCall("example",Map.of("query","")),required).valid());
+    }
     final ToolCatalog tools=new ToolCatalog();
     ToolArguments.Validation inspect(String tool,Map<String,Object> arguments) {
         return ToolArguments.inspect(new ToolCall(tool,arguments),tools.all().get(tool));

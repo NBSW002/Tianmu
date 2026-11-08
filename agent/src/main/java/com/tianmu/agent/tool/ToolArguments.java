@@ -96,7 +96,7 @@ public final class ToolArguments {
                     add(path,Problem.RANGE);return;
                 }
             } else {
-                if(!(raw instanceof String value) || value.isBlank()){add(path,Problem.STRING);return;}
+                if(!(raw instanceof String value)){add(path,Problem.STRING);return;}
                 if(schema.containsKey("minLength") && value.length()<((Number)schema.get("minLength")).intValue()
                         || schema.containsKey("maxLength") && value.length()>((Number)schema.get("maxLength")).intValue()){
                     add(path,Problem.LENGTH);return;

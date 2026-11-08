@@ -33,4 +33,11 @@ public final class MemorySelection {
             .sorted(Comparator.<Entry>comparingInt(e->score(e,query,video)).reversed()
                 .thenComparing(Comparator.comparingLong(Entry::sequence).reversed()).thenComparing(e->e.id().toString())).toList();
     }
+    public static List<Entry> fuse(List<Entry> lexical,List<Entry> semantic){
+        var scores=new HashMap<UUID,Double>();var entries=new LinkedHashMap<UUID,Entry>();
+        for(var list:List.of(lexical,semantic))for(int i=0;i<list.size();i++){
+            var entry=list.get(i);entries.put(entry.id(),entry);scores.merge(entry.id(),1.0/(60+i+1),Double::sum);
+        }
+        return entries.values().stream().sorted(Comparator.<Entry>comparingDouble(e->scores.get(e.id())).reversed().thenComparing(Comparator.comparingLong(Entry::sequence).reversed()).thenComparing(e->e.id().toString())).toList();
+    }
 }

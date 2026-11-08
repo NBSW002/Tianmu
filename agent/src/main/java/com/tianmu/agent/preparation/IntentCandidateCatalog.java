@@ -24,8 +24,6 @@ public final class IntentCandidateCatalog {
         new Definition("smart-danmaku","智能弹幕草稿","smart-danmaku","prepare_danmaku_draft",Intent.OTHER,"生成带播放位置的作者弹幕草稿；发送仍需用户确认。",List.of("本人的视频")));
     private final SkillCatalog skills;
     private final ToolCatalog tools;
-    @org.springframework.beans.factory.annotation.Value("${agent.memory.enabled:false}") private boolean memoryEnabled;
-    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.PersonalMemoryStore memories;
     public IntentCandidateCatalog(SkillCatalog skills,ToolCatalog tools) {this.skills=skills;this.tools=tools;}
     public List<IntentCandidate> candidates(AccessScope scope) {
         List<IntentCandidate> result=new ArrayList<>();
@@ -41,16 +39,9 @@ public final class IntentCandidateCatalog {
             result.add(new IntentCandidate(definition.id(),definition.label(),skill.description(),definition.boundary(),skill.name(),allowed,definition.conditions(),definition.category()));
         }
         for(String name:new TreeSet<>(skills.names())) {
-            if(name.equals("personal-memory") && !memoryEnabled)continue;
             if(described.contains(name))continue;
             var skill=skills.read(name);
             if(!tools.all().keySet().containsAll(skill.tools()) || skill.tools().stream().anyMatch(tool->!AssistantToolAccess.permits(tool,scope)))continue;
-            if(name.equals("personal-memory")){
-                if(memories==null)continue;
-                var mode=memories.settings(scope).mode();if(mode==com.tianmu.agent.memory.PersonalMemory.Mode.OFF)continue;
-                var allowed=mode==com.tianmu.agent.memory.PersonalMemory.Mode.READ_ONLY?Set.of("search_memory","read_memory"):skill.tools();
-                result.add(new IntentCandidate(name,"个人记忆",mode==com.tianmu.agent.memory.PersonalMemory.Mode.READ_ONLY?"查找和阅读已有记忆。":skill.description(),"保存、修改和遗忘必须由本轮明确授权；不根据隐含偏好写入。",name,allowed,List.of(),Intent.OTHER));continue;
-            }
             result.add(new IntentCandidate(name,name,skill.description(),"按注册能力说明识别，不扩大读取或操作范围。",name,skill.tools(),List.of(),Intent.OTHER));
         }
         result.add(new IntentCandidate("unknown","尚未明确","无法可靠对应候选能力。","缺少视频或日期本身不代表目标不明确。",null,Set.of(),List.of(),Intent.UNKNOWN));

@@ -24,7 +24,8 @@
       "focus": {
         "type": "string",
         "maxLength": 500,
-        "description": "Optional question about the video, up to 500 characters. This guides the answer, does not change permissions or playback bounds, and is not verified video evidence."
+        "description": "Optional question about the video, up to 500 characters. This guides the answer, does not change permissions or playback bounds, and is not verified video evidence.",
+        "minLength": 1
       }
     },
     "required": [

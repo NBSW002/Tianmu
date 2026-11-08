@@ -31,12 +31,14 @@
           "original_text",
           "observations"
         ],
-        "description": "Feedback: summary, topics, children, originals. Historical report: summary, topics, observations. For either retained feedback reference, original_text requires topic_id and original_id. Structured lists use record offsets and may return fewer rows to bound bytes; copy next_offset. Original lists contain previews."
+        "description": "Feedback: summary, topics, children, originals. Historical report: summary, topics, observations. For either retained feedback reference, original_text requires topic_id and original_id. Structured lists use record offsets and may return fewer rows to bound bytes; copy next_offset. Original lists contain previews.",
+        "minLength": 1
       },
       "topic_id": {
         "type": "string",
         "maxLength": 120,
-        "description": "A topic ID returned by this same feedback result. children descends the theme hierarchy; originals reads a leaf topic original page. Never use a topic from another analysis."
+        "description": "A topic ID returned by this same feedback result. children descends the theme hierarchy; originals reads a leaf topic original page. Never use a topic from another analysis.",
+        "minLength": 1
       },
       "original_id": {
         "type": "string",

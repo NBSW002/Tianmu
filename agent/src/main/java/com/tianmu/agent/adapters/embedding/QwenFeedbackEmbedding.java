@@ -34,6 +34,7 @@ public final class QwenFeedbackEmbedding implements FeedbackEmbedding {
             if(payload.length>65536)throw new AgentException("EMBEDDING_INPUT_TOO_LARGE","Embedding request exceeds 64 KiB budget");
             var call=http.newCall(new Request.Builder().url(endpoint).header("Authorization","Bearer "+token).post(RequestBody.create(MediaType.get("application/json"),payload)).build());
             call.timeout().timeout(Math.max(1,Math.min(30000,Duration.between(Instant.now(),control.deadline()).toMillis())),TimeUnit.MILLISECONDS);
+            control.beforeDispatch();
             boolean recorded=false;com.tianmu.agent.harness.trace.TraceUsage.externalCall();
             try(var registration=control.cancellation().onCancel(call::cancel);var response=call.execute()){
                 check(control);

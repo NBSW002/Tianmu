@@ -12,14 +12,16 @@
       "date": {
         "type": "string",
         "format": "date",
-        "description": "Completed business day in Asia/Shanghai, formatted YYYY-MM-DD (e.g. 2026-10-31). Use the frozen date; yesterday is businessDate minus one day. Not a timestamp or playback position."
+        "description": "Completed business day in Asia/Shanghai, formatted YYYY-MM-DD (e.g. 2026-10-31). Use the frozen date; yesterday is businessDate minus one day. Not a timestamp or playback position.",
+        "minLength": 1
       },
       "metric": {
         "type": "string",
         "enum": [
           "bullet_count"
         ],
-        "description": "Metric identifier; currently only bullet_count (retained danmaku count). Do not replace it with a display label or unsupported metric."
+        "description": "Metric identifier; currently only bullet_count (retained danmaku count). Do not replace it with a display label or unsupported metric.",
+        "minLength": 1
       }
     },
     "required": [
