@@ -15,7 +15,7 @@ POLICIES = (
     "feedback/FeedbackWarmProperties.java",
     "feedback/FeedbackBucketProperties.java",
     "feedback/FeedbackCompressionProperties.java",
-    "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java",
+    "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java", "memory/MemoryPolicyProperties.java",
     "feedback/FeedbackRuntimeProperties.java", "video/VideoRuntimeProperties.java",
     "adapters/storage/StorageRuntimeProperties.java", "harness/trace/TraceDeliveryProperties.java",
     "harness/hook/HookPolicy.java",

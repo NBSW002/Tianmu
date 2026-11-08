@@ -67,6 +67,7 @@ public final class PersonalMemoryController {
         return response(java.util.Map.of("items",items,"snapshotSequence",boundary.sequence()));
     }
     @GetMapping("/runs/{runId}/memory-jobs") public ResponseEntity<?> jobs(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID runId){return response(background.jobs(identity.forRun(token(auth),runId),runId));}
+    @PostMapping("/runs/{runId}/memory-jobs/{jobId}/retry") public ResponseEntity<?> retry(@RequestHeader(value="Authorization",required=false)String auth,@PathVariable UUID runId,@PathVariable UUID jobId,@RequestHeader("Idempotency-Key")String key){return response(background.retry(identity.forRun(token(auth),runId),runId,jobId,key));}
     @GetMapping("/memory-settings") public ResponseEntity<Settings> settings(@RequestHeader(value="Authorization",required=false)String auth) {
         return response(memories.settings(identity.authenticate(token(auth))));
     }

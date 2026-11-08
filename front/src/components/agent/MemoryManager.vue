@@ -1,15 +1,15 @@
 <template>
   <section ref="panel" class="memory-panel" role="dialog" aria-modal="true" aria-label="个人记忆管理" @keydown.esc.stop.prevent="$emit('close')" @keydown.tab="trap">
-    <header><div><h2>你的记忆</h2><p>保留有用的偏好，也随时可以改变。</p></div><button ref="closeButton" type="button" aria-label="关闭记忆管理" @click="$emit('close')">×</button></header>
+    <header><div><h2>你的记忆</h2><p>保留有用的事实、偏好和目标，也随时可以改变。</p></div><button ref="closeButton" type="button" aria-label="关闭记忆管理" @click="$emit('close')">×</button></header>
     <div class="memory-body">
       <p v-if="notice" role="status">{{ notice }}</p>
       <template v-if="settings">
         <div class="memory-settings"><label>助手记忆 <select :value="settings.mode" :disabled="busy" @change="mode($event.target.value)"><option value="ON">使用并允许保存</option><option value="READ_ONLY">仅使用已有记忆</option><option value="OFF">暂停使用和保存</option></select></label>
-          <label><input type="checkbox" :checked="settings.autoExtract" :disabled="busy || settings.mode !== 'ON'" @change="automatic($event.target.checked)">自动整理明确的偏好和目标</label>
-          <small>暂停后仍可在这里查看和删除。自动整理在回答完成后进行。</small></div>
-        <div class="memory-filters"><label>范围 <select v-model="scopeType" :disabled="busy" @change="changeScope"><option value="USER">个人偏好与目标</option><option v-if="videoId" value="VIDEO">当前视频</option><option v-for="topic in topics" :key="topic.id" :value="topic.id">{{ topic.name }}</option></select></label><input v-model="query" aria-label="搜索记忆" placeholder="搜索记忆" maxlength="128" @keyup.enter="refresh"><button :disabled="busy" @click="refresh">查找</button></div>
+          <label><input type="checkbox" :checked="settings.autoExtract" :disabled="busy || settings.mode !== 'ON'" @change="automatic($event.target.checked)">后台整理有用的事实、偏好和目标</label>
+          <small>暂停后仍可在这里查看和删除。自动整理在后台进行，不会逐条打断确认。</small></div>
+        <div class="memory-filters"><label>范围 <select v-model="scopeType" :disabled="busy" @change="changeScope"><option value="USER">个人记忆</option><option v-if="videoId" value="VIDEO">当前视频</option><option v-for="topic in topics" :key="topic.id" :value="topic.id">{{ topic.name }}</option></select></label><input v-model="query" aria-label="搜索记忆" placeholder="搜索记忆" maxlength="128" @keyup.enter="refresh"><button :disabled="busy" @click="refresh">查找</button></div>
         <form class="memory-editor" @submit.prevent="save"><label>{{ editing ? '修改记忆' : '新增记忆' }}<textarea v-model="text" rows="3" maxlength="1024" placeholder="例如：解释概念时，请先举一个简单例子。" :disabled="busy || settings.mode !== 'ON'" /></label>
-          <div><select v-model="kind" aria-label="记忆类型" :disabled="busy"><option value="PREFERENCE">偏好</option><option value="GOAL">持续目标</option></select><button type="submit" :disabled="busy || !text.trim() || settings.mode !== 'ON'">{{ editing ? '保存修改' : '记住这条' }}</button><button v-if="editing" type="button" :disabled="busy" @click="cancelEdit">取消</button></div>
+          <div><select v-model="kind" aria-label="记忆类型" :disabled="busy"><option value="PREFERENCE">偏好</option><option value="GOAL">持续目标</option><option value="PROFILE">个人事实</option></select><button type="submit" :disabled="busy || !text.trim() || settings.mode !== 'ON'">{{ editing ? '保存修改' : '记住这条' }}</button><button v-if="editing" type="button" :disabled="busy" @click="cancelEdit">取消</button></div>
         </form>
         <p v-if="!items.length && !busy" class="memory-empty">这里还没有相关记忆。你可以主动添加，也可以在对话里说“请记住”。</p>
         <article v-for="item in items" :key="item.id" class="memory-item"><p>{{ item.content.text }}</p><small>{{ kindNames[item.content.kind] || item.content.kind }} · {{ new Date(item.createdAt).toLocaleDateString('zh-CN') }} · 版本 {{ item.version }}</small>
@@ -32,7 +32,7 @@ defineEmits(['close'])
 const user=useUserStore(), panel=ref(null), closeButton=ref(null)
 const settings=ref(null), topics=ref([]), items=ref([]), busy=ref(false), notice=ref(''), scopeType=ref('USER'), query=ref(''), nextBefore=ref(0)
 const text=ref(''), kind=ref('PREFERENCE'), editing=ref(null), resetConfirm=ref(false)
-const kindNames={PREFERENCE:'偏好',GOAL:'持续目标',PROFILE:'背景',EPISODE:'历史经历',EXPERIENCE:'经验',SESSION_SUMMARY:'会话摘要'}
+const kindNames={PREFERENCE:'偏好',GOAL:'持续目标',PROFILE:'个人事实',EPISODE:'历史经历',EXPERIENCE:'经验',SESSION_SUMMARY:'会话摘要'}
 let generation=0, controller=new AbortController(), pending=null
 const stopMemoryChanges=onMemoryChanged(source=>{if(source==='local')return;generation++;controller.abort();controller=new AbortController();items.value=[];busy.value=false;cancelEdit();if(user.isLogin)load()})
 const scope=()=>scopeType.value==='USER'?{type:'USER',key:'self'}:scopeType.value==='VIDEO'?{type:'VIDEO',key:props.videoId}:{type:'TOPIC',key:scopeType.value}
@@ -44,7 +44,7 @@ async function load(){await act(async current=>{const [state,groups]=await Promi
 const refresh=()=>act(current=>list(undefined,false,current))
 const more=()=>act(current=>list(nextBefore.value,true,current))
 function cancelEdit(){editing.value=null;text.value='';kind.value='PREFERENCE';pending=null}
-function edit(item){editing.value=item;text.value=item.content.text;kind.value=['PREFERENCE','GOAL'].includes(item.content.kind)?item.content.kind:'PREFERENCE'}
+function edit(item){editing.value=item;text.value=item.content.text;kind.value=['PREFERENCE','GOAL','PROFILE'].includes(item.content.kind)?item.content.kind:'PREFERENCE'}
 function changeScope(){cancelEdit();refresh()}
 async function save(){await act(async current=>{const body={expectedVersion:editing.value?.version || 0,content:{scope:scope(),kind:kind.value,text:text.value}};const path='/memories'+(editing.value?'/'+editing.value.id:'');const signature=path+JSON.stringify(body);await request(path,{method:editing.value?'PATCH':'POST',headers:{'Idempotency-Key':key(signature)},body:JSON.stringify(body)});if(current!==generation)return;cancelEdit();notice.value='已保存。';await list(undefined,false,current)})}
 async function forget(item){await act(async current=>{const path=`/memories/${item.id}?expectedVersion=${item.version}`;await request(path,{method:'DELETE',headers:{'Idempotency-Key':key(path)}});if(current!==generation)return;pending=null;if(editing.value?.id===item.id)cancelEdit();notice.value='已忘记。';await list(undefined,false,current)})}

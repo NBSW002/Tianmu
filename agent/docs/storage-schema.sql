@@ -1,3 +1,4 @@
+-- V1 baseline reference. Apply Flyway migrations through V26 for memory jobs and the DIRECT route constraint.
 -- Tianmu Agent storage DESIGN DRAFT, 2026-10-21.
 -- MySQL 8.0.16+ / InnoDB syntax baseline. NOT an applied migration.
 -- Review and integration-test in a separate Agent database before use.

@@ -91,11 +91,12 @@ class GovernanceConfigurationBaselineTest {
 
     @Test void expandedModulePoliciesBindRealOverridesAndRejectInconsistentRelationships() {
         context().withPropertyValues("agent.compaction.trigger-bytes=6000", "agent.memory.runtime.max-recall-items=7",
-                "agent.feedback.runtime.preparation-workers=3", "agent.video.runtime.index-workers=3",
+                "agent.feedback.runtime.preparation-workers=3", "agent.video.runtime.index-workers=3", "agent.memory.policy.core-max-items=2",
                 "agent.storage.runtime.pool-max=9", "harness.trace.delivery.max-batch=41").run(context -> {
             assertNull(context.getStartupFailure());
             assertEquals(6000, context.getBean(com.tianmu.agent.memory.CompactionProperties.class).triggerBytes());
             assertEquals(7, context.getBean(com.tianmu.agent.memory.MemoryRuntimeProperties.class).maxRecallItems());
+            assertEquals(2, context.getBean(com.tianmu.agent.memory.MemoryPolicyProperties.class).coreMaxItems());
             assertEquals(3, context.getBean(com.tianmu.agent.feedback.FeedbackRuntimeProperties.class).preparationWorkers());
             assertEquals(3, context.getBean(com.tianmu.agent.video.VideoRuntimeProperties.class).indexWorkers());
             assertEquals(9, context.getBean(com.tianmu.agent.adapters.storage.StorageRuntimeProperties.class).poolMax());
@@ -103,7 +104,7 @@ class GovernanceConfigurationBaselineTest {
         });
         for(String invalid : new String[]{"agent.compaction.max-input-bytes=4096",
                 "agent.compaction.output-tokens=65536", "agent.memory.runtime.lease-seconds=1",
-                "agent.memory.runtime.extraction-output-tokens=9000", "agent.video.runtime.stale-after-seconds=1",
+                "agent.memory.runtime.consolidation-output-tokens=17000", "agent.memory.policy.max-wait-millis=1000", "agent.memory.policy.batch-messages=0", "agent.memory.policy.dream-max-items=51", "agent.video.runtime.stale-after-seconds=1",
                 "agent.feedback.runtime.preparation-workers=0", "agent.storage.runtime.pool-min=9",
                 "harness.trace.delivery.kafka-delivery-millis=1000", "harness.trace.delivery.kafka-ack-millis=4000", "harness.trace.delivery.query-read-millis=4000"}) {
             // max-tokens override makes the otherwise legal compaction output exceed its total budget.

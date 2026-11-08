@@ -15,6 +15,7 @@ import java.util.*;
 @ConditionalOnProperty(name="agent.memory.enabled",havingValue="true")
 public final class MemoryRecallService implements com.tianmu.agent.runtime.spi.ContextAuthority {
     private final com.tianmu.agent.memory.MemoryRuntimeProperties governance;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private MemoryPolicyProperties policy=MemoryPolicyProperties.defaults();
     private final MemoryLedger ledger;
     private final PersonalMemoryStore store;
     private final RuntimeHarness harness;
@@ -44,24 +45,45 @@ public final class MemoryRecallService implements com.tianmu.agent.runtime.spi.C
             if(boundary==null)throw MemoryLedger.invalidated();
             if(boundary.mode()==Mode.OFF)return ledger.commitRecall(run,List.of());
             var selected=new LinkedHashMap<UUID,Entry>();
-            // Core preferences and matching facts are separate candidates, with one final byte budget.
-            for(var entry:ledger.candidates(run.owner,Scope.user(),boundary.sequence(),"",governance.coreCandidates()))if(entry.content().kind()==Kind.PREFERENCE)selected.put(entry.id(),entry);
-            for(var entry:ledger.candidates(run.owner,Scope.user(),boundary.sequence(),run.message,governance.queryCandidates()))selected.put(entry.id(),entry);
+            String query=run.message;
+            // Previous USER text only supplements a short referential request.
+            if(query.codePointCount(0,query.length())<=12 && query.matches("(?s).*(这个|那个|之前|刚才|继续|学校|那里).*")){
+                var recent=run.memory().recent().stream().filter(m->"user".equalsIgnoreCase(m.role())).toList();
+                query+=" " + recent.stream().skip(Math.max(0,recent.size()-policy.queryHistoryMessages())).map(MemoryTypes.Message::text).collect(java.util.stream.Collectors.joining(" "));
+            }
+            query=MemorySelection.expand(query);
+            var core=ledger.core(run.owner,boundary.sequence(),governance.coreCandidates());
+            for(var entry:ledger.candidates(run.owner,Scope.user(),boundary.sequence(),query,governance.queryCandidates()))selected.put(entry.id(),entry);
             if(run.pageContext()!=null)for(var entry:ledger.candidates(run.owner,new Scope(ScopeType.VIDEO,run.pageContext().videoId()),boundary.sequence(),"",governance.scopedCandidates()))selected.put(entry.id(),entry);
             for(var topic:ledger.topics(run.owner)) {
                 String name=topic.get("name").toString();
-                if(!Collections.disjoint(MemoryKeywords.terms(name,16),MemoryKeywords.terms(run.message,16)))
+                if(!Collections.disjoint(MemorySelection.terms(name),MemorySelection.terms(query)))
                     for(var entry:ledger.candidates(run.owner,new Scope(ScopeType.TOPIC,topic.get("id").toString()),boundary.sequence(),"",governance.scopedCandidates()))selected.put(entry.id(),entry);
             }
-            var accepted=new ArrayList<Entry>();int bytes=0;var roots=new HashSet<String>();boundary.refs().forEach(ref->roots.add(ref.id()+":"+ref.version()));
-            for(var entry:selected.values()) {
-                String root=entry.id()+":"+entry.version();if(!roots.contains(root) && roots.size()>=32)continue;
-                try{int size=json.writeValueAsBytes(packet(run,entry)).length;if(bytes+size>governance.maxRecallBytes())continue;bytes+=size;accepted.add(entry);}catch(java.io.IOException e){throw new AgentException("STORAGE_CORRUPT","Invalid memory projection");}
-                roots.add(root);
-                if(accepted.size()==governance.maxRecallItems())break;
+            var ranked=MemorySelection.rank(selected.values(),query,run.pageContext()==null?null:run.pageContext().videoId());
+            var accepted=new ArrayList<Entry>();int bytes=0,coreBytes=0,coreCount=0;var roots=new HashSet<String>();boundary.refs().forEach(ref->roots.add(ref.id()+":"+ref.version()));
+            var reasons=new ArrayList<Map<String,Object>>();var queue=new ArrayList<Entry>(core);queue.addAll(ranked);var seen=new HashSet<UUID>();var texts=new HashSet<String>();
+            for(var entry:queue) {
+                if(!seen.add(entry.id()))continue;
+                boolean isCore=core.stream().anyMatch(e->e.id().equals(entry.id()));
+                String reason="SELECTED",root=entry.id()+":"+entry.version();int size;
+                try{size=json.writeValueAsBytes(packet(run,entry)).length;}catch(java.io.IOException e){throw new AgentException("STORAGE_CORRUPT","Invalid memory projection");}
+                int coreLimit=Math.min(policy.coreMaxItems(),Math.max(0,governance.maxRecallItems()-(ranked.isEmpty()?0:1)));
+                int coreByteLimit=Math.min(policy.coreMaxBytes(),ranked.isEmpty()?governance.maxRecallBytes():governance.maxRecallBytes()/2);
+                if(isCore && (coreCount>=coreLimit || coreBytes+size>coreByteLimit)){
+                    if(MemorySelection.score(entry,query,run.pageContext()==null?null:run.pageContext().videoId())>0)isCore=false;
+                    else reason="CORE_BUDGET";
+                }
+                if(reason.equals("SELECTED") && (accepted.size()>=governance.maxRecallItems() || bytes+size>governance.maxRecallBytes() || !roots.contains(root) && roots.size()>=32))reason="CONTEXT_BUDGET";
+                else if(reason.equals("SELECTED") && !texts.add(MemoryConsolidation.normalize(entry.content().text())))reason="DUPLICATE";
+                reasons.add(Map.of("id",entry.id(),"version",entry.version(),"layer",isCore?"CORE":"RELATED","reason",reason));
+                if(!reason.equals("SELECTED"))continue;
+                bytes+=size;if(isCore){coreBytes+=size;coreCount++;}roots.add(root);accepted.add(entry);
             }
+            for(var entry:selected.values())if(!seen.contains(entry.id()))reasons.add(Map.of("id",entry.id(),"version",entry.version(),"layer","RELATED","reason","NOT_RELEVANT"));
+            TraceDetails.output(Map.of("selection",reasons,"coreCount",coreCount,"relatedCount",accepted.size()-coreCount));
             var committed=ledger.commitRecall(run,accepted);
-            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("memory.candidate_count",selected.size(),"memory.selected_count",committed.size(),"memory.context_bytes",bytes,"memory.snapshot_seq",boundary.sequence(),"memory.reused",false));
+            TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("memory.candidate_count",java.util.stream.Stream.concat(core.stream(),selected.values().stream()).map(Entry::id).distinct().count(),"memory.selected_count",committed.size(),"memory.context_bytes",bytes,"memory.snapshot_seq",boundary.sequence(),"memory.reused",false,"memory.core_count",coreCount,"memory.related_count",accepted.size()-coreCount));
             return committed;
         });
         run.memory(run.memory().withPersistent(entries.stream().map(entry->packet(run,entry)).toList()));

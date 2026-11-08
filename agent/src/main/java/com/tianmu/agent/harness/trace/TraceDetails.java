@@ -18,6 +18,7 @@ import java.util.*;
 public final class TraceDetails {
     public record Binding(TraceDetails store, UUID runId, java.util.concurrent.atomic.AtomicLong capturedBytes) {}
     public static final ContextKey<Binding> KEY = ContextKey.named("tianmu.trace.details");
+    public static final ContextKey<String> SOURCE_JOB = ContextKey.named("tianmu.trace.source.job");
     public static final ContextKey<java.util.concurrent.atomic.AtomicBoolean> MEMORY = ContextKey.named("tianmu.memory.trace.protection");
     public static void protectMemory(){var flag=Context.current().get(MEMORY);if(flag!=null)flag.set(true);}
     private static final Set<String> DIRECTIONS = Set.of("input", "output", "provider_output", "error", "reasoning", "prompt", "code", "execution");
@@ -51,6 +52,10 @@ public final class TraceDetails {
         try{return mapper.readTree(payload).path("requiresSourceGuard").asBoolean(false);}
         catch(java.io.IOException invalid){throw new AgentException("STORAGE_CORRUPT","Invalid trace payload");}
     }
+    public java.util.Optional<UUID> sourceJob(byte[] payload){
+        try{var id=mapper.readTree(payload).path("sourceJobId");return id.isMissingNode()?java.util.Optional.empty():java.util.Optional.of(UUID.fromString(id.asText()));}
+        catch(Exception e){throw new AgentException("STORAGE_CORRUPT","Invalid source job reference");}
+    }
     public static void capture(String direction, Object value, String kind) {
         Binding binding = Context.current().get(KEY);
         if (binding != null && Span.current().getSpanContext().isValid()) binding.store().write(binding, direction, value, kind);
@@ -73,6 +78,7 @@ public final class TraceDetails {
             ObjectNode envelope = mapper.createObjectNode();
             envelope.put("schemaVersion", "1.0"); envelope.put("kind", kind); envelope.put("state", state);
             envelope.put("requiresSourceGuard",sourceProtected);
+            if(Context.current().get(SOURCE_JOB)!=null)envelope.put("sourceJobId",Context.current().get(SOURCE_JOB));
             envelope.put("redacted", redacted[0]); envelope.put("originalBytes", originalBytes);
             if (state.equals("TRUNCATED")) {
                 // A JSON string preview is explicitly incomplete; never present a cut JSON object as complete.

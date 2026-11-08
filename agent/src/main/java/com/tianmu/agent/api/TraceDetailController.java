@@ -27,6 +27,7 @@ public final class TraceDetailController {
             var authority=sourceAuthorities==null?null:sourceAuthorities.getIfAvailable();
             if(authority==null)throw new AgentException("MEMORY_SOURCE_UNAVAILABLE","Trace source authorization is unavailable");
             authority.verify(run,caller);
+            details.sourceJob(payload).ifPresent(job->authority.verifyJob(run,caller,job));
         }
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).cacheControl(CacheControl.noStore())
                 .header("X-Content-Type-Options", "nosniff").body(payload);

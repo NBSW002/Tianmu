@@ -14,7 +14,18 @@ import java.util.*;
 @Component
 public class DeliveryService implements com.tianmu.agent.runtime.spi.ResponseDelivery {
     private final RuntimeHarness harness;
+    @org.springframework.beans.factory.annotation.Autowired private com.tianmu.agent.runtime.spi.CompletionEvaluator completion=new BusinessCompletionEvaluator();
     public DeliveryService(RuntimeHarness harness) { this.harness = harness; }
+    /** Host-created acknowledgement after a durable application receipt; no model claim. */
+    public void acknowledgement(RunState run,Answer answer){
+        var reservation=reserve(run);
+        harness.stage(run,"agent.deliver.acknowledgement",HookPoint.PRE_DELIVER,HookPoint.POST_DELIVER,Map.of(),()->{
+            if(answer==null || answer.text()==null || answer.text().isBlank() || answer.text().length()>8000 || !answer.evidenceIds().isEmpty())throw new AgentException("INVALID_ANSWER","Invalid host acknowledgement");
+            var decision=completion.evaluate(new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(null,List.of(),Set.of(),answer,null,StopReason.ANSWER));
+            if(!(decision instanceof com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver accepted))throw new AgentException("INVALID_ANSWER","Host acknowledgement rejected");
+            run.checkpoint();run.verifyMemory();run.succeed(reservation,accepted.draft(),accepted.reason());return accepted.draft();
+        });
+    }
     public void clarification(RunState run, String question) { clarification(run, question, reserve(run)); }
     public TurnControl.Reservation reserve(RunState run) {
         run.checkpoint();
@@ -65,6 +76,7 @@ public class DeliveryService implements com.tianmu.agent.runtime.spi.ResponseDel
                 throw new AgentException("REPORT_REQUIRED", "No persisted report artifact exists for the delivered evidence");
             if (reason == StopReason.FINALIZED_ANSWER) answer = new Answer("【轮次已达上限，仅基于已获取证据收尾】\n" + answer.text(), answer.evidenceIds());
             validateAnswer(answer, run);
+            new MemoryReceiptRequirement().verify(new com.tianmu.agent.runtime.spi.CompletionEvaluator.Input(run.task(),run.execution().exchanges(),Set.of(),answer,null,reason),new com.tianmu.agent.runtime.spi.CompletionEvaluator.Deliver(answer,reason));
             // Notes are derived from validated, owned evidence rather than model-generated metadata.
             List<Evidence> evidence = answer.evidenceIds().stream().distinct().map(id -> run.execution().evidence().get(id)).toList();
             if (run.task() != null) {

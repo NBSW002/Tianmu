@@ -35,7 +35,7 @@ public final class TraceSemantics {
         } else if (value instanceof Result prepared) {
             attrs.put("request.route", prepared.route().name());
             attrs.put("route.reason", switch (prepared.route()) {
-                case FAQ -> "FAQ_HIT"; case CLARIFY -> "CLARIFICATION_REQUIRED"; case HARNESS -> "READY";
+                case FAQ -> "FAQ_HIT"; case CLARIFY -> "CLARIFICATION_REQUIRED"; case HARNESS -> "READY"; case DIRECT -> "HOST_ACKNOWLEDGEMENT";
             });
             attrs.put("preparation.emotion", prepared.request().emotion().name());
             attrs.put("preparation.intent", prepared.request().intent().name());

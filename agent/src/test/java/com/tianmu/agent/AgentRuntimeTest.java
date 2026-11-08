@@ -39,7 +39,8 @@ class AgentRuntimeTest {
     }
 
     private Snapshot await(RunState run) throws InterruptedException {
-        long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+        // This verifies functional async completion, not a three-second latency SLA.
+        long end = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
         while (!com.tianmu.agent.core.AgentTypes.terminal(run.snapshot().status()) && System.nanoTime() < end) Thread.sleep(10);
         return run.snapshot();
     }

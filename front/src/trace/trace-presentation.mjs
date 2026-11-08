@@ -9,7 +9,9 @@ const toolNames = { query_danmaku_count: '查询弹幕数', read_danmaku: '读�
 const failures = new Set(['FAILED', 'TIMED_OUT', 'CANCELLED'])
 titles.memory='记忆召回'
 titles.memory_restore='恢复固定记忆'
-titles.memory_write='整理长期记忆'
+titles.memory_write='提取长期记忆'
+titles.memory_dream='整理已有记忆'
+titles.memory_request='记忆任务已排队'
 titles.compaction='上下文压缩'
 Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', material_join: '准备结果汇合', finish: '运行结束' })
 Object.assign(phaseNames, { ANALYZING: '分析反馈', SNAPSHOT: '冻结反馈快照', COMMENT: '整理评论', DANMAKU: '整理弹幕', MATERIALS: '联合聚类与代表选择', REPORT_JSON: '校验并保存报告' })
@@ -227,6 +229,8 @@ export function semanticKind(n) {
   if (t === 'memory_recall' || name === 'agent.memory.recall') return 'memory'
   if (name === 'agent.memory.restore') return 'memory_restore'
   if (name === 'agent.memory.extract') return 'memory_write'
+  if (name === 'agent.memory.dream') return 'memory_dream'
+  if (name === 'agent.memory.request') return 'memory_request'
   if (t === 'faq_lookup' || name === 'agent.prepare.faq') return 'faq'
   if (t === 'intent_recognition' || name === 'agent.prepare.intent') return 'intent'
   if (t === 'emotion_recognition' || name === 'agent.prepare.emotion') return 'emotion'
@@ -274,9 +278,11 @@ export function cardSummary(n) {
       return ({ HARNESS: '条件已确认，进入 Agent', FAQ: '直接回答' }[a['request.route']]) || '合并三个独立识别结果'
     }
     case 'faq': return a['faq.hit'] === true ? `命中 · ${a['faq.id'] || '知识条目'}` : a['faq.hit'] === false ? '未命中，继续处理' : '匹配结果未记录'
-    case 'memory': return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
+    case 'memory': if (Number.isFinite(a['memory.core_count'])) return `核心 ${a['memory.core_count']} 条 · 相关 ${a['memory.related_count'] || 0} 条 · ${a['memory.context_bytes'] || 0} B`; return Number.isFinite(a['memory.selected_count']) ? `采用 ${a['memory.selected_count']} 条 · ${a['memory.context_bytes'] || 0} B` : '按本轮作用域召回记忆'
+    case 'memory_dream': return `检查 ${a['memory.candidate_count'] || 0} 条 · 整理 ${a['memory.dream_changes'] || 0} 项`
+    case 'memory_request': return '后台将判断保存价值 · 当前仅确认入队'
     case 'memory_restore': return `恢复原快照 ${a['memory.selected_count'] || 0} 条 · 未重新检索`
-    case 'memory_write': return Number.isFinite(a['memory.candidate_count']) ? `新增 ${a['memory.added_count'] || 0} · 更新 ${a['memory.updated_count'] || 0} · 重复 ${a['memory.duplicate_count'] || 0} · 冲突 ${a['memory.conflict_count'] || 0}` : '从近期对话整理有来源的偏好与目标'
+    case 'memory_write': return Number.isFinite(a['memory.candidate_count']) ? `新增 ${a['memory.added_count'] || 0} · 更新 ${a['memory.updated_count'] || 0} · 重复 ${a['memory.duplicate_count'] || 0} · 冲突 ${a['memory.conflict_count'] || 0}` : '从近期对话提取有来源的事实、偏好与目标'
     case 'compaction': return Number.isFinite(a['compaction.source_messages']) ? `${a['compaction.source_messages']} 条消息 · 节省 ${a['compaction.saved_bytes'] || 0} B` : '整理旧历史，保留近期原文'
     case 'intent': return intentDetails(n).primary?.label || intentNames[a['preparation.intent']] || '识别结果未记录'
     case 'emotion': return emotionNames[a['preparation.emotion']] || '识别结果未记录'
@@ -437,8 +443,8 @@ export function buildTracePresentation(raw) {
   }
   cards.sort(compare)
   const notices = []
-  if (!cards.some(n => ['memory_write','compaction'].includes(n.cardKind)) && !cards.some(n => n.cardKind === 'emotion')) notices.push('情绪识别：未执行或未记录')
-  if (!cards.some(n => ['memory_write','compaction'].includes(n.cardKind)) && !cards.some(n => n.cardKind === 'clarification')) notices.push('澄清判断：无独立记录')
+  if (!cards.some(n => ['memory_write','memory_dream','memory_request','compaction'].includes(n.cardKind)) && !cards.some(n => n.cardKind === 'emotion')) notices.push('情绪识别：未执行或未记录')
+  if (!cards.some(n => ['memory_write','memory_dream','memory_request','compaction'].includes(n.cardKind)) && !cards.some(n => n.cardKind === 'clarification')) notices.push('澄清判断：无独立记录')
   if (!cards.length) notices.push('暂无业务节点，请查看原始节点')
   const allCards = new Map()
   const index = list => list.forEach(n => { allCards.set(n.id, n); if (n.children?.length) index(n.children) })

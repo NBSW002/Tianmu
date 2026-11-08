@@ -4,6 +4,7 @@ package com.tianmu.agent.config;
 @org.springframework.boot.context.properties.EnableConfigurationProperties({
         com.tianmu.agent.memory.CompactionProperties.class,
         com.tianmu.agent.memory.MemoryRuntimeProperties.class,
+        com.tianmu.agent.memory.MemoryPolicyProperties.class,
         com.tianmu.agent.feedback.FeedbackRuntimeProperties.class,
         com.tianmu.agent.video.VideoRuntimeProperties.class,
         com.tianmu.agent.adapters.storage.StorageRuntimeProperties.class,

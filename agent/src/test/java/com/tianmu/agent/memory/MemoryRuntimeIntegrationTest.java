@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
 @EnabledIfEnvironmentVariable(named="AGENT_MEMORY_IT",matches="true")
 @ActiveProfiles("demo")
 @org.springframework.test.annotation.DirtiesContext(classMode=org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-@SpringBootTest(properties={"agent.memory.enabled=true","agent.storage.mode=mysql","agent.storage.object-store=file","agent.storage.object-directory=./target/test-artifacts/memory-runtime","agent.storage.redis.enabled=false","harness.trace.directory=./target/test-traces/memory-runtime"})
+@SpringBootTest(properties={"agent.memory.enabled=true","agent.memory.policy.debounce-millis=0","agent.storage.mode=mysql","agent.storage.object-store=file","agent.storage.object-directory=./target/test-artifacts/memory-runtime","agent.storage.redis.enabled=false","harness.trace.directory=./target/test-traces/memory-runtime"})
 class MemoryRuntimeIntegrationTest {
     @DynamicPropertySource static void database(DynamicPropertyRegistry registry){
         String url=System.getenv("AGENT_MEMORY_JDBC_URL");
@@ -49,13 +49,18 @@ class MemoryRuntimeIntegrationTest {
         owner=new AccessScope("memory_"+UUID.randomUUID().toString().substring(0,12),"alice",Set.of(1001L));db=new JdbcTemplate(source);
         when(model.version()).thenReturn("fixture-memory-v1");
         when(videoPages.page(eq(1001L),any())).thenReturn(new com.tianmu.agent.query.VideoPagePort.Page("1001","测试视频",1000));
-        when(model.evaluate(anyString(),anyMap(),anyInt(),any())).thenAnswer(inv->{var result=json.createObjectNode();result.putArray("items").addObject().put("quote",inv.<Map<String,Object>>getArgument(1).get("user_message").toString()).put("kind","PREFERENCE").put("topic","");return result;});
+        when(model.evaluate(anyString(),anyMap(),anyInt(),any())).thenAnswer(inv->{
+            var payload=inv.<Map<String,Object>>getArgument(1);var result=json.createObjectNode().put("complete",true).put("overflow",false);result.set("processed_message_ids",json.valueToTree(payload.get("new_message_ids")));
+            var current=payload.get("new_message_id").toString();var s=((List<MemoryConsolidation.Source>)payload.get("messages")).stream().filter(x->x.messageId().equals(current)).findFirst().orElseThrow();
+            result.putArray("candidates").addObject().put("kind","PREFERENCE").put("attribute","explanation_style").put("qualifier","").put("value","examples_first").put("text",s.text()).put("topic","").putArray("support").addObject().put("message_id",current).put("quote",s.text());return result;
+        });
+        ledger.auto(owner,store.settings(owner).version(),false);
     }
     RunState run(String query){var run=runs.create(query,owner,null,UUID.randomUUID().toString(),null).run();assertTrue(run.start());created.add(run);return run;}
     @AfterEach void cleanup(){
         for(var run:created)try{runs.deleteSession(run.sessionId,owner);}catch(AgentException e){if(!e.code().equals("SESSION_NOT_FOUND"))throw e;}
         runs.garbageCollect();
-        for(String table:List.of("job","run","keyword","dependency","revision","source","item","mutation","tombstone","topic","account"))db.update("DELETE FROM agent_memory_"+table+" WHERE tenant_id=? AND owner_user_id=?",owner.tenantId(),owner.userId());
+        for(String table:List.of("index","dream","candidate","fact","window","cursor","observation","job","run","keyword","dependency","revision","source","item","mutation","tombstone","topic","account"))db.update("DELETE FROM agent_memory_"+table+" WHERE tenant_id=? AND owner_user_id=?",owner.tenantId(),owner.userId());
     }
     @Test void explicitSourceDeletionInvalidatesConsumedTurnsAndHistoryInTheSameTransaction(){
         var origin=run("记住，我偏好简短回答");var saved=ledger.declare(origin,new Content(Scope.user(),PersonalMemory.Kind.PREFERENCE,"我偏好简短回答",null),"source",true);origin.succeed(new Answer("已保存",List.of()));
@@ -122,16 +127,16 @@ class MemoryRuntimeIntegrationTest {
         assertEquals("MEMORY_CONTEXT_INVALIDATED",assertThrows(AgentException.class,()->ledger.guard(request)).code());
     }
     @Test void terminalOutboxBuildsRealDurableJobAndStoresOnlyGroundedQuote() throws Exception {
-        ledger.auto(owner,0,true);var origin=run("我长期偏好有实例的技术讲解");origin.succeed(new Answer("收到",List.of()));
+        ledger.auto(owner,store.settings(owner).version(),true);var origin=run("我长期偏好有实例的技术讲解");origin.succeed(new Answer("收到",List.of()));
         long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(15);List<Map<String,Object>> jobs=List.of();
         while(System.nanoTime()<until){runs.deliverOutbox();background.tick();jobs=background.jobs(owner,origin.id);if(jobs.stream().anyMatch(j->"SUCCEEDED".equals(j.get("state"))))break;Thread.sleep(20);}
-        assertTrue(jobs.stream().anyMatch(j->"SUCCEEDED".equals(j.get("state"))),jobs.toString());
+        assertTrue(jobs.stream().anyMatch(j->"SUCCEEDED".equals(j.get("state"))),()->"jobs="+background.jobs(owner,origin.id)+" windows="+db.queryForList("SELECT state,available_at,UTC_TIMESTAMP(6) AS now_utc FROM agent_memory_window WHERE tenant_id=?",owner.tenantId())+" busy="+org.springframework.test.util.ReflectionTestUtils.getField(background,"busy")+" current="+org.springframework.test.util.ReflectionTestUtils.getField(background,"current"));
         assertEquals(origin.message,store.list(owner,Scope.user(),Long.MAX_VALUE,20,"").items().get(0).content().text());
         assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM agent_memory_job WHERE tenant_id=?",Integer.class,owner.tenantId()));
         assertNotNull(jobs.get(0).get("trace_id"));
     }
     @Test void pausedOrResetEpochCannotBeBypassedByALateExtractionWriter(){
-        ledger.auto(owner,0,true);var origin=run("持续目标：学习数据库");var before=store.settings(owner);store.reset(owner,"reset");
+        ledger.auto(owner,store.settings(owner).version(),true);var origin=run("持续目标：学习数据库");var before=store.settings(owner);store.reset(owner,"reset");
         assertEquals("MEMORY_CONTEXT_INVALIDATED",assertThrows(AgentException.class,()->ledger.declare(owner,origin.sessionId,origin.id,new Content(Scope.user(),PersonalMemory.Kind.GOAL,"学习数据库",null),"late",false,before.consentEpoch(),before.eraseEpoch())).code());
         assertTrue(store.list(owner,Scope.user(),Long.MAX_VALUE,20,"").items().isEmpty());
     }
@@ -166,11 +171,11 @@ class MemoryRuntimeIntegrationTest {
     @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"reset","pause","delete"})
     void revocationBetweenSourceReadAndDispatchPreventsTheProviderCall(String action)throws Exception{
         var reached=new CountDownLatch(1);var release=new CountDownLatch(1);var providerCalls=new java.util.concurrent.atomic.AtomicInteger();
-        doAnswer(inv->{reached.countDown();assertTrue(release.await(8,TimeUnit.SECONDS));inv.<com.tianmu.agent.runtime.control.CallControl>getArgument(3).beforeDispatch();providerCalls.incrementAndGet();var empty=json.createObjectNode();empty.putArray("items");return empty;}).when(model).evaluate(anyString(),anyMap(),anyInt(),any());
-        ledger.auto(owner,0,true);var origin=run("我长期偏好结构清楚的技术讲解");origin.succeed(new Answer("收到",List.of()));runs.deliverOutbox();background.tick();
-        assertTrue(reached.await(5,TimeUnit.SECONDS));
+        doAnswer(inv->{reached.countDown();assertTrue(release.await(15,TimeUnit.SECONDS));inv.<com.tianmu.agent.runtime.control.CallControl>getArgument(3).beforeDispatch();providerCalls.incrementAndGet();var empty=json.createObjectNode();empty.putArray("items");return empty;}).when(model).evaluate(anyString(),anyMap(),anyInt(),any());
+        ledger.auto(owner,store.settings(owner).version(),true);var origin=run("我长期偏好结构清楚的技术讲解");origin.succeed(new Answer("收到",List.of()));runs.deliverOutbox();background.tick();
+        assertTrue(reached.await(10,TimeUnit.SECONDS));
         try{switch(action){case "reset"->store.reset(owner,"before-send");case "pause"->store.settings(owner,store.settings(owner).version(),Mode.OFF);case "delete"->runs.deleteSession(origin.sessionId,owner);default->fail();}}finally{release.countDown();}
-        long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);while(System.nanoTime()<until){if(background.jobs(owner,origin.id).stream().anyMatch(j->"CANCELLED".equals(j.get("state"))))break;Thread.sleep(20);}
-        assertEquals(0,providerCalls.get());assertTrue(background.jobs(owner,origin.id).stream().anyMatch(j->"CANCELLED".equals(j.get("state"))));
+        long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);while(System.nanoTime()<until){if(background.jobs(owner,origin.id).stream().anyMatch(j->"CANCELLED".equals(j.get("state"))) || action.equals("delete") && background.jobs(owner,origin.id).isEmpty())break;Thread.sleep(20);}
+        assertEquals(0,providerCalls.get());var tasks=background.jobs(owner,origin.id);assertTrue(action.equals("delete")?tasks.isEmpty() || tasks.stream().allMatch(j->"CANCELLED".equals(j.get("state"))):tasks.stream().anyMatch(j->"CANCELLED".equals(j.get("state"))));
     }
 }

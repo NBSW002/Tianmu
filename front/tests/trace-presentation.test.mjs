@@ -405,6 +405,20 @@ test('memory restore is not another recall and consolidation reports accepted de
   assert.match(p.allCards.get('write').summary,/新增 1 · 更新 1 · 重复 2/)
 })
 
+test('memory queue, layered recall and dream are distinct operations',()=>{
+  const nodes=[
+    {id:'queued',name:'agent.memory.request',offsetMs:0,durationMs:2,status:'SUCCEEDED',attributes:{}},
+    {id:'recall',name:'agent.memory.recall',offsetMs:3,durationMs:2,status:'SUCCEEDED',attributes:{'memory.selected_count':3,'memory.core_count':1,'memory.related_count':2,'memory.context_bytes':600}},
+    {id:'dream',name:'agent.memory.dream',offsetMs:10,durationMs:20,status:'SUCCEEDED',attributes:{'memory.candidate_count':8,'memory.dream_changes':2}}
+  ]
+  const p=buildTracePresentation(nodes)
+  assert.equal(p.allCards.get('queued').cardKind,'memory_request')
+  assert.match(p.allCards.get('queued').summary,/仅确认入队/)
+  assert.match(p.allCards.get('recall').summary,/核心 1 条 · 相关 2 条/)
+  assert.equal(p.allCards.get('dream').cardKind,'memory_dream')
+  assert.match(p.allCards.get('dream').summary,/检查 8 条 · 整理 2 项/)
+})
+
 test('nested parallel tool batch remains linked to its actual model round',()=>{
   const base={status:'SUCCEEDED',turn:1,attributes:{'run.id':'r','run.turn_seq':1}}
   const nodes=[{...base,id:'loop',name:'agent.loop',offsetMs:0,durationMs:20},{...base,id:'m',name:'agent.model',kind:'MODEL',parentId:'loop',offsetMs:1,durationMs:2,output:{call:{name:'query_video_metrics',arguments:{video_id:1}},additionalCalls:[{name:'query_video_metrics',arguments:{video_id:2}}]}},{...base,id:'batch',name:'agent.tool.batch',parentId:'loop',offsetMs:4,durationMs:10,attributes:{...base.attributes,'tool.execution_mode':'PARALLEL'}},...[1,2].map(i=>({...base,id:`t${i}`,name:'agent.tool',kind:'TOOL',tool:'query_video_metrics',parentId:'batch',offsetMs:4,durationMs:i+3,input:{name:'query_video_metrics',arguments:{video_id:i}}}))]

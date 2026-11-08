@@ -20,6 +20,22 @@ public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSou
         if(!run.owner.tenantId().equals(caller.tenantId()) || !run.owner.userId().equals(caller.userId()))throw new AgentException("FORBIDDEN","Trace source owner mismatch");
         if(!historyAllowed(caller,run.id))throw invalidated();
     }
+    @Override public void verifyJob(RunState run,AccessScope caller,UUID job){
+        verify(run,caller);
+        var rows=db.queryForList("SELECT * FROM agent_memory_job WHERE job_id=? AND tenant_id=? AND owner_user_id=? AND run_id=?",job.toString(),caller.tenantId(),caller.userId(),run.id.toString());
+        if(rows.isEmpty())throw invalidated();var row=rows.get(0);var settings=store.settings(caller);
+        if(settings.mode()==Mode.OFF || settings.consentEpoch()!=((Number)row.get("consent_epoch")).longValue() || settings.eraseEpoch()!=((Number)row.get("erase_epoch")).longValue())throw invalidated();
+        try{
+            var plan=json.readTree(row.get("plan_json").toString());
+            var manifests=new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();plan.path("manifest").forEach(manifests::add);plan.path("traceManifest").forEach(manifests::add);
+            for(var ref:manifests){
+                var valid=db.queryForList("SELECT m.run_id FROM agent_message m JOIN agent_run r ON r.tenant_id=m.tenant_id AND r.run_id=m.run_id JOIN agent_session ss ON ss.tenant_id=m.tenant_id AND ss.session_id=m.session_id WHERE m.tenant_id=? AND m.owner_user_id=? AND m.message_id=? AND m.run_id=? AND m.content_sha256=? AND m.expires_at>UTC_TIMESTAMP(6) AND r.data_expires_at>UTC_TIMESTAMP(6) AND ss.status='OPEN' AND ss.expires_at>UTC_TIMESTAMP(6)",caller.tenantId(),caller.userId(),ref.path("messageId").asText(),ref.path("runId").asText(),ref.path("hash").asText());
+                if(valid.isEmpty())throw invalidated();verifyOriginResources(caller,UUID.fromString(ref.path("runId").asText()));
+            }
+            var memoryRefs=new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();plan.path("memoryRefs").forEach(memoryRefs::add);plan.path("traceMemoryRefs").forEach(memoryRefs::add);
+            for(var ref:memoryRefs)read(caller,UUID.fromString(ref.path("id").asText()),ref.path("version").asLong(),plan.path("sequence").asLong(),true);
+        }catch(java.io.IOException e){throw invalidated();}
+    }
     private final com.tianmu.agent.memory.MemoryRuntimeProperties governance;
     public record Ref(UUID id,long version,long sequence,boolean initial){public Ref(UUID id,long version){this(id,version,0,false);}}
     public record Boundary(long sequence,long consent,long erase,Mode mode,boolean consumed,boolean recalled,List<Ref> refs){}
@@ -41,19 +57,26 @@ public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSou
         catch(Exception e){throw new AgentException("STORAGE_CORRUPT","Invalid memory snapshot");}
     }
     public void begin(RunState run){var s=store.settings(run.owner);db.update("INSERT INTO agent_memory_run(tenant_id,owner_user_id,run_id,session_id,memory_seq,consent_epoch,erase_epoch,mode,selected_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE run_id=run_id",run.owner.tenantId(),run.owner.userId(),run.id.toString(),run.sessionId.toString(),s.sequence(),s.consentEpoch(),s.eraseEpoch(),s.mode().name(),"[]");}
-    public Entry read(AccessScope o,UUID id,long version,long sequence){
+    public Entry read(AccessScope o,UUID id,long version,long sequence){return read(o,id,version,sequence,false);}
+    private Entry read(AccessScope o,UUID id,long version,long sequence,boolean trace){
         live(o,store.scope(o,id));
-        var rows=db.query("SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.memory_id=? AND r.version=? AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND r.content<>'' AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.REVISION_READABLE,
+        var rows=db.query("SELECT r.* FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.memory_id=? AND r.version=? AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND r.content<>'' AND i.status='ACTIVE' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+(trace?MemorySources.REVISION_SOURCE_READABLE:MemorySources.REVISION_READABLE),
             (r,n)->new Entry(id,r.getLong("version"),r.getLong("valid_from_seq"),new Content(new Scope(ScopeType.valueOf(r.getString("scope_type")),r.getString("scope_key")),Kind.valueOf(r.getString("kind")),r.getString("content"),r.getTimestamp("expires_at")==null?null:r.getTimestamp("expires_at").toInstant()),r.getTimestamp("created_at").toInstant()),o.tenantId(),o.userId(),id.toString(),version,sequence,sequence);
         if(rows.isEmpty())throw PersonalMemory.missing();var result=rows.get(0);live(o,result.content().scope());return result;
     }
     public List<Entry> candidates(AccessScope o,Scope scope,long sequence,String query,int limit){
-        scope.authorize(o);var terms=MemoryKeywords.terms(query,16);var args=new ArrayList<Object>(List.of(o.tenantId(),o.userId(),scope.type().name(),scope.key(),sequence,sequence));
-        String sql="SELECT r.memory_id,r.version FROM agent_memory_revision r WHERE r.tenant_id=? AND r.owner_user_id=? AND r.scope_type=? AND r.scope_key=? AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?)";
+        scope.authorize(o);var terms=MemorySelection.terms(query).stream().limit(32).toList();var args=new ArrayList<Object>(List.of(o.tenantId(),o.userId(),scope.type().name(),scope.key(),sequence,sequence));
+        String sql="SELECT r.memory_id,r.version FROM agent_memory_revision r JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.scope_type=? AND r.scope_key=? AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND i.status='ACTIVE' AND r.content<>'' AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.REVISION_READABLE;
         if(!query.isBlank()){
             if(terms.isEmpty())return List.of();sql+=" AND EXISTS(SELECT 1 FROM agent_memory_keyword k WHERE k.tenant_id=r.tenant_id AND k.owner_user_id=r.owner_user_id AND k.memory_id=r.memory_id AND k.version=r.version AND k.term IN ("+String.join(",",Collections.nCopies(terms.size(),"?"))+"))";args.addAll(terms);
         }
-        sql+=" ORDER BY r.valid_from_seq DESC LIMIT ?";args.add(Math.min(governance.candidateFetchLimit(),limit));var refs=db.query(sql,(r,n)->new Ref(UUID.fromString(r.getString(1)),r.getLong(2)),args.toArray());
+        if(!terms.isEmpty()){
+            sql+=" ORDER BY (SELECT COUNT(*) FROM agent_memory_keyword k WHERE k.tenant_id=r.tenant_id AND k.owner_user_id=r.owner_user_id AND k.memory_id=r.memory_id AND k.version=r.version AND k.term IN ("+String.join(",",Collections.nCopies(terms.size(),"?"))+")) DESC,r.valid_from_seq DESC LIMIT ?";args.addAll(terms);
+        }else sql+=" ORDER BY r.valid_from_seq DESC LIMIT ?";args.add(Math.min(governance.candidateFetchLimit(),limit));var refs=db.query(sql,(r,n)->new Ref(UUID.fromString(r.getString(1)),r.getLong(2)),args.toArray());
+        var out=new ArrayList<Entry>();for(var ref:refs)try{out.add(read(o,ref.id(),ref.version(),sequence));}catch(AgentException e){if(!e.code().equals("MEMORY_NOT_FOUND"))throw e;}return List.copyOf(out);
+    }
+    public List<Entry> core(AccessScope o,long sequence,int limit){
+        var refs=db.query("SELECT r.memory_id,r.version FROM agent_memory_revision r JOIN agent_memory_index x ON x.tenant_id=r.tenant_id AND x.owner_user_id=r.owner_user_id AND x.memory_id=r.memory_id AND x.version=r.version JOIN agent_memory_item i ON i.tenant_id=r.tenant_id AND i.owner_user_id=r.owner_user_id AND i.memory_id=r.memory_id WHERE r.tenant_id=? AND r.owner_user_id=? AND r.scope_type='USER' AND r.kind='PREFERENCE' AND x.is_core=1 AND i.status='ACTIVE' AND r.valid_from_seq<=? AND (r.valid_to_seq IS NULL OR r.valid_to_seq>?) AND (r.expires_at IS NULL OR r.expires_at>UTC_TIMESTAMP(6)) AND "+MemorySources.REVISION_READABLE+" ORDER BY x.importance DESC,r.valid_from_seq DESC LIMIT ?",(r,n)->new Ref(UUID.fromString(r.getString(1)),r.getLong(2)),o.tenantId(),o.userId(),sequence,sequence,limit);
         var out=new ArrayList<Entry>();for(var ref:refs)try{out.add(read(o,ref.id(),ref.version(),sequence));}catch(AgentException e){if(!e.code().equals("MEMORY_NOT_FOUND"))throw e;}return List.copyOf(out);
     }
     public void consume(RunState run,List<Entry> entries){
@@ -135,6 +158,15 @@ public final class MemoryLedger implements com.tianmu.agent.runtime.spi.TraceSou
             authority.run();
             var receipt=store.create(o,content,key);
             db.update("UPDATE agent_memory_source s JOIN agent_memory_dependency d ON d.tenant_id=s.tenant_id AND d.owner_user_id=s.owner_user_id AND d.source_id=s.source_id SET s.source_kind=?,s.origin_session_id=?,s.origin_run_id=?,s.source_expires_at=(SELECT data_expires_at FROM agent_run WHERE tenant_id=? AND run_id=?) WHERE d.tenant_id=? AND d.owner_user_id=? AND d.memory_id=? AND d.version=? AND s.status='ACTIVE'",explicit?"EXPLICIT_DECLARATION":"AUTO_EXTRACTED",session.toString(),run.toString(),o.tenantId(),run.toString(),o.tenantId(),o.userId(),receipt.id().toString(),receipt.version());return receipt;
+        });
+    }
+    /** Explicit background intent is fenced by its durable job, not a live foreground generation. */
+    public Receipt declareBackground(AccessScope o,UUID session,UUID run,Content content,String key,boolean explicit,long consent,long erase,Runnable authority){
+        return tx.execute(status->{
+            mutationBoundary(o,session,run,false,null,null);
+            var s=store.settings(o);if(s.mode()!=Mode.ON || s.consentEpoch()!=consent || s.eraseEpoch()!=erase || !explicit && !s.autoExtract())throw invalidated();
+            authority.run();var receipt=store.create(o,content,key);
+            db.update("UPDATE agent_memory_source s JOIN agent_memory_dependency d ON d.tenant_id=s.tenant_id AND d.owner_user_id=s.owner_user_id AND d.source_id=s.source_id SET s.source_kind=?,s.origin_session_id=?,s.origin_run_id=? WHERE d.tenant_id=? AND d.owner_user_id=? AND d.memory_id=? AND d.version=?",explicit?"EXPLICIT_DECLARATION":"AUTO_EXTRACTED",session.toString(),run.toString(),o.tenantId(),o.userId(),receipt.id().toString(),receipt.version());return receipt;
         });
     }
     private void mutationBoundary(AccessScope o,UUID session,UUID run,boolean explicit,Long consent,Long erase){

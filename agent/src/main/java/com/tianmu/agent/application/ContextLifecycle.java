@@ -15,6 +15,13 @@ public final class ContextLifecycle {
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.CompactionService compaction;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryLedger ledger;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryToolService memories;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.memory.MemoryConsolidation learning;
+    public java.util.Optional<com.tianmu.agent.core.AgentTypes.Answer> memoryRequest(RunState run){
+        if(learning==null || !com.tianmu.agent.memory.MemoryIntent.save(run.message,run.memory().recent()))return java.util.Optional.empty();
+        var receipt=harness.stage(run,"agent.memory.request",null,null,Map.of("memory.trigger_reason","EXPLICIT_REQUEST"),()->learning.requestSave(run));
+        if(!com.tianmu.agent.memory.MemoryIntent.exclusive(run.message))return java.util.Optional.empty();
+        return java.util.Optional.of(new com.tianmu.agent.core.AgentTypes.Answer("收到，已加入后台记忆整理，会结合前文保存适合长期保留的信息。",java.util.List.of()));
+    }
     public boolean memoryManagement(String query){return memories!=null && com.tianmu.agent.memory.MemoryToolService.management(query);}
     public ContextLifecycle(ConversationStore conversations, RuntimeHarness harness) {
         this.conversations=conversations;this.harness=harness;

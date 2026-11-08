@@ -33,8 +33,6 @@ agent:
   memory:
     # Personal memory is gated until lifecycle and real-model quality acceptance pass.
     enabled: ${AGENT_MEMORY_ENABLED:false}
-    consolidation:
-      enabled: ${AGENT_MEMORY_CONSOLIDATION_ENABLED:false}
   tools:
     parallel:
       enabled: ${AGENT_TOOLS_PARALLEL_ENABLED:true}

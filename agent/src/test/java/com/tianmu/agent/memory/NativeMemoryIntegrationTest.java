@@ -36,6 +36,11 @@ class NativeMemoryIntegrationTest {
         var settings=store.settings(owner);String id=UUID.randomUUID().toString(),lease=UUID.randomUUID().toString();
         db.update("INSERT INTO agent_memory_job(job_id,tenant_id,owner_user_id,session_id,run_id,consent_epoch,erase_epoch,model_version,job_type,plan_json,generation_key,state,lease_token,lease_until,available_at,created_at) VALUES(?,?,?,?,?,?,?,'test-v1','CONSOLIDATE',?,'test','RUNNING',?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 30 SECOND),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",id,owner.tenantId(),owner.userId(),run.sessionId.toString(),run.id.toString(),settings.consentEpoch(),settings.eraseEpoch(),"{\"policy\":\""+MemoryConsolidation.VERSION+"\"}",lease);
         db.update("INSERT INTO agent_memory_window(tenant_id,owner_user_id,session_id,run_id,message_seq,observation_seq) SELECT tenant_id,owner_user_id,session_id,run_id,message_seq,observation_seq FROM agent_memory_observation WHERE tenant_id=? AND owner_user_id=? AND run_id=?",owner.tenantId(),owner.userId(),run.id.toString());
+        var ob=db.queryForMap("SELECT * FROM agent_memory_observation WHERE run_id=?",run.id.toString());
+        var manifest=db.queryForList("SELECT m.message_id,m.run_id,m.content_sha256 FROM agent_message m WHERE m.tenant_id=? AND m.owner_user_id=? AND m.session_id=? AND m.message_seq<=? AND m.role='USER' ORDER BY m.message_seq",owner.tenantId(),owner.userId(),run.sessionId.toString(),ob.get("message_seq"));
+        var plan=json.createObjectNode().put("policy",MemoryConsolidation.VERSION);plan.putArray("processedIds").add(ob.get("message_id").toString());var refs=plan.putArray("manifest");
+        for(var m:manifest)refs.addObject().put("messageId",m.get("message_id").toString()).put("runId",m.get("run_id").toString()).put("hash",m.get("content_sha256").toString());
+        db.update("UPDATE agent_memory_job SET plan_json=? WHERE job_id=?",plan.toString(),id);
         return new HashMap<>(db.queryForMap("SELECT * FROM agent_memory_job WHERE job_id=?",id));
     }
     JsonNode response(Map<String,Object> payload,String value,boolean both)throws Exception{
@@ -48,7 +53,7 @@ class NativeMemoryIntegrationTest {
     }
     @AfterEach void cleanup(){
         for(var r:created)try{runs.deleteSession(r.sessionId,owner);}catch(AgentException ignored){}
-        for(String table:List.of("candidate","fact","window","cursor","observation","job","run","keyword","dependency","revision","source","item","mutation","tombstone","topic","account"))db.update("DELETE FROM agent_memory_"+table+" WHERE tenant_id=? AND owner_user_id=?",owner.tenantId(),owner.userId());
+        for(String table:List.of("index","dream","candidate","fact","window","cursor","observation","job","run","keyword","dependency","revision","source","item","mutation","tombstone","topic","account"))db.update("DELETE FROM agent_memory_"+table+" WHERE tenant_id=? AND owner_user_id=?",owner.tenantId(),owner.userId());
     }
     @Test void repeatedRecallAndProcessRestoreKeepExactlyTheOriginalPacketEvenWhenEmpty(){
         var request=runs.create("聊聊",owner,null,"once",null).run();request.start();created.add(request);recall.begin(request);recall.recall(request);
@@ -114,6 +119,7 @@ class NativeMemoryIntegrationTest {
         assertEquals("RUNNING",db.queryForObject("SELECT state FROM agent_memory_job WHERE job_id=?",String.class,old.get("job_id")));
         assertEquals("PENDING",db.queryForObject("SELECT state FROM agent_memory_window WHERE run_id=?",String.class,request.id.toString()));
         assertEquals(0,db.queryForObject("SELECT committed_through FROM agent_memory_cursor WHERE tenant_id=?",Long.class,owner.tenantId()));
+        store.settings(owner,store.settings(owner).version(),Mode.OFF);
         var current=new HashMap<>(old);current.put("lease_token",replacement);consolidation.cancel(current,"MEMORY_CONTEXT_INVALIDATED");
         assertEquals("SKIPPED",db.queryForObject("SELECT state FROM agent_memory_window WHERE run_id=?",String.class,request.id.toString()));
         assertEquals(1,db.queryForObject("SELECT committed_through FROM agent_memory_cursor WHERE tenant_id=?",Long.class,owner.tenantId()));

@@ -47,6 +47,7 @@ public class RequestOrchestrator {
                 });
                 run.prepared(result);
                 switch (result.route()) {
+                    case DIRECT -> delivery.acknowledgement(run,result.reply());
                     case FAQ -> delivery.faq(run, result.faq());
                     case CLARIFY -> runtime.clarifyPrepared(run, result.clarification());
                     case HARNESS -> {

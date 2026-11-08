@@ -1,1 +1,1 @@
-{"name":"personal-memory","version":"1.0.0","description":"查看、明确保存和忘记自己的偏好与持续目标。记忆用于跨会话承接，不代替业务事实、资源权限或当前用户确认。","tools":["search_memory","read_memory","remember_memory","forget_memory"]}
+{"name":"personal-memory","version":"1.1.0","description":"查看、明确保存和忘记自己的个人事实、长期偏好与持续目标；后台自动整理，排队不等于保存成功。","tools":["search_memory","read_memory","remember_memory","forget_memory"]}

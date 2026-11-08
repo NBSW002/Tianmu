@@ -11,10 +11,6 @@ public record MemoryRuntimeProperties(@DefaultValue("2000") int pollMillis,
         @DefaultValue("5") int expiredMaxAttempts,
         @DefaultValue("4") int failureMaxAttempts,
         @DefaultValue("10") int retryDelaySeconds,
-        @DefaultValue("15") int extractionTimeoutSeconds,
-        @DefaultValue("8192") int extractionMaxTokens,
-        @DefaultValue("4096") int extractionReservation,
-        @DefaultValue("1024") int extractionOutputTokens,
         @DefaultValue("30") int consolidationTimeoutSeconds,
         @DefaultValue("16384") int consolidationMaxTokens,
         @DefaultValue("4096") int consolidationReservation,
@@ -41,10 +37,6 @@ public record MemoryRuntimeProperties(@DefaultValue("2000") int pollMillis,
         if (expiredMaxAttempts < 1 || expiredMaxAttempts > 100) throw new IllegalArgumentException("Invalid agent.memory.runtime.expired-max-attempts");
         if (failureMaxAttempts < 1 || failureMaxAttempts > 100) throw new IllegalArgumentException("Invalid agent.memory.runtime.failure-max-attempts");
         if (retryDelaySeconds < 0 || retryDelaySeconds > 3600) throw new IllegalArgumentException("Invalid agent.memory.runtime.retry-delay-seconds");
-        if (extractionTimeoutSeconds < 1 || extractionTimeoutSeconds > 600) throw new IllegalArgumentException("Invalid agent.memory.runtime.extraction-timeout-seconds");
-        if (extractionMaxTokens < 4096 || extractionMaxTokens > 1000000000) throw new IllegalArgumentException("Invalid agent.memory.runtime.extraction-max-tokens");
-        if (extractionReservation < 1 || extractionReservation > 1000000000) throw new IllegalArgumentException("Invalid agent.memory.runtime.extraction-reservation");
-        if (extractionOutputTokens < 1 || extractionOutputTokens > 65536) throw new IllegalArgumentException("Invalid agent.memory.runtime.extraction-output-tokens");
         if (consolidationTimeoutSeconds < 1 || consolidationTimeoutSeconds > 600) throw new IllegalArgumentException("Invalid agent.memory.runtime.consolidation-timeout-seconds");
         if (consolidationMaxTokens < 4096 || consolidationMaxTokens > 1000000000) throw new IllegalArgumentException("Invalid agent.memory.runtime.consolidation-max-tokens");
         if (consolidationReservation < 1 || consolidationReservation > 1000000000) throw new IllegalArgumentException("Invalid agent.memory.runtime.consolidation-reservation");
@@ -64,7 +56,7 @@ public record MemoryRuntimeProperties(@DefaultValue("2000") int pollMillis,
         if (personalQueryTimeoutSeconds < 1 || personalQueryTimeoutSeconds > 600) throw new IllegalArgumentException("Invalid agent.memory.runtime.personal-query-timeout-seconds");
         if (personalTransactionTimeoutSeconds < 1 || personalTransactionTimeoutSeconds > 600) throw new IllegalArgumentException("Invalid agent.memory.runtime.personal-transaction-timeout-seconds");
         if (personalMaxItems < 1 || personalMaxItems > 1000) throw new IllegalArgumentException("Invalid agent.memory.runtime.personal-max-items");
-        if (heartbeatMillis >= leaseSeconds * 1000L || extractionReservation > extractionMaxTokens || consolidationReservation > consolidationMaxTokens || extractionOutputTokens > extractionMaxTokens || consolidationOutputTokens > consolidationMaxTokens) throw new IllegalArgumentException("Invalid memory lease or budget relationship");
+        if (heartbeatMillis >= leaseSeconds * 1000L || consolidationReservation > consolidationMaxTokens || consolidationOutputTokens > consolidationMaxTokens) throw new IllegalArgumentException("Invalid memory lease or budget relationship");
     }
-    public static MemoryRuntimeProperties defaults() { return new MemoryRuntimeProperties(2000, 10000, 30, 5, 4, 10, 15, 8192, 4096, 1024, 30, 16384, 4096, 3072, 10, 32768, 6, 16, 12, 12, 6144, 100, 40, 100, 3, 5, 5, 5, 1000); }
+    public static MemoryRuntimeProperties defaults() { return new MemoryRuntimeProperties(2000, 10000, 30, 5, 4, 10, 30, 16384, 4096, 3072, 10, 32768, 6, 16, 12, 12, 6144, 100, 40, 100, 3, 5, 5, 5, 1000); }
 }

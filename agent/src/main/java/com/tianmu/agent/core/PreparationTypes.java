@@ -9,7 +9,7 @@ public final class PreparationTypes {
     private PreparationTypes() {}
     public enum Emotion { NEUTRAL, POSITIVE, NEGATIVE, UNKNOWN }
     public enum Intent { VIDEO_METRIC, DANMAKU_REPORT, KNOWLEDGE, OTHER, UNKNOWN }
-    public enum Route { FAQ, CLARIFY, HARNESS }
+    public enum Route { FAQ, CLARIFY, HARNESS, DIRECT }
     public record IntentCandidate(String id, String label, String description, String boundary, String skill,
                                   Set<String> tools, List<String> requiredConditions, Intent category) {
         public IntentCandidate { tools=Set.copyOf(tools);requiredConditions=List.copyOf(requiredConditions); }
@@ -100,5 +100,7 @@ public final class PreparationTypes {
         public PreparedRequest(String originalQuery, String query, Emotion emotion, Set<String> degraded) { this(originalQuery, query, emotion, degraded, Set.of()); }
         public PreparedRequest { degradedStages = Set.copyOf(degradedStages); skippedStages = Set.copyOf(skippedStages); intent = intent == null ? Intent.UNKNOWN : intent; }
     }
-    public record Result(Route route, PreparedRequest request, FaqAnswer faq, String clarification) {}
+    public record Result(Route route, PreparedRequest request, FaqAnswer faq, String clarification,com.tianmu.agent.core.AgentTypes.Answer reply) {
+        public Result(Route route,PreparedRequest request,FaqAnswer faq,String clarification){this(route,request,faq,clarification,null);}
+    }
 }

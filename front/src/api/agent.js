@@ -65,6 +65,9 @@ async function request(path, options = {}) {
       MEMORY_ACTION_DENIED: '请明确要保存或忘记的内容，也可以在记忆管理中操作',
       MEMORY_QUOTA_EXCEEDED: '记忆数量已达上限，请先整理不再需要的内容',
       MEMORY_UNAVAILABLE: '记忆服务暂时不可用，请稍后重试',
+      MEMORY_SOURCE_UNAVAILABLE: '相关记忆来源已失效，请刷新后再试',
+      MEMORY_JOB_NOT_RETRYABLE: '这项整理已结束或没有待处理内容，请刷新进度',
+      MEMORY_RECEIPT_REQUIRED: '尚无保存成功的记录，请在记忆管理中查看',
     }
     const error = new Error(
       messages[code] ||
@@ -85,7 +88,7 @@ function runPath(id) {
 }
 
 export async function memoryRequest(path = '', options = {}) {
-  const routes = /^\/(?:memories(?:\/[a-f0-9-]{36}|\/reset)?|memory-settings(?:\/automatic)?|memory-topics|runs\/[a-f0-9-]{36}\/memory(?:-jobs)?)(?:\?[^#]*)?$/
+  const routes = /^\/(?:memories(?:\/[a-f0-9-]{36}|\/reset)?|memory-settings(?:\/automatic)?|memory-topics|runs\/[a-f0-9-]{36}\/memory(?:-jobs(?:\/[a-f0-9-]{36}\/retry)?)?)(?:\?[^#]*)?$/
   if (!routes.test(path)) throw new Error('无效的记忆接口')
   const result = await (await request(`/api/agent${path}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } })).json()
   if (options.method && options.method.toUpperCase() !== 'GET') notifyMemoryChanged()
