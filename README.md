@@ -119,24 +119,51 @@ npm run serve
 
 ## 系统如何工作
 
-业务后端负责用户、视频、互动与媒体数据；独立的 Agent 服务负责准备任务、组织上下文、调用模型和工具，并按权限读取业务接口。Trace 记录实际执行关系。数据库和媒体存储由各自服务管理。
+### 业务后端与弹幕链路
+
+第一张图只画视频业务后端。Spring Boot 业务服务处理用户、视频、评论、上传与搜索；Netty 负责弹幕长连接，RocketMQ 承接持久写入。MySQL 是业务记录的权威来源，Redis、Elasticsearch 和 MinIO 分别承担缓存、搜索索引与媒体对象存储。
 
 ```mermaid
 flowchart LR
-    Web["Vue 3 网站 / 个人助手"] --> Business["视频业务后端"]
-    Web --> Agent["Agent 服务"]
-    Business --> Data["视频 / 弹幕 / 评论 / 媒体"]
-    Agent --> Prepare["任务准备与权限校验"]
-    Prepare --> Loop["受控模型循环"]
-    Loop --> Tools["Skill 与 Tool"]
-    Tools -->|授权接口| Business
-    Tools --> Analysis["后台视频与反馈分析"]
-    Analysis --> Report["主题证据与报告"]
-    Agent --> Memory["服务端记忆召回与后台整理"]
-    Agent --> Trace["Trace / 运行进度"]
+    subgraph Entry["业务入口"]
+        HTTP["Nginx / HTTP API"]
+        Socket["Nginx / WebSocket"]
+    end
+    subgraph App["业务后端"]
+        API["Spring Boot<br/>用户 / 视频 / 评论 / 上传"]
+        Search["搜索接口"]
+        Netty["Netty 弹幕房间<br/>鉴权与广播"]
+        Consumer["RocketMQ 弹幕消费者<br/>幂等写入"]
+        Sync["Canal 订阅处理"]
+    end
+    subgraph Middleware["消息与变更"]
+        MQ["RocketMQ"]
+        Canal["Canal / MySQL Binlog"]
+    end
+    subgraph Storage["存储与索引"]
+        DB[("MySQL<br/>业务记录")]
+        Redis[("Redis<br/>会话与弹幕缓存")]
+        ES[("Elasticsearch + IK<br/>用户 / 视频检索")]
+        MinIO[("MinIO<br/>视频与封面")]
+    end
+    HTTP --> API
+    HTTP --> Search
+    Socket --> Netty
+    API --> DB
+    API --> Redis
+    API --> MinIO
+    Search --> ES
+    Netty -->|发送弹幕| MQ
+    Netty -->|房间广播| Socket
+    MQ --> Consumer
+    Consumer -->|持久化| DB
+    DB -.->|提交后的变更| Canal
+    Canal --> Sync
+    Sync -->|弹幕缓存| Redis
+    Sync -->|用户 / 视频索引| ES
 ```
 
-下面三张图进一步展示一次请求、一次报告和一条记忆如何流转。箭头表示依赖关系；图中并行只表示实际可以重叠的准备步骤。
+弹幕发送走 **WebSocket → Netty → RocketMQ → 消费者 → MySQL**；Netty 同时向房间广播。MySQL 提交后的变更由 Canal 同步到缓存或搜索索引。业务后端的边界和其他数据流见[架构说明](docs/ARCHITECTURE.md)。独立 Agent 如何使用业务接口，见下面的请求与报告图。
 
 ### 一次请求如何执行
 
@@ -192,25 +219,42 @@ flowchart LR
 
 ### 记忆如何写入与召回
 
+写入和读取是两条独立链路。对话提交后，只有开启自动整理且内容合格，才会入后台整理队列；用户明确说“请记住”也可进入保存流程。后台提取候选事实后，再核对来源、权限和重复项，写入带版本的 MySQL 记忆。索引工作器扫描已提交版本生成向量；向量是可重建的检索索引。
+
 ```mermaid
 flowchart LR
-    A["已提交的对话"] --> B["后台判断是否值得保留"]
-    B -->|合格且允许保存| C["记忆版本与来源写入 MySQL"]
-    C --> D["独立异步向量索引"]
-    D --> E["当前模型版本的可用向量"]
-    F["下一次用户请求"] --> G["宿主读取权限与记忆快照"]
-    G --> H["核心事实 + 关键词候选"]
-    E --> I["语义候选"]
-    G --> I
-    H --> J["融合、复核来源并限制数量"]
-    I --> J
-    J --> K["相关记忆进入上下文<br/>纯总览直接列出事实"]
-    L["记忆管理页：修改 / 忘记 / 暂停"] --> M["更新版本、授权或删除来源"]
-    M --> C
-    M --> N["旧来源与派生向量失效"]
+    Message["已提交的对话"] --> Eligible{"开启自动整理<br/>且值得长期保留？"}
+    Explicit["明确请求保存"] --> Job["持久化后台整理任务"]
+    Eligible -->|是| Job
+    Eligible -->|否| End["本轮不自动写入"]
+    Job --> Extract["模型提取候选事实"]
+    Extract --> Validate["来源、授权与重复检查"]
+    Validate --> Revision[("MySQL<br/>记忆版本与来源")]
+    Revision --> Index["独立索引工作器"]
+    Index --> Vector[("MySQL<br/>模型版本对应向量")]
 ```
 
-记忆由服务端在请求前准备，模型没有记忆搜索或删除 Tool。自动整理、手动保存和三种使用模式分别受用户设置控制；修改或删除后，旧版本不能继续作为可读事实。纯个人记忆总览直接按已授权原文分页展示。
+下一轮请求由 Agent 宿主先读取授权快照。问“你了解我吗”一类个人总览时，宿主直接分页列出可读原文；普通问题则合并核心事实、关键词与语义候选，按相关性和上下文预算选择，再交给模型回答。两条路径都重新检查来源和当前权限。
+
+```mermaid
+flowchart LR
+    Ask["下一轮请求"] --> Guard{"记忆模式与授权快照"}
+    Guard -->|暂停| None["不读取记忆"]
+    Guard -->|个人总览| Overview["读取可用原文<br/>服务端分页清单"]
+    Overview --> Direct["宿主直接回答"]
+    Guard -->|相关问题| Candidates["核心事实 + 关键词候选"]
+    Vector[("当前版本的可用向量")] --> Semantic["语义候选"]
+    Guard -->|相关问题| Semantic
+    Candidates --> Fuse["融合排序、去重与预算限制"]
+    Semantic --> Fuse
+    Fuse --> Recheck["再次核对来源与权限"]
+    Recheck --> Context["选中的事实进入模型上下文"]
+    Manage["管理页：修改 / 忘记 / 暂停"] --> Revision["更新版本或撤销授权"]
+    Revision -.->|旧版本失效| Vector
+    Revision -.-> Guard
+```
+
+“只使用”模式允许读取已有记忆，但不自动新增。管理页修改、忘记或暂停后，旧版本与对应向量不能继续作为可读事实。模型不持有搜索、保存或删除记忆的 Tool。
 
 更细的边界、失败与恢复规则见[架构说明](docs/ARCHITECTURE.md)、[报告实现](agent/docs/代表材料三工具实施与验收.md)和[记忆方案](agent/docs/记忆召回重构技术方案.md)。
 
