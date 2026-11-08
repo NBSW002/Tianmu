@@ -57,7 +57,7 @@ public final class FeedbackResultCache {
         if(!enabled())return null;
         var content=new LinkedHashMap<String,Object>();content.put("version","accepted-proposals-v1");content.put("tenant",job.owner().tenantId());content.put("user",job.owner().userId());content.put("video_id",job.request().query().videoId());content.put("sources",job.request().sources().stream().map(Enum::name).sorted().toList());content.put("grounding",job.request().grounding());content.put("model",job.model());content.put("policy",job.policyHash());content.put("kind",input.kind());content.put("rules",job.request().rulesVersion());
         if(input.kind()==WorkKind.CLASSIFY){content.put("groups",input.groups());content.put("directory",input.knownTopics());}
-        else content.put("material",FeedbackSynthesis.material(input.children()).payload());
+        else {content.put("material",FeedbackSynthesis.material(input.children()).payload());if(!input.groups().isEmpty()){content.put("review_groups",input.groups());content.put("review_bindings",input.children().stream().map(Topic::members).toList());}}
         if(input.video()!=null){var v=input.video();content.put("video",List.of(v.sourceVersion(),v.startMs(),v.endMs(),v.summary(),v.moments(),v.coverage(),v.sampledAtMs(),v.transcript(),v.model()));}
         try{return FeedbackObjects.sha(json.writeValueAsBytes(content));}catch(Exception invalid){throw new AgentException("STORAGE_CORRUPT","Cannot identify analysis input");}
     }
@@ -91,6 +91,6 @@ public final class FeedbackResultCache {
     private static List<Proposal> canonical(Input input,List<Proposal> proposals,boolean saving){
         if(input.kind()!=WorkKind.MERGE)return List.copyOf(proposals);
         var aliases=new HashMap<String,String>();int i=0;for(var child:input.children()){String alias="C"+(++i);aliases.put(saving?child.id():alias,saving?alias:child.id());}
-        return proposals.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),p.members().stream().map(m->aliases.getOrDefault(m,m)).toList())).toList();
+        return proposals.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),p.members().stream().map(m->aliases.getOrDefault(m,m)).toList(),p.selection())).toList();
     }
 }

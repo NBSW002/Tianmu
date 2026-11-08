@@ -64,7 +64,7 @@ public final class VideoAnalysisService {
                 config.transcriptionModel(), "video-facts-v4:sampled12:generic-v1",FACT_FOCUS).stream().map(VideoAnalysisService::hash).toList()));
         VideoContent.Facts prior = cached(key,source,from,to);
         TraceAttributes.apply(Span.current(),Map.of("video.cache_hit",prior != null));
-        if (prior != null) { VideoAnalysisFlights.checkpoint(control); return prior; }
+        if (prior != null) { VideoAnalysisFlights.checkpoint(control);TraceAttributes.apply(Span.current(),Map.of("video.cache_age_ms",Math.max(0,Duration.between(prior.analyzedAt(),Instant.now()).toMillis())));recordCoverage(prior);return prior; }
         VideoContent.Facts result = flights.run(key, control, () -> {
             VideoContent.Facts cached = cached(key,source,from,to);
             if (cached != null) return cached;
@@ -74,8 +74,9 @@ public final class VideoAnalysisService {
         VideoContent.Source current = stage("video.source", () -> port.source(videoId, scope, control));
         if (!source.equals(current)) throw new AgentException("INVALID_EVIDENCE", "Video source changed during analysis");
         VideoAnalysisFlights.checkpoint(control);
-        return result;
+        recordCoverage(result);return result;
     }
+    private static void recordCoverage(VideoContent.Facts facts){TraceAttributes.apply(Span.current(),Map.of("video.frame_count",facts.sampledAtMs().size(),"video.transcript_available",!facts.transcript().isBlank(),"video.sampled_at_ms",facts.sampledAtMs().stream().map(Object::toString).toList()));}
     private VideoContent.Facts cached(String key,VideoContent.Source source,long from,long to){
         var facts=cache.get(key);if(facts==null)return null;
         if(facts.videoId()!=source.videoId() || !facts.sourceVersion().equals(source.sourceVersion()) || facts.startMs()!=from || facts.endMs()!=to){cache.invalidate(key);return null;}

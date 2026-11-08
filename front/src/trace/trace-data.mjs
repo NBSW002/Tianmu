@@ -96,6 +96,7 @@ function normalizeTrace(spans, traceId, meta) {
       error: inline.error ?? null, errorRef: a['detail.error_ref'], errorState: a['detail.error_state'],
       provider_output: inline.provider_output ?? null, provider_outputRef: a['detail.provider_output_ref'], provider_outputState: a['detail.provider_output_state'],
       reasoning: inline.reasoning ?? null, reasoningRef: a['detail.reasoning_ref'], reasoningState: a['detail.reasoning_state'],
+      ...Object.fromEntries(['prompt','code','execution'].flatMap(direction => [[direction,inline[direction] ?? null],[`${direction}Ref`,a[`detail.${direction}_ref`]],[`${direction}State`,a[`detail.${direction}_state`] ]])),
       attributes: a,
     }
   }).sort((a, b) => (a.offsetMs ?? Infinity) - (b.offsetMs ?? Infinity))
@@ -131,6 +132,9 @@ function normalizeTrace(spans, traceId, meta) {
     startMs: start == null ? null : Number(start) / 1e6,
     endMs: end == null ? null : Number(end) / 1e6,
     inputTokens, outputTokens,
+    foregroundModelCalls: finite(attrs['run.model_calls']),
+    preparationModelCalls: finite(attrs['run.preparation_calls']),
+    backgroundModelCalls: finite(finish?.attributes?.['run.background_model_calls']),
     totalTokens: inputTokens != null && outputTokens != null ? inputTokens + outputTokens : null,
     usageComplete: summary ? summary.attributes['usage.complete'] === true : calls.length > 0 && calls.every((n) => n.inputTokens != null && n.outputTokens != null),
     nodes,

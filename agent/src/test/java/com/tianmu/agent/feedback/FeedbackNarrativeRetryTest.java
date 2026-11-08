@@ -33,7 +33,7 @@ class FeedbackNarrativeRetryTest {
             public String modelName(){return "fixture";}public String policyHash(){return "fixture-policy";}
             public List<Proposal> analyze(Input input,CallControl control){
                 int call=calls.incrementAndGet();
-                if(call==2)assertEquals("NARRATIVE_DATASET_COUNTS",input.correction().issue());
+                if(call==2){assertEquals("NARRATIVE_DATASET_COUNTS",input.correction().issue());assertEquals(1,input.correction().round());}
                 return List.of(new Proposal("T1","背景说明与配乐分歧",call==1?"作者两条发言，G1说明背景。":"作者补充了背景，观众对原声与轻配乐意见不同。",
                         "可分别对比原声版与轻配乐版。",input.kind()==WorkKind.CLASSIFY?input.groups().stream().map(Group::id).toList():input.children().stream().map(Topic::id).toList()));
             }
@@ -52,5 +52,11 @@ class FeedbackNarrativeRetryTest {
         assertEquals(3,root.messages());assertEquals(1,root.authorMessages());
         String html=new String(service.report(asset),java.nio.charset.StandardCharsets.UTF_8);
         assertFalse(html.contains("作者两条"));assertFalse(html.contains("G1"));assertTrue(html.contains("原声"));assertTrue(html.contains("轻配乐"));
+    }
+    @Test void correctionRoundSurvivesSerializationWithoutCountingTransportRetries()throws Exception{
+        var json=new ObjectMapper();var initial=new Input(WorkKind.CLASSIFY,List.of(),List.of(),null);var failure=new Correction(List.of(),List.of(),List.of(),List.of(),"NARRATIVE_DATASET_COUNTS");
+        var first=FeedbackAnalysisService.nextCorrection(initial,failure);assertEquals(1,first.round());var stored=json.readValue(json.writeValueAsBytes(new Input(initial.kind(),List.of(),List.of(),null,first)),Input.class);assertEquals(1,stored.correction().round());
+        assertEquals(1,stored.correction().round(),"Network retry reuses the same input");assertEquals(2,FeedbackAnalysisService.nextCorrection(stored,failure).round());
+        var old=json.valueToTree(first);((com.fasterxml.jackson.databind.node.ObjectNode)old).remove("round");var legacy=json.treeToValue(old,Correction.class);var legacyInput=new Input(initial.kind(),List.of(),List.of(),null,legacy);assertEquals(0,legacy.round());assertEquals("LEGACY_UNKNOWN",FeedbackAnalysisService.correctionAttributes(legacyInput).get("correction.round_state"));assertFalse(FeedbackAnalysisService.correctionAttributes(legacyInput).containsKey("correction.round"));
     }
 }

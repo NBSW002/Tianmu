@@ -20,7 +20,7 @@ public final class TraceDetails {
     public static final ContextKey<Binding> KEY = ContextKey.named("tianmu.trace.details");
     public static final ContextKey<java.util.concurrent.atomic.AtomicBoolean> MEMORY = ContextKey.named("tianmu.memory.trace.protection");
     public static void protectMemory(){var flag=Context.current().get(MEMORY);if(flag!=null)flag.set(true);}
-    private static final Set<String> DIRECTIONS = Set.of("input", "output", "provider_output", "error", "reasoning");
+    private static final Set<String> DIRECTIONS = Set.of("input", "output", "provider_output", "error", "reasoning", "prompt", "code", "execution");
     private final ObjectStore objects;
     private final ObjectMapper mapper;
     private final int maxBytes;
@@ -62,6 +62,7 @@ public final class TraceDetails {
         try {
             var protectedMemory=Context.current().get(MEMORY);
             boolean sourceProtected=protectedMemory!=null && protectedMemory.get();
+            TraceAttributes.apply(span,Map.of(prefix+"_access",sourceProtected?"SOURCE_PROTECTED":"AVAILABLE"));
             if(sourceProtected && !"reasoning".equals(direction))value=Map.of("memoryProtected",true,"runId",binding.runId().toString(),"details","Read authorized memory references from the run memory endpoint");
             boolean[] redacted = {false};
             JsonNode clean = clean(mapper.valueToTree(value), redacted);

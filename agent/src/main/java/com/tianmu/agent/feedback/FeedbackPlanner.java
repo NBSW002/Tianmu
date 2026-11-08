@@ -69,7 +69,7 @@ public final class FeedbackPlanner {
         if(!missing.isEmpty() || !duplicates.isEmpty() || !unknown.isEmpty())
             throw new FeedbackCorrectionException(new Correction(proposals,missing,List.copyOf(duplicates),List.copyOf(unknown)));
         var representativeAssignments=new HashMap<String,String>();
-        for(var group:input.groups())if(group.candidateCluster()!=null && group.id().equals(group.candidateCluster()+"_"+group.source().name())){
+        for(var group:input.groups())if(input.kind()==WorkKind.CLASSIFY && group.candidateCluster()!=null && group.id().equals(group.candidateCluster()+"_"+group.source().name())){
             var key=proposals.stream().filter(p->p.members().contains(group.id())).map(Proposal::key).findFirst().orElseThrow();
             var previous=representativeAssignments.putIfAbsent(group.candidateCluster(),key);
             if(previous!=null && !previous.equals(key))throw new FeedbackCorrectionException(new Correction(proposals,List.of(),List.of(),List.of(),"REPRESENTATIVE_CLUSTER_SPLIT"));
@@ -89,7 +89,7 @@ public final class FeedbackPlanner {
                 if(p.key()==null || !p.key().matches("T(?:[1-9]|[1-9][0-9]|100)") || !keys.add(p.key()) || p.members().isEmpty())throw new IllegalArgumentException();
                 long count=0,authors=0;
                 for(String id:p.members()){var weight=members.get(id);if(weight==null || !covered.add(id))throw new IllegalArgumentException();count=Math.addExact(count,weight[0]);authors=Math.addExact(authors,weight[1]);}
-                topics.add(new Topic(workId+":"+p.key(),p.title(),p.observation(),p.recommendation(),p.members(),count,authors));
+                topics.add(new Topic(workId+":"+p.key(),p.title(),p.observation(),p.recommendation(),p.members(),count,authors,p.selection()));
             }
             if(!covered.equals(members.keySet()))throw new IllegalArgumentException();
             return new ResultNode(workId,input.kind(),topics,topics.stream().mapToLong(Topic::messages).sum(),topics.stream().mapToLong(Topic::authorMessages).sum());

@@ -317,11 +317,12 @@ class DeepSeekAdapterTest {
             assertEquals(15L, attributes.get(io.opentelemetry.api.common.AttributeKey.longKey("model.total_tokens")));
             assertEquals("stop", attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("model.finish_reason")));
             assertEquals("NOT_APPLICABLE", attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("model.first_token_state")));
-            for (String direction : List.of("input", "provider_output")) {
+            assertEquals("harness.system",attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.id")));assertEquals(new PromptCatalog().get("harness.system").version(),attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.version")));assertNotNull(attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.hash")));
+            for (String direction : List.of("input", "provider_output", "prompt")) {
                 String[] ref = attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("detail." + direction + "_ref")).split("/");
                 String body = new String(details.read(run, ref[0], ref[1], Long.parseLong(ref[2]), ref[3]), StandardCharsets.UTF_8);
                 assertFalse(body.contains("test-secret"));
-                assertEquals(direction.equals("input") ? "MODEL_REQUEST" : "MODEL_PROVIDER_RESPONSE", mapper.readTree(body).path("kind").asText());
+                assertEquals(direction.equals("input") ? "MODEL_REQUEST" : direction.equals("prompt")?"PROMPT_SNAPSHOT":"MODEL_PROVIDER_RESPONSE", mapper.readTree(body).path("kind").asText());
             }
         }
     }

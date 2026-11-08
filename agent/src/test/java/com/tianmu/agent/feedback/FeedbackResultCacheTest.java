@@ -51,4 +51,13 @@ class FeedbackResultCacheTest {
         try(var first=c.awaitOrLead(key,j,control)){assertNull(first.entry());}
         try(var second=c.awaitOrLead(key,j,control)){assertNull(second.entry());c.put(key,j,i,proposals(),second);}assertNotNull(c.get(key,j));
     }
+    @Test void reviewCacheIncludesChildBindingsAndPreservesSelectedEvidence(){
+        var cache=new FeedbackResultCache(new ObjectMapper(),FeedbackReusePolicy.defaults(),null);var job=fixture.job("u","m","p");var groups=input("[{\"id\":\"C:1\"}]").groups();
+        var old=new Topic("old:T1","声音","观察","建议",List.of("G1"),1,0);var current=new Topic("new:T1",old.title(),old.observation(),old.recommendation(),old.members(),1,0);
+        var before=new Input(WorkKind.MERGE,groups,List.of(old),null);var after=new Input(WorkKind.MERGE,groups,List.of(current),null);
+        assertEquals(cache.key(job,before),cache.key(job,after));
+        var rebound=new Input(WorkKind.MERGE,groups,List.of(new Topic(current.id(),current.title(),current.observation(),current.recommendation(),List.of("G2"),1,0)),null);assertNotEquals(cache.key(job,before),cache.key(job,rebound));
+        var selected=new Selection(List.of("C:1"),List.of(),"COHERENT",true,"原话支撑主题");cache.put(cache.key(job,before),job,before,List.of(new Proposal("T1","声音","观察","建议",List.of(old.id()),selected)));
+        var restored=FeedbackResultCache.restore(after,cache.get(cache.key(job,after),job));assertEquals(List.of(current.id()),restored.get(0).members());assertEquals(selected,restored.get(0).selection());FeedbackRepresentativeReview.validate(after,restored);
+    }
 }

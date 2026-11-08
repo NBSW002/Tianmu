@@ -96,9 +96,13 @@ export async function getAgentTrace(traceId, signal) {
   if (!/^[a-f0-9]{32}$/.test(traceId)) throw new Error('Trace ID 应为 32 位十六进制字符')
   return (await request(`/api/agent/traces/${traceId}`, { signal })).json()
 }
+export async function getTraceRecords(traceId, signal) {
+  if (!/^[a-f0-9]{32}$/.test(traceId)) throw new Error('Trace ID 应为 32 位十六进制字符')
+  return (await request(`/api/agent/traces/${traceId}/records`, { signal })).json()
+}
 
 export async function getTracePayload(runId, reference, signal) {
-  if (!/^[a-f0-9]{16}\/(input|output|error|provider_output|reasoning)\/[1-9]\d{0,6}\/[a-f0-9]{64}$/.test(reference))
+  if (!/^[a-f0-9]{16}\/(input|output|error|provider_output|reasoning|prompt|code|execution)\/[1-9]\d{0,6}\/[a-f0-9]{64}$/.test(reference))
     throw new Error('节点正文引用无效')
   return (await request(`${runPath(runId)}/trace-payloads/${reference}`, { signal })).json()
 }

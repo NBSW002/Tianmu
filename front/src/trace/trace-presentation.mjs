@@ -1,6 +1,6 @@
 // A read-only projection: semantic cards retain source IDs; raw spans stay intact.
 // No model calls, fabricated durations, or name-only cross-task aggregation.
-const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识别', clarification: '澄清识别', merge: '识别结果汇合', model: '模型思考', tool: '工具调用', background: '后台任务', work: '后台步骤', diagnostic: '异常记录' }
+const titles = { faq: 'FAQ 匹配', intent: '意图识别', emotion: '情绪识别', clarification: '澄清识别', merge: '识别结果汇合', model: '模型调用', tool: '工具调用', background: '后台任务', work: '后台步骤', diagnostic: '异常记录' }
 const intentNames = { VIDEO_METRIC: '视频互动统计', DANMAKU_REPORT: '观众反馈报告', KNOWLEDGE: '知识问答', OTHER: '其他任务', UNKNOWN: '未确定' }
 const capabilityNames = { conversation:'通用对话', knowledge:'知识与操作咨询', 'video-content':'视频内容理解', 'video-metrics':'视频互动统计', 'danmaku-analysis':'弹幕分析', 'comment-analysis':'评论分析', 'audience-report':'观众反馈报告', 'video-discovery':'查找自己的视频', 'report-query':'历史报告查询', 'smart-comment':'智能评论草稿', 'smart-danmaku':'智能弹幕草稿', unknown:'尚未明确' }
 const emotionNames = { NEUTRAL: '中性', POSITIVE: '正向', NEGATIVE: '负向', UNKNOWN: '未知' }
@@ -18,6 +18,28 @@ Object.assign(toolNames, { prepare_feedback_materials: '聚类并选择代表反
 const time = n => Number.isFinite(n.offsetMs) ? n.offsetMs : Infinity
 const end = n => Number.isFinite(n.offsetMs) && Number.isFinite(n.durationMs) ? n.offsetMs + n.durationMs : Infinity
 const compare = (a, b) => time(a) - time(b) || a.id.localeCompare(b.id)
+export function traceDetailSources(node, presentation, direction) {
+  if (!node) return []
+  const roots = new Set([node.sourceId || node.id, ...(node.memberIds || [])])
+  return [...presentation.rawById.values()].filter(candidate => {
+    if (!candidate[`${direction}Ref`]) return false
+    let current = candidate; const seen = new Set()
+    while (current && !seen.has(current.id)) { if (roots.has(current.id)) return true; seen.add(current.id); current = presentation.rawById.get(current.parentId) }
+    return false
+  }).sort(compare)
+}
+export function recordDetails(node) {
+  const a = node?.attributes || {}, rows = [
+    ['任务 ID', a['task.id'] || '未采集'], ['任务范围', a['task.scope'] === 'REQUEST' ? '本次受理请求' : a['task.scope'] || '未采集'],
+    ['运行 ID', a['run.id'] || '未采集'], ['对话轮次 ID', a['turn.id'] || '未采集'], ['消息角色', a['message.role'] || '未采集'],
+  ]
+  if (a['prompt.id']) rows.push(['提示词', a['prompt.id']], ['提示词版本', a['prompt.version'] || '未采集'], ['提示词变体', a['prompt.variant'] || '未采集'], ['提示词指纹', a['prompt.hash'] || '未采集'])
+  if (a['model.resolved_name']) rows.push(['供应商返回模型', a['model.resolved_name']])
+  if (typeof a['model.dispatched'] === 'boolean') rows.push(['请求发送', a['model.dispatched'] ? '已尝试发送' : '尚未发送（提示词为已装配内容）'])
+  if (a['correction.state'] && a['correction.state'] !== 'NOT_APPLICABLE') rows.push(['纠正状态', a['correction.state']], ['纠正类型', a['correction.kind'] || '未采集'], ['纠正轮次', Number.isFinite(a['correction.round']) && a['correction.round'] > 0 ? a['correction.round'] : '旧记录轮次未知'])
+  if (a['code.state']) rows.push(['代码生成', a['code.state'] === 'NOT_APPLICABLE' ? '本节点不适用' : a['code.state']])
+  return rows.map(([label, value]) => ({label, value}))
+}
 export function modelReasoningSources(node, presentation) {
   if (!node) return []
   const root = node.sourceId || node.id
@@ -39,6 +61,69 @@ const payloadObject = value => {
   try { return JSON.parse(value) } catch { return {} }
 }
 const contextSlotNames = { system_prompt:'系统提示词',tool_catalog:'工具列表',skill_catalog:'Skill 列表',agent_catalog:'A2A Agent 列表',execution_context:'执行环境',focus:'本轮聚焦',memory_context:'记忆召回',environment_context:'页面环境',reference_context:'参考资料',current_context:'当前上下文',runtime_state:'执行状态',output_contract:'输出约定' }
+// Only report recorded facts; legacy spans must not acquire inferred cache provenance.
+export function executionFacts(node, presentation) {
+  if (!node) return []
+  const byId = presentation.rawById, ids = new Set([node.sourceId || node.id, ...(node.memberIds || [])])
+  const descendants = [...byId.values()].filter(candidate => {
+    let current = candidate; const seen = new Set()
+    while (current && !seen.has(current.id)) { if (ids.has(current.id)) return true; seen.add(current.id); current = byId.get(current.parentId) }
+    return false
+  })
+  const facts = []
+  const add = value => { if (value && !facts.includes(value)) facts.push(value) }
+  for (const item of descendants) {
+    const a = item.attributes || {}
+    if (a['analysis.cache_hit'] === true) add(`反馈分析复用已有结果${Number.isFinite(a['analysis.cache_age_ms']) ? ` · 结果距今 ${(a['analysis.cache_age_ms'] / 1000).toFixed(1)} 秒` : ''}；本节点未重新分析`)
+    if (a['analysis.cache_hit'] === true && typeof a['analysis.cache_source_job'] === 'string') add(`复用来源任务：${a['analysis.cache_source_job']}`)
+    if (a['analysis.cache_hit'] === true) add(Number.isFinite(a['analysis.cache_source_job_model_calls']) ? `复用时来源任务累计后台模型调用 ${a['analysis.cache_source_job_model_calls']} 次（整个来源任务，非本节点单独调用）` : '本次复用不代表来源任务没有模型调用；来源任务调用次数未随本次记录')
+    if (a['analysis.cache_hit'] === false) add('反馈分析未命中结果缓存')
+    if (a['video.cache_hit'] === true) add(`视频分析复用已有结果${Number.isFinite(a['video.cache_age_ms']) ? ` · 结果距今 ${(a['video.cache_age_ms'] / 1000).toFixed(1)} 秒` : ''}`)
+    if (a['video.cache_hit'] === false) add('视频分析未命中缓存')
+    if (Number.isFinite(a['video.frame_count'])) add(`采样画面 ${a['video.frame_count']} 帧`)
+    if (Array.isArray(a['video.sampled_at_ms'])) add(`采样位置（秒）：${a['video.sampled_at_ms'].map(ms => (Number(ms) / 1000).toFixed(1)).join('、')}`)
+    if (typeof a['video.audio_available'] === 'boolean') add(a['video.audio_available'] ? '已提供音频材料' : '未提供音频材料')
+    if (typeof a['video.transcript_available'] === 'boolean') add(a['video.transcript_available'] ? '已提供音频转录' : '未提供音频转录')
+    if (Number.isFinite(a['analysis.vector_cache_hits']) && Number.isFinite(a['analysis.vector_generated'])) {
+      add(`向量缓存命中 ${a['analysis.vector_cache_hits']} 条 · 本次新生成 ${a['analysis.vector_generated']} 条${Number.isFinite(a['analysis.vector_failed']) ? ` · 补算或写入失败 ${a['analysis.vector_failed']} 条` : ''}`)
+      if (a['analysis.vector_counts_complete'] === false) add('向量处理未完成，上述计数仅覆盖已处理的批次')
+      add('缓存来源未区分预热与历史报告')
+    }
+    if (Array.isArray(a['analysis.bucket_sizes'])) add(`各桶反馈数量：${a['analysis.bucket_sizes'].join(' · ')}`)
+    if (Array.isArray(a['analysis.bucket_candidates'])) add(`各桶模型候选数：${a['analysis.bucket_candidates'].join(' · ')}`)
+    if (Array.isArray(a['analysis.bucket_similarity'])) add(`桶内表达与中心的相似度（桶号:最低:平均）：${a['analysis.bucket_similarity'].join(' · ')}`)
+    for (let bucket = 1; bucket <= 5; bucket++) if (Array.isArray(a[`analysis.bucket_${bucket}_candidate_ids`])) add(`B${bucket} 模型候选反馈 ID：${a[`analysis.bucket_${bucket}_candidate_ids`].join('、') || '无'}`)
+    if (Number.isFinite(a['analysis.unclassified_records'])) add(`未归类反馈 ${a['analysis.unclassified_records']} 条`)
+    if (Array.isArray(a['analysis.report_representatives'])) add(`报告实际选用反馈（主题序号:反馈 ID）：${a['analysis.report_representatives'].join(' · ')}`)
+    if (Array.isArray(a['video.topic_nearby_frames']) && a['video.topic_nearby_frames'].length) add(`主题采样画面（主题序号:位置毫秒，NONE 表示无）：${a['video.topic_nearby_frames'].join(' · ')}`)
+    if (Array.isArray(a['video.topic_frame_modes'])) add(`画面选择依据（SEMANTIC_REVIEW 为模型相关性判断，TEMPORAL 为旧版时间邻近）：${a['video.topic_frame_modes'].join(' · ')}`)
+    else if (Array.isArray(a['video.topic_nearby_frames']) && a['video.topic_nearby_frames'].length) add('旧记录仅按时间距离关联，未判断语义相关性')
+    if (a['analysis.semantic_review_passed'] === true) add(`整体复核已接受 · ${a['analysis.reviewed_topics']} 个主题提案，其中排除 ${a['analysis.review_excluded_topics'] ?? 0} 个；模型判断不等于独立事实核验`)
+  }
+  if (node.name === 'feedback.prepare' && node.attributes?.['analysis.phase'] === 'MATERIALS') {
+    if (!descendants.some(n => Number.isFinite(n.attributes?.['analysis.vector_cache_hits']))) add('该记录未采集向量缓存命中和补算数量')
+    add('桶内语义一致性与主题重复情况尚未自动判定')
+  }
+  if (node.name === 'feedback.prepare' && node.attributes?.['analysis.phase'] !== 'SNAPSHOT' && node.attributes?.['analysis.dependencies_complete'] !== true) add('前置步骤关联未完整记录，缺失关系不画箭头')
+  if (node.name === 'feedback.prepare' && node.attributes?.['analysis.phase'] === 'SNAPSHOT' && !node.attributes?.['analysis.trigger_span_id']) add('触发该任务的工具节点未记录')
+  const batch = byId.get(node.parentId)
+  if (node.cardKind === 'tool' && batch?.name === 'agent.tool.batch') {
+    if (batch.attributes?.['tool.execution_mode'] === 'SERIAL') add('同批工具按顺序执行')
+    if (batch.attributes?.['tool.execution_mode'] === 'PARALLEL') add('同批工具按并行模式调度')
+  }
+  if (node.name === 'feedback.prepare' && ['COMMENT','DANMAKU'].includes(node.attributes?.['analysis.phase'])) {
+    const a=node.attributes, peer=[...byId.values()].find(n => n.name==='feedback.prepare' && n.id!==node.id && n.attributes?.['analysis.job_id']===a['analysis.job_id'] && n.attributes?.['run.id']===a['run.id'] && ['COMMENT','DANMAKU'].includes(n.attributes?.['analysis.phase']) && n.attributes['analysis.phase']!==a['analysis.phase'] && Number.isFinite(time(n)) && Number.isFinite(end(n)) && Number.isFinite(time(node)) && Number.isFinite(end(node)) && Math.max(time(n),time(node))<Math.min(end(n),end(node)))
+    if (peer) add('评论与弹幕准备阶段有并行重叠')
+  }
+  if (node.cardKind === 'model') {
+    const states=[...new Set(descendants.filter(n=>n.name==='model.request').map(n=>n.attributes?.['model.reasoning_state']).filter(Boolean))]
+    if (states.includes('RECEIVED')) add('模型已返回思考内容')
+    else if (states.includes('ENABLED')) add('已开启思考，未记录返回内容')
+    else if (states.includes('DISABLED')) add('本次调用未开启思考')
+    else add('思考状态未记录')
+  }
+  return facts
+}
 export function contextDetails(node) {
   const attrs=node?.attributes || {}
   const present=Array.isArray(attrs['context.present_slots'])?attrs['context.present_slots']:[]
@@ -113,7 +198,8 @@ export function cardHighlight(n) {
   if (['SKIPPED','DISABLED'].includes(n.status)) return n.status === 'DISABLED' ? '本次已禁用' : '本次已跳过'
   if (n.status === 'RUNNING') return '正在处理'
   if (n.status === 'WAITING_OPERATION') return '等待后台结果'
-  if (n.cardKind === 'background') return n.failureIds?.length && n.status === 'SUCCEEDED' ? `重试 ${n.failureIds.length} 次后成功` : n.status === 'SUCCEEDED' ? '分析已完成' : '查看分析进度'
+  if (n.cardKind === 'background') return n.cacheHitCount ? `复用已有结果 · 本次 ${n.modelCalls} 次后台模型调用` : n.failureIds?.length && n.status === 'SUCCEEDED' ? `重试 ${n.failureIds.length} 次后成功` : n.status === 'SUCCEEDED' ? '分析已完成' : '查看分析进度'
+  if (n.cardKind === 'work' && n.attributes?.['analysis.cache_hit'] === true) return '复用已有分析结果'
   if (n.cardKind === 'execution' || n.cardKind === 'delivery_group') return n.highlight
   if (n.cardKind === 'work' && n.highlight) return n.highlight
   if (n.failureIds?.length) return n.summary?.includes('条异常') ? n.summary : `${n.summary || '已完成'} · ${n.failureIds.length} 条异常`
@@ -123,6 +209,7 @@ export function cardHighlight(n) {
   if (n.cardKind === 'merge') return n.attributes?.['request.route'] === 'CLARIFY' ? '先向用户澄清' : n.attributes?.['request.route'] === 'HARNESS' ? '进入执行' : n.summary
   if (n.cardKind === 'tool') {
     if (n.attributes?.['tool.success'] === false) return '工具返回业务错误'
+    if (n.attributes?.['video.cache_hit'] === true) return '复用已有视频分析'
     if (n.tool === 'ask_clarification') return '等待用户补充'
     if (n.status !== 'SUCCEEDED') return n.summary
     if (n.attributes?.['tool.has_evidence']) return '已取得结果与证据'
@@ -146,7 +233,7 @@ export function semanticKind(n) {
   if (name === 'feedback.deliver') return 'report_delivery'
   if (t === 'answer_ready' || name === 'agent.deliver') return 'delivery'
   if (t === 'finish' || name === 'finish') return 'finish'
-  if (name === 'feedback.work') return 'work'
+  if (name === 'feedback.work' || name === 'feedback.prepare') return 'work'
   if (n.kind === 'TOOL' || t === 'tool_call' || name === 'agent.tool' || t === 'read_skill') return 'tool'
   if (n.kind === 'MODEL' || t === 'llm_inference') return 'model'
   return null
@@ -210,7 +297,7 @@ export function presentNode(n) {
   const cardKind = semanticKind(n) || 'diagnostic'
   const card = { ...n, cardKind, sourceId: n.id, memberIds: [n.id], synthetic: false }
   card.cardTitle = cardKind === 'tool' ? toolNames[n.tool] || n.tool || '工具调用' : cardKind === 'work' ? phaseNames[n.attributes?.['analysis.work_kind']] || phaseNames[n.attributes?.['analysis.phase']] || '后台步骤' : titles[cardKind]
-  if (cardKind === 'model' && n.turn > 0) card.cardTitle = `模型思考 · 第 ${n.turn} 轮`
+  if (cardKind === 'model' && n.turn > 0) card.cardTitle = `${['ENABLED','RECEIVED'].includes(n.attributes?.['model.reasoning_state']) ? '模型思考' : '模型调用'} · 第 ${n.turn} 轮`
   card.summary = cardSummary(card)
   card.executionLabel = methods[n.attributes?.['preparation.method']] || ''
   const state = n.attributes?.['preparation.state']
@@ -258,7 +345,8 @@ export function buildTracePresentation(raw) {
   for (const roots of jobs.values()) {
     roots.sort(compare)
     const job = aggregate(`job:${roots[0].id}`, roots, 'background', '后台反馈分析')
-    job.summary = `${job.modelCalls} 次模型调用 · ${roots.length} 个步骤${job.failureIds.length ? ` · ${job.failureIds.length} 次失败尝试${job.status === 'SUCCEEDED' ? '，重试后成功' : ''}` : ''}`
+    job.cacheHitCount = roots.filter(root => root.attributes?.['analysis.cache_hit'] === true).length
+    job.summary = `${job.cacheHitCount ? '复用已有结果 · ' : ''}本次 ${job.modelCalls} 次后台模型调用 · ${roots.length} 个步骤${job.failureIds.length ? ` · ${job.failureIds.length} 次失败尝试${job.status === 'SUCCEEDED' ? '，重试后成功' : ''}` : ''}`
     job.legacy = !roots[0].attributes?.['analysis.job_id']
     job.jobId = roots[0].attributes?.['analysis.job_id'] || null
     const units = [], retries = new Map()
@@ -315,6 +403,8 @@ export function buildTracePresentation(raw) {
         for (const key of ['inputTokens','outputTokens','totalTokens'])
           card[key] = calls.length && calls.every(c => c[key] != null) ? calls.reduce((sum,c) => sum + c[key],0) : null
         card.model = [...new Set(calls.map(c => c.model).filter(Boolean))].join(' / ') || card.model
+        const states=calls.map(c=>c.attributes?.['model.reasoning_state']).filter(Boolean)
+        if (card.cardKind==='model' && n.turn>0 && states.some(state=>['ENABLED','RECEIVED'].includes(state))) card.cardTitle=`模型思考 · 第 ${n.turn} 轮`
       }
       card.memberIds = members.map(x => x.id)
       card.failureIds = members.filter(x => failures.has(x.status)).map(x => x.id)
@@ -335,6 +425,11 @@ export function buildTracePresentation(raw) {
       cards.push({ ...presentNode(n), id: `summary:intent:${n.id}`, cardKind: 'intent', cardTitle: '意图识别', summary: intentNames[a['preparation.intent']] || a['preparation.intent'],
         synthetic: true, summaryOnly: true, durationMs: null, offsetMs: Number.isFinite(end(n)) ? end(n) : n.offsetMs, sourceId: n.id, memberIds: [n.id], status: 'UNKNOWN', sourceNote: '来自准备阶段汇总；独立步骤耗时未记录' })
     }
+  }
+  // Keep the real root visible: sibling stages share this parent rather than
+  // being connected to one another based on their timestamps.
+  for (const root of raw.filter(n=>n.name==='agent.run')) {
+    cards.push({...presentNode(root),cardKind:'run',cardTitle:'本次运行',summary:'运行根节点',summaryOnly:true,durationMs:null,memberIds:[root.id]})
   }
   cards.sort(compare)
   const notices = []
@@ -387,8 +482,8 @@ export function defaultExpandedStages(presentation) {
   return new Set(presentation.cards.filter(card => card.cardKind === 'execution').map(card => card.id))
 }
 
-// Presentation edges describe chronological order, not causal dependencies.
-// Only an explicit loop decision + selected tool establishes a call edge.
+// Time controls placement only. Edges are rebuilt from recorded parent IDs and
+// explicit predecessor IDs; missing causality must never be inferred from time.
 export function layoutPresentation(presentation, expanded = new Set()) {
   const cards = []
   const visit = (card, collapseId = null) => {
@@ -488,6 +583,39 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     const centre = incoming.length ? incoming.reduce((sum,n) => sum+n.position.y,0)/incoming.length : group.reduce((sum,n)=>sum+n.position.y,0)/group.length
     group.sort((a,b)=>(a.data.attributes?.['tool.batch_index'] || 0)-(b.data.attributes?.['tool.batch_index'] || 0))
       .forEach((node,index)=>{node.position.y=centre+(index-(group.length-1)/2)*76})
+  }
+  // Source preparation can overlap outside the front-end tool batch. Keep the
+  // observed branches distinct, while the existing timing edges join them.
+  const sourceJobs = new Map()
+  for (const item of nodes.filter(n => n.data.name === 'feedback.prepare' && ['COMMENT','DANMAKU'].includes(n.data.attributes?.['analysis.phase']))) {
+    const a=item.data.attributes, key=JSON.stringify([a['run.id'],a['analysis.job_id']])
+    if (!a['run.id'] || !a['analysis.job_id']) continue
+    if (!sourceJobs.has(key)) sourceJobs.set(key,[])
+    sourceJobs.get(key).push(item)
+  }
+  for (const group of sourceJobs.values()) {
+    if (group.length!==2 || new Set(group.map(n=>n.data.attributes['analysis.phase'])).size!==2 || Math.max(...group.map(n=>time(n.data)))>=Math.min(...group.map(n=>end(n.data)))) continue
+    const centre=group.reduce((sum,n)=>sum+n.position.y,0)/2
+    group.sort((a,b)=>a.data.attributes['analysis.phase'].localeCompare(b.data.attributes['analysis.phase']))
+      .forEach((n,index)=>{n.position.y=centre+(index-.5)*76})
+  }
+  edges.length=0
+  const visibleByRaw=new Map()
+  for (const item of nodes) for (const id of [item.data.sourceId,...(item.data.memberIds || [])].filter(Boolean)) if (!visibleByRaw.has(id)) visibleByRaw.set(id,item)
+  for (const item of nodes) if (item.data.sourceId) visibleByRaw.set(item.data.sourceId,item)
+  const emitted=new Set()
+  const link=(from,to,relation)=>{if(!from || from.id===to.id)return;const key=`${relation}:${from.id}:${to.id}`;if(emitted.has(key))return;emitted.add(key);edges.push({id:key,source:from.id,target:to.id,relation})}
+  for (const item of nodes) {
+    const roots=item.data.rootIds || [item.data.sourceId || item.id]
+    for (const id of roots) {
+      const raw=presentation.rawById.get(id);if(!raw)continue
+      let parent=presentation.rawById.get(raw.parentId);const visited=new Set()
+      while(parent && !visited.has(parent.id)) {visited.add(parent.id);const owner=visibleByRaw.get(parent.id);if(owner && owner.id!==item.id){link(owner,item,parent.id===raw.parentId && owner.data.sourceId===parent.id?'parent':'ancestor');break}parent=presentation.rawById.get(parent.parentId)}
+      const trigger=raw.attributes?.['analysis.trigger_span_id'],triggerNode=presentation.rawById.get(trigger)
+      if(triggerNode && (!raw.attributes?.['run.id'] || !triggerNode.attributes?.['run.id'] || raw.attributes['run.id']===triggerNode.attributes['run.id']))link(visibleByRaw.get(trigger),item,'trigger')
+      const refs=raw.attributes?.['analysis.predecessor_span_ids']
+      if(Array.isArray(refs))for(const ref of refs){const predecessor=presentation.rawById.get(ref);if(!predecessor)continue;const a=raw.attributes || {},b=predecessor.attributes || {};if(a['run.id'] && b['run.id'] && a['run.id']!==b['run.id'])continue;if(a['analysis.job_id'] && b['analysis.job_id'] && a['analysis.job_id']!==b['analysis.job_id'])continue;link(visibleByRaw.get(ref),item,'dependency')}
+    }
   }
   return { nodes, edges }
 }

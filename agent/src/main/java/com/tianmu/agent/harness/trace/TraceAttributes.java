@@ -7,9 +7,14 @@ import java.util.*;
 /** Export allowlist is the final boundary, including for attributes added by third-party hooks. */
 public final class TraceAttributes {
     private TraceAttributes() {}
-    private static final Set<String> ALLOWED = Set.of("analysis.cache_wait_ms", "analysis.cache_hit", "analysis.cache_age_ms", "analysis.cache_source_job", "analysis.force_reanalysis", "storage.failure_kind", "storage.http_status", "video.shared_wait", "video.shared_wait_ms", "budget.token_limit", "budget.charged_tokens", "budget.reported_calls", "budget.unsettled_calls", "video.frame_count", "video.audio_available", "video.id", "video.source_version", "video.start_ms", "video.end_ms", "video.cache_hit", "run.id", "run.status", "run.steps", "run.stop_reason", "run.model_calls", "run.finalizing", "loop.step",
+    private static final Set<String> ALLOWED = Set.of("analysis.vector_cache_hits", "analysis.vector_generated", "analysis.vector_failed", "analysis.cache_wait_ms", "analysis.cache_hit", "analysis.cache_age_ms", "analysis.cache_source_job", "analysis.force_reanalysis", "storage.failure_kind", "storage.http_status", "video.shared_wait", "video.shared_wait_ms", "budget.token_limit", "budget.charged_tokens", "budget.reported_calls", "budget.unsettled_calls", "video.frame_count", "video.audio_available", "video.id", "video.source_version", "video.start_ms", "video.end_ms", "video.cache_hit", "run.id", "run.status", "run.steps", "run.stop_reason", "run.model_calls", "run.finalizing", "loop.step",
             "detail.reasoning_ref", "detail.reasoning_state", "detail.reasoning_bytes", "detail.reasoning_redacted", "model.reasoning_effort",
-            "analysis.raw_records","analysis.filtered_records","analysis.exact_expressions","analysis.clusters","analysis.representatives","analysis.representative_bytes","analysis.unclassified_records",
+            "task.id", "task.scope", "turn.id", "message.role", "message.roles", "prompt.id", "prompt.version", "prompt.variant", "prompt.hash", "prompt.effective_hash", "prompt.components", "model.resolved_name", "model.version_state", "code.state", "code.language", "code.execution_state", "correction.state", "correction.kind", "correction.round", "correction.round_state", "correction.attempted",
+            "detail.prompt_ref", "detail.prompt_state", "detail.prompt_bytes", "detail.prompt_redacted", "detail.prompt_access",
+            "detail.code_ref", "detail.code_state", "detail.code_bytes", "detail.code_redacted", "detail.code_access",
+            "detail.execution_ref", "detail.execution_state", "detail.execution_bytes", "detail.execution_redacted", "detail.execution_access",
+            "detail.input_access", "detail.output_access", "detail.error_access", "detail.reasoning_access", "detail.provider_output_access",
+            "analysis.raw_records","analysis.filtered_records","analysis.exact_expressions","analysis.clusters","analysis.representatives","analysis.representative_bytes","analysis.unclassified_records","analysis.bucket_sizes","analysis.bucket_candidates","analysis.bucket_similarity","analysis.bucket_1_candidate_ids","analysis.bucket_2_candidate_ids","analysis.bucket_3_candidate_ids","analysis.bucket_4_candidate_ids","analysis.bucket_5_candidate_ids","analysis.vector_counts_complete","analysis.cache_source_job_model_calls","analysis.report_representatives","analysis.predecessor_span_ids","analysis.trigger_span_id","analysis.dependencies_complete","analysis.accepted","video.transcript_available","video.cache_age_ms","video.sampled_at_ms","video.topic_nearby_frames",
             "policy.source", "policy.hash", "tool.name", "tool.call_id", "tool.batch_rejected", "skill.name", "skill.version", "hook.name", "hook.point", "hook.mode",
             "hook.failed", "operation.executed", "operation.outcome", "error.code", "exception.type",
             "input.char_count", "context.observation_count", "answer.evidence_count", "http.method", "http.route", "http.status_code",
@@ -41,7 +46,7 @@ public final class TraceAttributes {
             "detail.error_ref", "detail.error_state", "detail.error_bytes", "detail.error_redacted",
             "context.request_bytes", "context.tools_bytes", "context.message_bytes", "context.system_bytes", "context.user_bytes", "context.assistant_bytes", "context.tool_result_bytes", "context.duplicate_result_bytes", "context.history_bytes", "context.results_compacted", "context.compaction_segments",
             "usage.attempted_calls", "usage.unreported_calls", "usage.cache_miss_tokens", "usage.cache_reported_calls", "model.dispatched",
-            "analysis.retry_wait_ms", "analysis.validation_issue", "analysis.result_accepted",
+            "analysis.retry_wait_ms", "analysis.validation_issue", "analysis.result_accepted", "analysis.semantic_review_passed", "analysis.reviewed_topics", "analysis.review_excluded_topics", "video.topic_frame_modes",
             "io.feedback_object_ms", "io.feedback_object_calls", "io.feedback_database_ms", "io.feedback_database_calls");
     public static Map<String, Object> sanitize(Map<String, ?> values) {
         Map<String, Object> clean = new TreeMap<>();

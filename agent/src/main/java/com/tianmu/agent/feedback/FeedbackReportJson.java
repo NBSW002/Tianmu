@@ -10,13 +10,14 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
         List<TopicView> otherTopics,Map<String,Object> method,String videoSummary,Map<String,Object> scope,java.time.Instant dataAsOf,String videoCoverage,List<FeedbackCompression.Representative> unclassifiedExamples,Map<String,Long> daily,FeedbackPlaybackTrend playback,VideoDetails videoDetails) {
     public record VideoDetails(long startMs,long endMs,List<Long> sampledAtMs,List<VideoContent.Moment> moments,boolean transcriptAvailable,int momentMatchMaxGapMs){public VideoDetails{sampledAtMs=List.copyOf(sampledAtMs);moments=List.copyOf(moments);}}
     public record TopicView(String id,String title,String observation,String recommendation,long commentCount,long danmakuCount,
-                            List<FeedbackCompression.Representative> representatives) {
-        public TopicView {representatives=List.copyOf(representatives);}
+                            List<FeedbackCompression.Representative> representatives,List<Long> selectedFrameMs) {
+        public TopicView(String id,String title,String observation,String recommendation,long commentCount,long danmakuCount,List<FeedbackCompression.Representative> representatives){this(id,title,observation,recommendation,commentCount,danmakuCount,representatives,null);}
+        public TopicView {representatives=List.copyOf(representatives);selectedFrameMs=selectedFrameMs==null?null:List.copyOf(selectedFrameMs);}
     }
     public FeedbackReportJson {topics=List.copyOf(topics);otherTopics=List.copyOf(otherTopics);unclassifiedExamples=unclassifiedExamples==null?List.of():List.copyOf(unclassifiedExamples);daily=daily==null?Map.of():Collections.unmodifiableMap(new TreeMap<>(daily));var normalized=new LinkedHashMap<String,Object>(method);normalized.replaceAll((k,v)->v instanceof Integer || v instanceof Short || v instanceof Byte?((Number)v).longValue():v);method=Map.copyOf(normalized);scope=Map.copyOf(scope);}
     public static FeedbackReportJson build(Asset asset,FeedbackCompression.Material material,List<Topic> roots,
             java.util.function.Function<Topic,List<FeedbackModels.Group>> groupsForTopic){
-        var cards=new ArrayList<TopicView>();var seen=new HashSet<String>();var clusterTopic=new HashMap<String,String>();
+        var cards=new ArrayList<TopicView>();var seen=new HashSet<String>();var clusterTopic=new HashMap<String,String>();long excludedRecords=0;
         for(var topic:roots.stream().sorted(Comparator.comparingLong(Topic::messages).reversed().thenComparing(Topic::id)).toList()){
             var groups=groupsForTopic.apply(topic);long comments=0,danmaku=0;var clusterIds=new LinkedHashSet<String>();
             for(var group:groups){
@@ -26,20 +27,24 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
                 var prior=clusterTopic.putIfAbsent(key,topic.id());if(prior!=null && !prior.equals(topic.id()))throw new com.tianmu.agent.core.AgentException("INVALID_ANALYSIS","A representative cluster was split across final topics");clusterIds.add(key);
             }
             if(comments+danmaku!=topic.messages())throw new com.tianmu.agent.core.AgentException("INVALID_ANALYSIS","Report topic counts differ from membership");
-            var representatives=material.clusters().stream().filter(c->clusterIds.contains(c.id())).flatMap(c->c.representatives().stream()).limit(3).toList();
-            cards.add(new TopicView(topic.id(),topic.title(),topic.observation(),topic.recommendation(),comments,danmaku,representatives));
+            if(topic.selection()!=null && "EXCLUDED".equals(topic.selection().coherence())){excludedRecords+=topic.messages();continue;}
+            var candidates=material.clusters().stream().filter(c->clusterIds.contains(c.id())).flatMap(c->c.representatives().stream()).toList();
+            var byId=new HashMap<String,FeedbackCompression.Representative>();candidates.forEach(r->byId.put(r.id(),r));
+            var representatives=topic.selection()==null?candidates.stream().limit(3).toList():topic.selection().representativeIds().stream().map(id->{var rep=byId.get(id);if(rep==null)throw new com.tianmu.agent.core.AgentException("INVALID_ANALYSIS","Report selection outside sealed candidates");return rep;}).toList();
+            cards.add(new TopicView(topic.id(),topic.title(),topic.observation(),topic.recommendation(),comments,danmaku,representatives,topic.selection()==null?null:topic.selection().frameMs()));
         }
         for(var id:material.unclassified())if(!seen.add(id))throw new com.tianmu.agent.core.AgentException("INVALID_ANALYSIS","Unclassified membership repeated");
         if(seen.size()!=material.eligibleCounts().total())throw new com.tianmu.agent.core.AgentException("INVALID_ANALYSIS","Bucket and unclassified counts do not reconcile");
         var method=new LinkedHashMap<String,Object>(material.summary());method.put("raw_comments",material.rawCounts().comments());method.put("raw_danmaku",material.rawCounts().danmaku());method.put("raw_audience",material.rawCounts().total()-material.rawCounts().authorComments()-material.rawCounts().authorDanmaku());method.put("raw_unique_audience",material.rawCounts().uniqueAudience());method.put("statistics_available",material.stats()!=null);method.put("interpretation","主题依据聚类代表归纳，桶内数量为近似向量分配，未逐条阅读全部原文或经模型确认；未归类可能因相似度、支持度或候选限制。");method.put("likes_available",material.clusters().stream().flatMap(c->c.representatives().stream()).filter(r->r.likes()!=null).count());
-        String summary=cards.isEmpty()?(material.eligibleCounts().total()==0?"本次范围内没有符合筛选条件的观众反馈。":"本次反馈较少或尚未形成可靠主题，单条反馈保留在未归类中。") :cards.stream().limit(5).map(TopicView::title).collect(java.util.stream.Collectors.joining("、","主要反馈涉及：","。"));
+        method.put("topics",cards.size());method.put("quality_excluded_records",excludedRecords);method.put("unclassified",material.unclassified().size()+excludedRecords);
+        String summary=cards.isEmpty()?(material.eligibleCounts().total()==0?"本次范围内没有符合筛选条件的观众反馈。":"本次反馈尚未形成可靠主题，相关反馈保留在未归类中。") :cards.stream().limit(5).map(TopicView::title).collect(java.util.stream.Collectors.joining("、","主要反馈涉及：","。"));
         var scope=Map.<String,Object>of("video_id",Long.toString(asset.request().query().videoId()),"start",asset.request().query().start().toString(),"end",asset.request().query().end().toString(),"timezone","Asia/Shanghai","sources",asset.request().sources().stream().map(Enum::name).sorted().toList(),"grounding",asset.request().grounding().name());
         var stats=material.stats();var playback=stats!=null && asset.request().sources().contains(Source.DANMAKU)?FeedbackPlaybackTrend.buildCounts(asset,stats.playback(),stats.playbackMissing(),material.rawCounts().danmaku()):null;
         FeedbackCompressionProperties reportPolicy=material.policy();var v=asset.video();var videoDetails=v==null?null:new VideoDetails(v.startMs(),v.endMs(),v.sampledAtMs(),v.moments(),!v.transcript().isBlank(),reportPolicy.momentMatchMaxGapMs());
         return new FeedbackReportJson("feedback-report-json-v1","视频"+asset.request().query().videoId()+"观众反馈报告",summary,cards.stream().limit(5).toList(),cards.stream().skip(5).toList(),method,v==null?null:v.summary(),scope,asset.snapshot().dataAsOf(),v==null?null:v.coverage(),material.unclassifiedExamples(),stats==null?Map.of():stats.daily(),playback,videoDetails);
     }
     public byte[] html(){
-        var h=new StringBuilder("<!doctype html><html lang='zh-CN'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>").append(escape(title)).append("</title><style>").append(FeedbackReportRenderer.styles()).append(FeedbackReportCharts.STYLE).append("</style><main><header><h1>这条视频，观众怎么说</h1><p class='muted'>范围：").append(escape(scope.get("start").toString())).append(" 至 ").append(escape(scope.get("end").toString())).append("（北京时间，结束时刻不计入）</p><div class='metrics'><div><strong>").append(method.get("raw")).append("</strong><span>条原始反馈</span></div><div><strong>").append(method.get("eligible")).append("</strong><span>条有效反馈</span></div><div><strong>").append(method.get("clusters")).append("</strong><span>个主题桶</span></div></div><p>").append(escape(summary)).append("</p></header><section>");
+        var h=new StringBuilder("<!doctype html><html lang='zh-CN'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>").append(escape(title)).append("</title><style>").append(FeedbackReportRenderer.styles()).append(FeedbackReportCharts.STYLE).append("</style><main><header><h1>这条视频，观众怎么说</h1><p class='muted'>范围：").append(escape(scope.get("start").toString())).append(" 至 ").append(escape(scope.get("end").toString())).append("（北京时间，结束时刻不计入）</p><div class='metrics'><div><strong>").append(method.get("raw")).append("</strong><span>条原始反馈</span></div><div><strong>").append(method.get("eligible")).append("</strong><span>条有效反馈</span></div><div><strong>").append(method.getOrDefault("topics",method.get("clusters"))).append("</strong><span>个主题</span></div></div><p>").append(escape(summary)).append("</p></header><section>");
         if(videoSummary!=null){h.append("<details><summary>视频语境与覆盖</summary><p>").append(escape(videoSummary)).append("</p><p>").append(escape(Objects.toString(videoCoverage,""))).append("</p>");if(videoDetails!=null){h.append("<p>采样 ").append(videoDetails.sampledAtMs().size()).append(" 个位置；").append(videoDetails.transcriptAvailable()?"有音频转录":"未提供音频转录").append("。</p>");for(var moment:videoDetails.moments())h.append("<p>").append(moment.atMs()/1000.0).append(" 秒：").append(escape(moment.observation())).append("</p>");}h.append("</details>");}
         if(!topics.isEmpty())h.append("<h2>观众关注的 ").append(topics.size()).append(" 个话题</h2>");for(var topic:topics)card(h,topic);
         if(!unclassifiedExamples.isEmpty()){h.append("<details open><summary>尚未成组的反馈</summary>");for(var item:unclassifiedExamples)h.append("<blockquote>").append(escape(item.text())).append("</blockquote>");h.append("</details>");}
@@ -53,9 +58,11 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
     private void appendMoments(StringBuilder h,TopicView topic){
         if(videoDetails==null || videoDetails.moments().isEmpty())return;
         var selected=new LinkedHashMap<Long,VideoContent.Moment>();
+        if(topic.selectedFrameMs()!=null){for(long at:topic.selectedFrameMs())videoDetails.moments().stream().filter(m->m.atMs()==at).findFirst().ifPresent(m->selected.put(at,m));}
+        else
         for(var rep:topic.representatives()){Long at=rep.playbackMs();if(at==null || at<videoDetails.startMs() || at>=videoDetails.endMs())continue;
             videoDetails.moments().stream().filter(m->Math.abs(m.atMs()-at)<=videoDetails.momentMatchMaxGapMs()).min(Comparator.comparingLong(m->Math.abs(m.atMs()-at))).ifPresent(m->selected.putIfAbsent(m.atMs(),m));if(selected.size()>=2)break;}
-        if(selected.isEmpty())return;h.append("<div class='context'><p class='label'>原话播放位置附近的采样画面</p>");
+        if(selected.isEmpty())return;h.append("<div class='context'><p class='label'>").append(topic.selectedFrameMs()==null?"原话播放位置附近的采样画面":"与主题相关的采样画面").append("</p>");
         for(var moment:selected.values())h.append("<p>").append(moment.atMs()/1000.0).append(" 秒：").append(escape(moment.observation())).append("</p>");
         h.append("<small>仅供画面语境参考，不证明声音或连续动作。</small></div>");
     }

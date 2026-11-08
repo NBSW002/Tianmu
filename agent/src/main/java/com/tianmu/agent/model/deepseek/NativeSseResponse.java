@@ -13,13 +13,14 @@ final class NativeSseResponse {
     private final StringBuilder pending=new StringBuilder();private long flushedAt=System.nanoTime();private Boolean display;
     boolean done(){return done;}
     private void flush(){if(!pending.isEmpty()){sink.accept(pending.toString());pending.setLength(0);flushedAt=System.nanoTime();}}
-    private JsonNode usage;private String finish;private boolean done;
+    private JsonNode usage;private String finish,model;private boolean done;
     NativeSseResponse(ObjectMapper json,Consumer<String> sink){this.json=json;this.sink=sink;}
     void accept(String data) {
         if(done)throw new AgentException("MODEL_ERROR","Data after stream completion");
         if(data.equals("[DONE]")){done=true;flush();return;}
         try {
             JsonNode chunk=json.readTree(data);if(chunk.has("error"))throw new IllegalArgumentException();
+            if(chunk.path("model").isTextual())model=chunk.path("model").asText();
             if(chunk.hasNonNull("usage"))usage=chunk.get("usage");
             for(var choice:chunk.path("choices")){
                 if(choice.path("index").asInt()!=0)continue;
@@ -49,6 +50,6 @@ final class NativeSseResponse {
         if(!done||finish==null)throw new AgentException("MODEL_ERROR","Model stream ended before completion");
         for(int i=0;i<tools.size();i++)if(!tools.containsKey(i) || !tools.get(i).path("id").isTextual() || tools.get(i).path("function").path("name").asText().isBlank())throw new AgentException("MODEL_ERROR","Incomplete tool stream");
         var message=json.createObjectNode().put("content",content.toString());if(!reasoning.isEmpty())message.put("reasoning_content",reasoning.toString());if(!tools.isEmpty())message.set("tool_calls",json.valueToTree(tools.values()));
-        var result=json.createObjectNode();var choice=json.createObjectNode().put("finish_reason",finish);choice.set("message",message);result.set("choices",json.createArrayNode().add(choice));if(usage!=null)result.set("usage",usage);return result;
+        var result=json.createObjectNode();var choice=json.createObjectNode().put("finish_reason",finish);choice.set("message",message);result.set("choices",json.createArrayNode().add(choice));if(usage!=null)result.set("usage",usage);if(model!=null)result.put("model",model);return result;
     }
 }

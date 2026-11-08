@@ -75,4 +75,12 @@ class TraceQueryTest {
                 .andExpect(status().isNotFound());
         verify(identity).forHistoricalRun(caller, foreign);
     }
+    @Test void uniformRecordsUseTheSameAuthorizationAndKeepMissingFieldsExplicit()throws Exception{
+        when(archive.find(TRACE)).thenReturn(List.of(span(run,"alice")));
+        mvc.perform(get("/api/agent/traces/"+TRACE+"/records")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/agent/traces/"+TRACE+"/records").header("Authorization","Bearer valid"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store")).andExpect(jsonPath("$[0].schema_version").value("1.0")).andExpect(jsonPath("$[0].run_id").value(run.toString())).andExpect(jsonPath("$[0].prompt_text_state").value("NOT_CAPTURED")).andExpect(jsonPath("$[0].fix_state").value("UNKNOWN"));
+        when(identity.forHistoricalRun(caller,run)).thenThrow(new AgentException("FORBIDDEN","Revoked"));
+        mvc.perform(get("/api/agent/traces/"+TRACE+"/records").header("Authorization","Bearer valid")).andExpect(status().isForbidden());
+    }
 }

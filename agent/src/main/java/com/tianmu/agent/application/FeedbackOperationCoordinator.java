@@ -92,6 +92,7 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
         if(op.kind().equals("representative-report")){
             if(preparation==null)throw new AgentException("COMPRESSION_DISABLED","Representative report service missing");
             var reportJson=preparation.reportJson(job.id(),run.owner,run.callControl());
+            traceReportEvidence(reportJson);
             var report=new ReportArtifacts(reportStore).save(run,evidence.id(),reportJson.html());
             result=new ToolResult("generate_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"json_url",report.url()+"/json","summary",reportJson.summary(),"topics",reportJson.topics().stream().map(FeedbackReportJson.TopicView::title).toList(),"method",reportJson.method(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
         }else if(op.kind().equals("feedback-report")){
@@ -99,6 +100,23 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
             result=new ToolResult("create_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
         }else result=new ToolResult("analyze_feedback",Map.of("status","READY","evidence_id",evidence.id(),"summary",service.read(asset,"summary",0,1)),evidence.id());
         runs.resumeOperation(run,op,result);progress.remove(run.id);
+    }
+    /** Only records the actual report selection; temporal proximity is not a semantic relevance verdict. */
+    private static void traceReportEvidence(FeedbackReportJson report){
+        var representatives=new ArrayList<String>();var frames=new ArrayList<String>();var frameModes=new ArrayList<String>();var video=report.videoDetails();
+        for(int i=0;i<report.topics().size();i++){
+            var topic=report.topics().get(i);String index=Integer.toString(i+1);
+            representatives.add(index+":"+topic.representatives().stream().map(FeedbackCompression.Representative::id).collect(java.util.stream.Collectors.joining(":")));
+            if(video==null)continue;var selected=new LinkedHashSet<Long>();
+            frameModes.add(index+":"+(topic.selectedFrameMs()==null?"TEMPORAL":"SEMANTIC_REVIEW"));
+            if(topic.selectedFrameMs()!=null)selected.addAll(topic.selectedFrameMs());
+            else for(var rep:topic.representatives()){
+                Long at=rep.playbackMs();if(at==null || at<video.startMs() || at>=video.endMs())continue;
+                video.moments().stream().filter(m->Math.abs(m.atMs()-at)<=video.momentMatchMaxGapMs()).min(Comparator.comparingLong(m->Math.abs(m.atMs()-at))).ifPresent(m->selected.add(m.atMs()));if(selected.size()>=2)break;
+            }
+            frames.add(index+":"+(selected.isEmpty()?"NONE":selected.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(":"))));
+        }
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.report_representatives",representatives,"video.topic_nearby_frames",frames,"video.topic_frame_modes",frameModes));
     }
     @PreDestroy public void close(){workers.shutdown();}
 }

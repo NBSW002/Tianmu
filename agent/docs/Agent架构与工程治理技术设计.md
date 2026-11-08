@@ -1648,3 +1648,48 @@ public record ContextEnvelope(String schemaVersion,Phase phase,String policyVers
     public List<String> presentSlots(){return parts.stream().map(p->p.slot().key()).toList();}
 }
 ```
+# Trace 执行事实展示补充（本地变更）
+
+反馈准备 Span 记录实际向量缓存命中与新生成的表达数，以及每个桶的成员和模型候选数；这些数字只在本次材料准备成功时写入，历史记录缺失时展示未采集。现有缓存键不记录写入来源，因此不能把缓存命中宣称为发送后预热。视频缓存命中与未命中均记录已返回事实的采样帧数量和是否有转录，不由空转录推断是否存在音频。反馈结果缓存的命中与原任务年龄来自原有 Span；后台模型调用数只统计本次实际调用。
+
+Trace 图仅根据真实父子 Span、明确记录的前置 Span 和异步触发 Span 画线；时间用于布局及并行重叠说明，不构造因果关系。反馈准备快照的触发来源与已接受阶段的 Span 写入准备账本，结果和接受来源由同一 fenced 更新提交，因此重启或跨实例读取仍可恢复关联；历史任务、不同 Trace 或采集缺失时明确标记关联不完整。异步触发不表示工具结束后工作才开始，原始 Span 的父节点不变；实线、点划线、虚线和点线分别表达直接父子、折叠中间节点后的上级归属、依赖和触发。模型节点依据实际请求的思考状态说明。桶内相似度展示表达向量到中心的最低值和平均值，不将其当作语义质量判定。向量由预热还是先前报告写入仍未区分；语义复核的本地后续实现见下节。详细测试和真实部署验收状态以本次交付记录为准。
+
+## 五桶报告整体复核（2026-11-08，本地实现）
+
+输入保持最多五桶、每桶最多八个封存候选；全量成员只用于程序统计和向量处理。取消“含回复上文或指代词就全部排除”的宽泛规则，保留有明确对象的回复，只将纯赞同、纯指代等短表达留在桶外。清洗仍按实际策略排除过短文本，点赞排序和八候选上限不变；材料 revision 更新为 contextguard v7，不能把旧材料解释成新筛选结果。
+
+DeepSeek 适配器在所有一级分类完成后，使用既有任务账本规划一个最终 MERGE 整体复核：只传已有候选正文、一级观察、真实采样事实，以及 C 子主题别名到候选组的绑定。模型可合并跨批次的同义主题，不拆分已封存桶的成员。最终 Selection 记录实际三条代表 ID（不足三条全选）、最多两个采样位置、COHERENT/MIXED/EXCLUDED、一致性与重复检查理由。宿主检查 ID 属于该主题对应的候选、无重复、数量正确，采样时间必须是实际 moments 中的整数位置；这些检查不宣称独立验证模型的语义判断。Demo/旧测试适配器默认不启用该生产协议。
+
+MIXED 或未解决重复先进入既有有上限的纠正。纠正后仍无法交付的成员范围可以 EXCLUDED；排除资格来自上一轮同一成员范围的质量判断，并在后续引用纠正时保留，不能扩大到其他成员。EXCLUDED 不进入报告正文、不展示原话或画面，成员计入报告未归类，权威分析成员覆盖仍守恒。整体失败、引用错误或上游异常仍走既有有限重试与终态规则，不无限追加调用。此类降级结果不写共享复核缓存。
+
+Selection 与 Topic 同一结果对象持久化，网页、下载 HTML 和交付 Trace 都使用其真实选择顺序；新记录显式空画面数组时不回退到时间附近画面。旧记录没有 Selection/selectedFrameMs 时使用兼容读取，不冒充已经语义复核。method.clusters 保留原始向量桶数，method.topics 为最终交付主题数；quality_excluded_records 和 unclassified 保留排除计数。Trace 的模型结果保存判断理由，执行属性记录已处理/排除提案数及画面选择模式。
+
+新复核缓存键覆盖候选、子主题正文、子主题到候选组的绑定、视频事实和协议 hash；命中后重新验证成员及 Selection。新提示词 hash 与材料 revision 参与作业兼容校验，旧作业不得在新语义下直接续跑。新 reader 可读取缺少可选字段的旧对象；旧二进制读取新 Selection/最终 MERGE 的回滚能力尚未验证，发布需排空在途任务并保留支持新格式的回滚基线，不能声称可无条件退回旧版。
+
+验证包括跨两批合并、非前三代表选择、结果对象往返、缓存别名重绑定、非整数帧拒绝、混题纠正与排除、明确不引用画面、旧格式读取。真实模型语义效果和生产四场景验收需单列证据；本地协议测试及构建不等同生产已部署。
+
+## Trace 统一字段与提示词溯源（2026-11-08，本地实现）
+
+统一导出入口为 `GET /api/agent/traces/{traceId}/records`，返回 schema_version=1.0 的每 Span 记录，保留原始 Span 查询协议。接口复用 TraceQueryService 的身份、运行归属和当前资源权限校验，禁止缓存。页面提供结构化记录下载和统一字段展示。正文不在索引或导出中重复存放，content、prompt_text、tool_input/tool_output、error、code_snippet、execution_result 使用空正文、独立 `_ref` 与 `_state`；引用仍通过既有受控详情端点加载。明确区分 NOT_CAPTURED、DISABLED、TRUNCATED、SOURCE_PROTECTED、CAPTURE_FAILED、LIMIT_REACHED、NOT_APPLICABLE，不把未知值写成零、空成功或已执行。
+
+| 字段 | 当前采集来源与语义 |
+| --- | --- |
+| timestamp | Span 开始时间，UTC ISO；另有 duration_seconds |
+| task_id | 从已持久 run.id 使用 agent-task/v1 命名空间稳定派生的独立 UUID，task_scope=REQUEST，表示一次受理请求；不表示跨多个 Run 的业务工作流，分析子任务仍使用 analysis.job_id |
+| run_id、turn_id | 运行 ID；从 session.id 与 run.turn_seq 稳定派生的对话轮次 ID，恢复和重建不改变；执行步骤仍是 loop.step |
+| role | 节点输出归属 user/agent/assistant/tool；收到用户问题的标记为 user，模型与交付为 assistant，工具为 tool；模型请求另记录真实 message.roles 列表 |
+| content | 输入或输出详情引用，保持内容保护与大小上限；不根据节点名称补造历史正文 |
+| model | 请求模型名；model_resolved 仅取供应商实际返回（含 SSE）的 model，model_version_state 区分 REQUESTED_ONLY/PROVIDER_REPORTED/UNKNOWN，不承诺供应商别名不可变 |
+| prompt_id、prompt_version、prompt_variant | 前置识别、主循环、反馈分析使用 PromptCatalog 的 ID/版本与实际分支策略；记忆、房间归纳、视频内联指令有稳定模块 ID、实现版本和变体，未注册指令明确 UNREGISTERED |
+| prompt_hash、prompt_effective_hash、prompt_text | 指令内容指纹与实际请求 system/developer 文本的确定性长度编码指纹；受控 prompt 快照同时记录指令及装配后的请求文本；多模态不复制媒体二进制。model_dispatched=false 时仅表示已装配，不能声称已发送 |
+| response_time、token_usage | 已记录模型请求耗时转为秒；输入/输出/总 Token 及报告状态，未报告保持未知 |
+| tool_call、tool_input、tool_output | 工具名称及详情引用；非工具节点明确不适用，不能把模型请求当工具输入 |
+| error、error_type、error_code、result、final_status | 错误详情引用、异常类型、业务错误码、节点结果和实际运行终态 |
+| code_snippet、execution_result | TraceCoding 提供代码生成/执行埋点，受相同脱敏、来源保护和大小上限约束。当前没有代码执行工具，现有节点默认 NOT_APPLICABLE；此记录契约不新增执行器或扩大工具权限 |
+| fix_attempt、fix_round、fix_state、fix_kind | 与 execution.retry_count 独立。模型在实际派发处才记录纠正尝试；反馈纠正输入持久 round，首次纠正为1，普通网络重试不递增。旧 Correction 缺 round 时为0/LEGACY_UNKNOWN，后续仍保留未知，不能倒推历史纠正次数 |
+
+Prompt Scope 随调用关闭，元数据由当前任务传播到模型请求子 Span；提示词正文、代码及执行结果只进入 TraceDetails 的 prompt/code/execution 新方向。受保护来源沿用替换与授权策略；新详情计入既有单条和每运行采集配额。新 reader 可读取无新属性、无 Correction.round 的旧记录；旧二进制读取新字段与新详情方向的回滚能力需单独验证，发布保留支持本格式的基线。
+
+验证覆盖稳定身份重建、提示词快照及脱敏、旧记录未知状态、受保护正文状态、结构化导出鉴权/撤权、纠正轮次序列化、普通重试不递增、SSE 模型名保留，以及前端选中子树内加载。代码字段已具备记录契约，但不将未发生的代码生成或执行列为真实验收。
+
+本轮本地结果：后端 `mvn verify` 共854项，769项通过、85项因外部存储/记忆/付费模型门控跳过，零失败、零错误并完成制品构建；日志另有测试子 JVM 在 System.exit(0) 后30秒未退出、由 Surefire结束的清理警告，未将该项解释为进程清理验证通过。前端102项测试和生产构建通过，治理目录检查通过，独立实现审查发现已关闭。证据保存在工作区 `var/governance-release/trace-fields-verify.log`、`trace-fields-second.log`、`trace-fields-front.log` 及 `representative-front-test.log`/`representative-front-build.log`。以上不表示已经推送、部署或完成生产真实场景验收。

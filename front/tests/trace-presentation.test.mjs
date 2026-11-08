@@ -1,8 +1,73 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTracePresentation, buildTraceOverview, cardHighlight, cardSummary, preparationDetails, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, cardHighlight, cardSummary, preparationDetails, executionFacts, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
+import { recordDetails, traceDetailSources } from '../src/trace/trace-presentation.mjs'
+
+test('standard metadata preserves missing history and never describes an assembled prompt as sent',()=>{
+  const rows=recordDetails({attributes:{'prompt.id':'feedback.pipeline','prompt.variant':'CORRECTION','model.dispatched':false,'correction.state':'REQUESTED','correction.round_state':'LEGACY_UNKNOWN','code.state':'NOT_APPLICABLE'}})
+  assert.equal(rows.find(row=>row.label==='任务 ID').value,'未采集')
+  assert.match(rows.find(row=>row.label==='请求发送').value,/尚未发送/)
+  assert.equal(rows.find(row=>row.label==='纠正轮次').value,'旧记录轮次未知')
+  assert.equal(rows.find(row=>row.label==='代码生成').value,'本节点不适用')
+})
+test('prompt and code snapshots are loaded from the selected subtree only',()=>{
+  const p=buildTracePresentation([node('m','agent.model','MODEL',0,5),node('request','model.request','MODEL',1,3,{parentId:'m',promptRef:'prompt-a'}),node('other','agent.model','MODEL',6,5),node('r2','model.request','MODEL',7,3,{parentId:'other',promptRef:'prompt-b'})])
+  assert.deepEqual(traceDetailSources(p.allCards.get('m'),p,'prompt').map(n=>n.id),['request'])
+  assert.deepEqual(traceDetailSources(p.allCards.get('m'),p,'code'),[])
+})
+
+test('execution facts distinguish recorded reuse, missing provenance, parallel work and reasoning state',()=>{
+  const nodes=[
+    node('job','feedback.work','STAGE',0,4,{attributes:{'analysis.job_id':'j','run.id':'r','analysis.cache_hit':true,'analysis.cache_age_ms':66311}}),
+    node('comment','feedback.prepare','STAGE',1,2,{attributes:{'analysis.job_id':'j','run.id':'r','analysis.phase':'COMMENT'}}),
+    node('danmaku','feedback.prepare','STAGE',1.5,2,{attributes:{'analysis.job_id':'j','run.id':'r','analysis.phase':'DANMAKU'}}),
+    node('materials','feedback.prepare','STAGE',4,1,{attributes:{'analysis.phase':'MATERIALS','analysis.vector_cache_hits':8,'analysis.vector_generated':2,'analysis.vector_failed':1,'analysis.vector_counts_complete':false,'analysis.bucket_similarity':['B1:0.650:0.800'],'analysis.bucket_1_candidate_ids':['C:1','D:2']}}),
+    node('old','feedback.prepare','STAGE',5,1,{attributes:{'analysis.phase':'MATERIALS'}}),
+    node('model','agent.model','MODEL',6,2),node('request','model.request','MODEL',6,1,{parentId:'model',attributes:{'model.reasoning_state':'DISABLED'}}),
+    node('video','agent.tool','TOOL',8,1,{tool:'analyze_video_content',attributes:{'video.cache_hit':true}})
+  ];const p=buildTracePresentation(nodes)
+  assert.match(executionFacts(p.allCards.get('job:job'),p).join(' '),/复用已有结果.*66.3 秒/)
+  assert.match(executionFacts(presentNodeForTest(nodes[1]),p).join(' '),/并行重叠/)
+  assert.match(executionFacts(presentNodeForTest(nodes[3]),p).join(' '),/命中 8 条.*新生成 2 条/)
+  assert.match(executionFacts(presentNodeForTest(nodes[3]),p).join(' '),/失败 1 条.*未完成.*B1:0.650:0.800.*C:1、D:2/)
+  assert.match(executionFacts(presentNodeForTest(nodes[4]),p).join(' '),/未采集/)
+  assert.match(executionFacts(p.allCards.get('model'),p).join(' '),/未开启思考/)
+  assert.match(cardHighlight(p.allCards.get('video')),/复用已有视频分析/)
+})
+const presentNodeForTest = n => ({...n,cardKind:'diagnostic',sourceId:n.id,memberIds:[n.id]})
+
+test('parallel comment and danmaku preparation remain distinct and join at materials',()=>{
+  const props=phase=>({parentId:'root',attributes:{'analysis.job_id':'j','run.id':'r','analysis.phase':phase,'analysis.predecessor_span_ids':phase==='MATERIALS'?['comment','danmaku']:phase==='COMMENT'||phase==='DANMAKU'?['snapshot']:[]}})
+  const p=buildTracePresentation([node('snapshot','feedback.prepare','STAGE',0,1,props('SNAPSHOT')),node('comment','feedback.prepare','STAGE',2,3,props('COMMENT')),node('danmaku','feedback.prepare','STAGE',2.1,3,props('DANMAKU')),node('materials','feedback.prepare','STAGE',6,1,props('MATERIALS'))])
+  const g=layoutPresentation(p),a=g.nodes.find(x=>x.id==='comment'),b=g.nodes.find(x=>x.id==='danmaku')
+  assert.ok(a && b);assert.notEqual(a.position.y,b.position.y)
+  assert.deepEqual(g.edges.filter(e=>e.target==='materials').map(e=>e.source).sort(),['comment','danmaku'])
+})
+
+test('the real run parent connects sibling spans without inventing edges between them',()=>{
+  const root=node('run','agent.run','STAGE',0,20),snapshot=node('snapshot','feedback.prepare','STAGE',1,1,{parentId:'run',attributes:{'analysis.phase':'SNAPSHOT'}}),comment=node('comment','feedback.prepare','STAGE',3,2,{parentId:'run',attributes:{'analysis.phase':'COMMENT'}})
+  const graph=layoutPresentation(buildTracePresentation([root,snapshot,comment]))
+  assert.ok(graph.nodes.some(n=>n.id==='run'))
+  assert.ok(graph.edges.some(e=>e.source==='run' && e.target==='snapshot' && e.relation==='parent'))
+  assert.ok(graph.edges.some(e=>e.source==='run' && e.target==='comment' && e.relation==='parent'))
+  assert.ok(!graph.edges.some(e=>e.source==='snapshot' && e.target==='comment'))
+})
+
+test('recorded async trigger is distinct from parent and completion dependency',()=>{
+  const attrs={'analysis.job_id':'j','run.id':'r'}
+  const p=buildTracePresentation([node('root','agent.run','STAGE',0,10),node('tool','agent.tool','TOOL',1,1,{parentId:'root',tool:'prepare_feedback_materials',attributes:attrs}),node('snapshot','feedback.prepare','STAGE',2,1,{parentId:'root',attributes:{...attrs,'analysis.phase':'SNAPSHOT','analysis.trigger_span_id':'tool'}})])
+  const graph=layoutPresentation(p)
+  assert.ok(graph.edges.some(e=>e.source==='tool' && e.target==='snapshot' && e.relation==='trigger'))
+  assert.ok(graph.edges.some(e=>e.source==='root' && e.target==='snapshot' && e.relation==='parent'))
+})
+
+test('collapsed intermediate span is identified as ancestor rather than direct parent',()=>{
+  const p=buildTracePresentation([node('root','agent.run','STAGE',0,10),node('hidden','internal.stage','STAGE',1,5,{parentId:'root'}),node('child','feedback.prepare','STAGE',2,1,{parentId:'hidden',attributes:{'analysis.phase':'SNAPSHOT'}})])
+  const edge=layoutPresentation(p).edges.find(e=>e.source==='root' && e.target==='child')
+  assert.equal(edge?.relation,'ancestor')
+})
 
 test('a waiting merge joins three recognizers even when its measured span overlaps them',()=>{
   const p=buildTracePresentation([
@@ -12,10 +77,10 @@ test('a waiting merge joins three recognizers even when its measured span overla
     node('memory','agent.memory.recall','STAGE',7,1,{parentId:'entry'}),
   ]);
   const g=layoutPresentation(p),merge=g.nodes.find(n=>n.id==='merge');
-  assert.deepEqual(g.edges.filter(e=>e.target==='merge').map(e=>e.source).sort(),['clarification','emotion','intent']);
+  assert.deepEqual(g.edges.filter(e=>e.target==='merge').map(e=>e.source),[]);
   assert.equal(new Set(g.nodes.filter(n=>['intent','emotion','clarification'].includes(n.id)).map(n=>n.position.x)).size,1);
   for(const kind of ['intent','emotion','clarification'])assert.ok(merge.position.x>g.nodes.find(n=>n.id===kind).position.x);
-  assert.ok(g.edges.some(e=>e.source==='merge'&&e.target==='memory'));
+  assert.ok(!g.edges.some(e=>e.source==='merge'&&e.target==='memory'));
 });
 
 test('model cards expose only reasoning payloads from their actual descendant calls',()=>{
@@ -67,12 +132,12 @@ test('entry recognition forks into three real model spans and joins before the c
   assert.equal(get('clarification').position.y, get('emotion').position.y + 76)
   for (const branch of branches) {
     assert.equal(branch.data.kind, 'MODEL')
-    assert.ok(graph.edges.some(e => e.source === faq.id && e.target === branch.id))
-    assert.ok(graph.edges.some(e => e.source === branch.id && e.target === merge.id))
+    assert.ok(!graph.edges.some(e => e.source === faq.id && e.target === branch.id))
+    assert.ok(!graph.edges.some(e => e.source === branch.id && e.target === merge.id))
   }
   const tool = get('tool')
   assert.equal(tool.data.tool, 'ask_clarification')
-  assert.ok(graph.edges.some(e => e.source === merge.id && e.target === tool.id))
+  assert.ok(!graph.edges.some(e => e.source === merge.id && e.target === tool.id))
   assert.equal(graph.nodes.filter(n => n.data.cardKind === 'model').length, 0)
   assert.equal(get('clarification').data.summary, '需要补充信息')
 })
@@ -93,14 +158,14 @@ test('a merge covering fan-in waiting follows all recognition branches without c
   for (const id of ['intent', 'emotion', 'clarification']) {
     const branch = graph.nodes.find(n => n.id === id)
     assert.ok(merge.position.x > branch.position.x)
-    assert.ok(graph.edges.some(e => e.source === id && e.target === merge.id))
+    assert.ok(!graph.edges.some(e => e.source === id && e.target === merge.id))
   }
-  assert.ok(graph.edges.some(e => e.source === merge.id && e.target === 'model'))
+  assert.ok(!graph.edges.some(e => e.source === merge.id && e.target === 'model'))
   assert.equal(merge.data.offsetMs, 11)
   assert.equal(merge.data.durationMs, 80)
   const late = raw.map(n => n.id === 'clarification' ? { ...n, durationMs: 160 } : n)
   const partial = layoutPresentation(buildTracePresentation(late))
-  assert.ok(partial.edges.some(e => e.source === 'intent' && e.target === 'merge'))
+  assert.ok(!partial.edges.some(e => e.source === 'intent' && e.target === 'merge'))
   assert.ok(!partial.edges.some(e => e.source === 'clarification' && e.target === 'merge'), 'A late branch must not be shown as completed before fan-in returns')
   assert.equal(partial.nodes.find(n => n.id === 'clarification').data.durationMs, 160)
 })
@@ -132,7 +197,7 @@ test('model details list every call in its round, resolve Skill and retain provi
   assert.equal(calls[0].skill, 'feedback')
   assert.deepEqual(calls[0].arguments, { name: 'feedback' })
   assert.equal(calls[1].businessError, true)
-  assert.equal(model.cardTitle, '模型思考 · 第 1 轮')
+  assert.equal(model.cardTitle, '模型调用 · 第 1 轮')
   assert.match(model.summary, /Skill：feedback、读取评论/)
   assert.ok(model.memberIds.includes('provider'))
   assert.ok(!p.cards.some(card => card.id === 'provider'))
@@ -253,11 +318,11 @@ test('linear tree keeps separate decisions, forks parallel work and rejoins befo
   assert.equal(p.allCards.get('check').summary, '判断结果未记录')
   const graph = layoutPresentation(p)
   assert.equal(graph.nodes.length, 9)
-  assert.ok(graph.edges.some(e => e.source === 'faq' && e.target === 'emotion'))
-  assert.ok(graph.edges.some(e => e.source === 'faq' && e.target === 'intent'))
+  assert.ok(!graph.edges.some(e => e.source === 'faq' && e.target === 'emotion'))
+  assert.ok(!graph.edges.some(e => e.source === 'faq' && e.target === 'intent'))
   assert.ok(!graph.edges.some(e => e.source === 'emotion' && e.target === 'intent'))
-  assert.ok(graph.edges.some(e => e.source === 'intent' && e.target === 'check'))
-  assert.ok(graph.edges.some(e => e.source === 'emotion' && e.target === 'check'))
+  assert.ok(!graph.edges.some(e => e.source === 'intent' && e.target === 'check'))
+  assert.ok(!graph.edges.some(e => e.source === 'emotion' && e.target === 'check'))
   assert.ok(graph.edges.every(e => !e.label))
 
 })

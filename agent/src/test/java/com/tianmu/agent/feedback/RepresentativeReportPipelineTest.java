@@ -28,7 +28,13 @@ class RepresentativeReportPipelineTest {
             String body=new String(exchange.getRequestBody().readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);requests.add(body);
             var wire=json.readTree(body);var payload=json.readTree(wire.path("messages").get(wire.path("messages").size()-1).path("content").asText());
             var assignments=new LinkedHashMap<String,String>();for(var g:payload.path("groups"))assignments.put(g.path("id").asText(),"T1");
-            var content=Map.of("topics",List.of(Map.of("key","T1","title","声音清晰度","observation","代表反馈认为配乐影响人声辨识。","recommendation","建议检查配乐和人声的平衡。")),"assignments",assignments);
+            var topic=new LinkedHashMap<String,Object>();topic.put("key","T1");topic.put("title","声音清晰度");topic.put("observation","代表反馈认为配乐影响人声辨识。");topic.put("recommendation","建议检查配乐和人声的平衡。");
+            if(payload.path("representative_review").asBoolean()){
+                assignments.clear();payload.path("expected_input_ids").forEach(id->assignments.put(id.asText(),"T1"));
+                var ids=new ArrayList<String>();for(var g:payload.path("groups"))for(var rep:g.path("representatives"))ids.add(rep.path("id").asText());Collections.reverse(ids);
+                topic.put("selection",Map.of("representativeIds",ids.stream().limit(3).toList(),"frameMs",List.of(),"coherence","COHERENT","distinct",true,"reason","原话支持音量建议；静帧不能核实声音，不引用画面。"));
+            }
+            var content=Map.of("topics",List.of(topic),"assignments",assignments);
             byte[] result=json.writeValueAsBytes(Map.of("choices",List.of(Map.of("finish_reason","stop","message",Map.of("content",json.writeValueAsString(content)))),"usage",Map.of("prompt_tokens",300,"completion_tokens",80)));
             exchange.sendResponseHeaders(200,result.length);exchange.getResponseBody().write(result);
         }finally{exchange.close();}});server.start();
@@ -49,21 +55,28 @@ class RepresentativeReportPipelineTest {
             var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(3);when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());
             var policy=new FeedbackCompressionProperties(true,3,15000,.90,32,.75,2,3,60,.96,300,600,32768,67108864,512);
             var preparation=new FeedbackPreparationService(service,steps,objects,FeedbackPolicy.defaults(),new FeedbackClusters(null,null),FeedbackRuntimeProperties.defaults(),new FeedbackCompression(embedding,vectors,policy,json));
-            var request=new Request(new DanmakuTypes.Query(1001,LocalDateTime.of(2026,11,1,0,0),LocalDateTime.of(2026,11,2,0,0)),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.VIDEO_GROUNDED,0L,10000L,FeedbackCompression.VERSION);
-            var run=UUID.randomUUID();var job=preparation.requestMaterials(run,owner,request,Instant.now().plusSeconds(90));
+            var request=new Request(new DanmakuTypes.Query(1001,LocalDateTime.of(2026,11,1,0,0),LocalDateTime.of(2026,11,2,0,0)),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.VIDEO_GROUNDED,0L,10000L,FeedbackCompression.FIVE_VERSION);
+            var run=UUID.randomUUID();FeedbackJobStore.Job job;
+            try(var provider=io.opentelemetry.sdk.trace.SdkTracerProvider.builder().build()){
+                var span=provider.get("test").spanBuilder("agent.tool").startSpan();
+                try(var scope=span.makeCurrent()){job=preparation.requestMaterials(run,owner,request,Instant.now().plusSeconds(90));
+                    assertEquals(Optional.of(span.getSpanContext().getSpanId()),preparation.materialTrigger(job.id(),span.getSpanContext().getTraceId()));
+                    assertTrue(preparation.materialTrigger(job.id(),"0".repeat(32)).isEmpty());
+                }finally{span.end();}
+            }
             for(int n=0;n<10 && !preparation.materialsReady(job.id());n++)for(var step:preparation.pending(job.id()))preparation.advance(job.id(),step,new CancellationToken());
             var control=new CallControl(Instant.now().plusSeconds(90),new CancellationToken());var material=preparation.materials(job.id(),owner,control);
-            assertEquals(2,material.representativeCount());assertEquals(1,material.excluded().size());assertEquals(23,material.eligibleCounts().total());
+            assertEquals(3,material.representativeCount());assertEquals(1,material.excluded().size());assertEquals(23,material.eligibleCounts().total());
             var video=new VideoContent.Facts("video-content-v1",1001,"version",0,10000,"摄影教程",List.of(new VideoContent.Moment(1000,"演示参数")),"","SAMPLED_FRAMES",List.of(1000L),"fixture",Instant.now());
             preparation.startCompressedReport(job.id(),owner,video,control);
             for(int n=0;n<12 && jobs.get(job.id()).phase()!=Phase.READY;n++)service.advance(job.id());
             assertEquals(Phase.READY,jobs.get(job.id()).phase(),()->String.valueOf(jobs.get(job.id()).errorCode()));
             var report=preparation.reportJson(job.id(),owner,control);
-            assertEquals(1,exports.get());assertEquals(1,requests.size());assertFalse(requests.get(0).contains("音乐太大听不清楚"));assertFalse(requests.get(0).contains("originalIds"));assertTrue(requests.get(0).contains("背景音乐盖住人声了"));
-            assertEquals(22,report.topics().get(0).commentCount());assertEquals(1,report.topics().get(0).danmakuCount());assertEquals(2,report.topics().get(0).representatives().size());
+            assertEquals(1,exports.get());assertEquals(2,requests.size());assertFalse(requests.get(0).contains("originalIds"));assertTrue(requests.get(0).contains("背景音乐盖住人声了"));assertTrue(requests.get(1).contains("representative_review"));
+            assertEquals(22,report.topics().get(0).commentCount());assertEquals(1,report.topics().get(0).danmakuCount());assertEquals(3,report.topics().get(0).representatives().size());assertEquals("D:24",report.topics().get(0).representatives().get(0).id());
             assertEquals(24L,report.daily().values().stream().mapToLong(Long::longValue).sum());assertEquals(1,report.playback().plotted());assertEquals(0,report.playback().omitted());assertFalse(requests.get(0).contains("playbackMissing"));assertFalse(requests.get(0).contains("raw_unique_audience"));
             assertEquals(report,preparation.storedReportJson(job.id(),owner));var html=new String(report.html(),java.nio.charset.StandardCharsets.UTF_8);assertTrue(html.contains("内容根据代表反馈归纳"));assertTrue(html.contains("/video/1001?t=1.0"));assertTrue(html.contains("观众原话与完整建议"));
-            assertEquals(List.of(1000L),report.videoDetails().sampledAtMs());assertEquals("演示参数",report.videoDetails().moments().get(0).observation());assertTrue(html.contains("原话播放位置附近的采样画面"));
+            assertEquals(List.of(1000L),report.videoDetails().sampledAtMs());assertEquals("演示参数",report.videoDetails().moments().get(0).observation());assertEquals(List.of(),report.topics().get(0).selectedFrameMs());assertFalse(html.contains("原话播放位置附近的采样画面"));
             var historical=(com.fasterxml.jackson.databind.node.ObjectNode)json.valueToTree(report);historical.remove(List.of("daily","playback","videoDetails"));var old=json.treeToValue(historical,FeedbackReportJson.class);assertTrue(old.daily().isEmpty());assertNull(old.playback());assertNull(old.videoDetails());
             var asset=service.asset(job.id(),owner,request);
             assertEquals("REPRESENTATIVE_ONLY",assertThrows(AgentException.class,()->service.search(asset,"音乐",0,5)).code());

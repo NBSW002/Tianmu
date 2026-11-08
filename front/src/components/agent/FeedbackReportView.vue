@@ -7,6 +7,7 @@ const videoLink = (report, ms) => `/video/${encodeURIComponent(report.scope.vide
 const nearbyMoments = (report, topic) => {
   const v = report.videoDetails
   if (!v?.moments?.length) return []
+  if (Array.isArray(topic.selectedFrameMs)) return topic.selectedFrameMs.map(at => v.moments.find(m => m.atMs === at)).filter(Boolean)
   const found = new Map()
   for (const item of topic.representatives || []) {
     const at = item.playbackMs
@@ -22,7 +23,7 @@ const nearbyMoments = (report, topic) => {
 
 <template>
   <section class="feedback-report" aria-label="结构化观众反馈报告">
-    <header class="report-header"><h2>这条视频，观众怎么说</h2><p v-if="report.scope" class="topic-count">{{ report.scope.start }} 至 {{ report.scope.end }}（北京时间，结束时刻不计入）</p><div class="metrics"><template v-if="report.method.raw_comments != null && report.method.raw_danmaku != null"><div><strong>{{ report.method.raw_danmaku }}</strong><span>条弹幕</span></div><div><strong>{{ report.method.raw_comments }}</strong><span>条评论及回复</span></div><div><strong>{{ report.method.raw_unique_audience }}</strong><span>位可识别观众</span></div></template><div v-else><strong>{{ report.method.raw }}</strong><span>条原始反馈</span></div><div><strong>{{ report.method.clusters }}</strong><span>个主题桶</span></div></div><p>{{ report.summary }}</p></header>
+    <header class="report-header"><h2>这条视频，观众怎么说</h2><p v-if="report.scope" class="topic-count">{{ report.scope.start }} 至 {{ report.scope.end }}（北京时间，结束时刻不计入）</p><div class="metrics"><template v-if="report.method.raw_comments != null && report.method.raw_danmaku != null"><div><strong>{{ report.method.raw_danmaku }}</strong><span>条弹幕</span></div><div><strong>{{ report.method.raw_comments }}</strong><span>条评论及回复</span></div><div><strong>{{ report.method.raw_unique_audience }}</strong><span>位可识别观众</span></div></template><div v-else><strong>{{ report.method.raw }}</strong><span>条原始反馈</span></div><div><strong>{{ report.method.topics ?? report.method.clusters }}</strong><span>个主题</span></div></div><p>{{ report.summary }}</p></header>
     <details v-if="report.videoSummary"><summary>视频语境</summary><p>{{ report.videoSummary }}</p><small>{{ report.videoCoverage }}<template v-if="report.videoDetails"> · 采样 {{ report.videoDetails.sampledAtMs.length }} 个位置 · {{ report.videoDetails.transcriptAvailable ? '有音频转录' : '未提供音频转录' }}</template></small></details>
     <h3 v-if="report.topics?.length" class="section-heading">观众关注的 {{ report.topics.length }} 个话题</h3>
     <article v-for="(topic, index) in report.topics" :key="topic.id">
@@ -37,7 +38,7 @@ const nearbyMoments = (report, topic) => {
           <p v-if="item.context" class="context">回复语境：{{ item.context }}</p>
           <a v-if="item.playbackMs != null && report.scope?.video_id" :href="videoLink(report, item.playbackMs)" target="_blank" rel="noopener noreferrer">查看视频对应位置 ↗</a>
         </blockquote>
-        <div v-if="nearbyMoments(report, topic).length" class="context-box"><p class="label">原话播放位置附近的采样画面</p><p v-for="moment in nearbyMoments(report, topic)" :key="moment.atMs"><a :href="videoLink(report, moment.atMs)" target="_blank" rel="noopener noreferrer">{{ (moment.atMs / 1000).toFixed(1) }} 秒 ↗</a> {{ moment.observation }}</p><small>仅供画面语境参考，不证明声音或连续动作。</small></div>
+        <div v-if="nearbyMoments(report, topic).length" class="context-box"><p class="label">{{ Array.isArray(topic.selectedFrameMs) ? "与主题相关的采样画面" : "原话播放位置附近的采样画面" }}</p><p v-for="moment in nearbyMoments(report, topic)" :key="moment.atMs"><a :href="videoLink(report, moment.atMs)" target="_blank" rel="noopener noreferrer">{{ (moment.atMs / 1000).toFixed(1) }} 秒 ↗</a> {{ moment.observation }}</p><small>仅供画面语境参考，不证明声音或连续动作。</small></div>
         <div v-if="topic.recommendation" class="action"><p class="label">可以怎么做</p><p>{{ topic.recommendation }}</p></div>
       </details>
     </article>

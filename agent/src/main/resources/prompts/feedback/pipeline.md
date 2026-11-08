@@ -14,4 +14,10 @@ MERGE：只综合 children 已提供的观察，按讨论方面合并同义观�
 
 正文面向读者，不出现内部 G/C/K/T 编号或工作 UUID；归属只在 assignments 表达。处理条数、作者发言数、观众人数和反馈占比由宿主统计，正文不重复计算或表述，包括“作者两条发言”等汉字数量。保留原话中的时长、价格、型号、次数与建议数量；引用准确加引号并归因，不新增事实。
 
-若有 correction，按 issue 和原始材料修正当前结果，保留全部归属和观点：NARRATIVE_DATASET_COUNTS 去掉数据集统计表述；NARRATIVE_INTERNAL_REFERENCE 将内部编号换成来源或观点描述；成员错误与文本超限按对应反馈修正。不以删除反例或改写原意通过校验。
+当 representative_review=true 时，这是五桶报告交付前的整体复核，以下规则优先：groups 是之前各桶最多八个封存候选，child_groups 将 children 的 C 别名映射到来源组。只读取这些候选，不请求全量原文。跨桶检查是否同一诉求，重复主题可合并，最多五个主题；不同话题不得拼成长标题。一个 topic 可分配多个 C 别名，但同一 C 别名不能拆分。对每个最终 topic 增加 selection 对象：{"representativeIds":["C:123","D:456","C:789"],"frameMs":[],"coherence":"COHERENT","distinct":true,"reason":"说明所选原话如何支撑本主题、不同意见、画面关联及跨桶重复检查结论"}。ID 必须取自该 topic 所分配 C 别名对应的候选，总共选三条，不足三条则全选，优先明确支撑观察和建议的原话，再考虑典型性、点赞与来源；不能只是照抄候选前三条。画面最多选两个，只能引用 video.moments 中真实存在且与主题语义相关的 atMs，reason 解释相关性；没有相关画面则空数组，静帧不能证明声音质量或连续动作。综合原话中的少数意见，不宣称全量观众一致。原始候选明显涉及互不相干的诉求、无法组成明确单一主题时 coherence=MIXED，无法消除主题重复则 distinct=false，说明原因；不得为通过检查虚报。此类结果会进入有上限的纠正流程。纯肯定可建议保持，无证据不强行制造问题。所有主题均需 selection，正文不写内部诊断。
+
+若有 correction，按 issue 和原始材料修正当前结果，保留全部归属和观点：NARRATIVE_DATASET_COUNTS 去掉数据集统计表述；NARRATIVE_INTERNAL_REFERENCE 将内部编号换成来源或观点描述；REPRESENTATIVE_SELECTION_* 根据该主题封存候选修正所选原话；REPRESENTATIVE_SEMANTIC_REVIEW_FAILED 重新核对主题边界与跨桶重复，不得隐瞒混题；REPRESENTATIVE_FRAME_INVALID 只能选择实际存在的相关画面或不引用。成员错误与文本超限按对应反馈修正。不以删除反例或改写原意通过校验。
+
+当 correction.issue=REPRESENTATIVE_SEMANTIC_REVIEW_FAILED 时，先尝试根据同一批候选厘清主题或合并重复主题；若仍无法形成可靠单一主题，可对无法交付的 topic 返回 coherence=EXCLUDED、representativeIds=[]、frameMs=[]，reason 记录未解决的混题或重复原因。该主题仍须完整分配对应 C 别名以守恒，但不会进入报告正文，其成员计入未归类。不能在首次复核直接 EXCLUDED，也不能为了交付将 MIXED 虚报为 COHERENT。
+
+previous_quality 保留上次未解决或已排除的 C 别名范围。即使本次 correction.issue 是画面或代表引用错误，仍可维持这些范围的 EXCLUDED；不得将排除范围扩展到上次没有混题/重复标记的其他成员。

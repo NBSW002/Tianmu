@@ -187,7 +187,9 @@ class MysqlStorageIntegrationTest {
         var job=jobs.create(new com.tianmu.agent.feedback.FeedbackJobStore.Job(UUID.randomUUID(),run.id,owner,request,FeedbackAnalysis.Phase.QUEUED,now,now.plusSeconds(120),20000,3,0,0,"fixture","hash",null,null,null,null,0,0));
         var ledger=new MysqlFeedbackPreparationStore(source,mapper,repository::verifyReady);
         var step=com.tianmu.agent.feedback.FeedbackPreparationStore.Step.SNAPSHOT;
-        ledger.request(job.id(),step);ledger.request(job.id(),step);
+        var trigger=new com.tianmu.agent.feedback.FeedbackPreparationStore.Reference("1".repeat(32),"2".repeat(16));
+        var accepted=new com.tianmu.agent.feedback.FeedbackPreparationStore.Reference("1".repeat(32),"3".repeat(16));
+        ledger.request(job.id(),step,trigger);ledger.request(job.id(),step);
         var first=ledger.claim(job.id(),step,now,Duration.ofSeconds(30));assertNotNull(first);
         assertNull(ledger.claim(job.id(),step,now,Duration.ofSeconds(30)));
         ledger.reserveEmbedding(job.id(),1);
@@ -195,8 +197,8 @@ class MysqlStorageIntegrationTest {
         var rebuilt=new MysqlFeedbackPreparationStore(source,mapper,repository::verifyReady);
         var second=rebuilt.claim(job.id(),step,Instant.now(),Duration.ofSeconds(30));assertEquals(first.fence()+1,second.fence());
         var blob=new FeedbackAnalysis.Blob("fb_"+UUID.randomUUID().toString().replace("-","")+".json",2,"0".repeat(64));
-        assertFalse(ledger.complete(first,blob));assertTrue(rebuilt.complete(second,blob));
-        assertEquals(blob,ledger.get(job.id(),step).result());assertNull(ledger.claim(job.id(),step,now,Duration.ofSeconds(30)));
+        assertFalse(ledger.complete(first,blob,trigger));assertTrue(rebuilt.complete(second,blob,accepted));
+        assertEquals(blob,ledger.get(job.id(),step).result());assertEquals(trigger,rebuilt.get(job.id(),step).triggeredBy());assertEquals(accepted,ledger.get(job.id(),step).acceptedBy());assertNull(ledger.claim(job.id(),step,now,Duration.ofSeconds(30)));
         var child=com.tianmu.agent.feedback.FeedbackPreparationStore.Step.COMMENT;ledger.request(job.id(),child);
         var stale=ledger.claim(job.id(),child,now,Duration.ofSeconds(30));rebuilt.settle(job.id(),"FAILED");
         assertEquals("COMPLETE",ledger.get(job.id(),step).state());assertEquals("FAILED",ledger.get(job.id(),child).state());

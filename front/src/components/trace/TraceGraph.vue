@@ -15,7 +15,7 @@ const nodes = computed(() => props.graph.nodes.map((node) => ({ ...node,
   selected: node.id === props.selectedId || node.data.memberIds?.includes(props.selectedId) })))
 const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
   type: 'orthogonal', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--workbench-connector)', width: 14, height: 14 },
-  style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: undefined },
+  style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: edge.relation === 'dependency' ? '5 4' : edge.relation === 'trigger' ? '2 4' : edge.relation === 'ancestor' ? '8 3 2 3' : undefined },
 })))
 function edgePath({ sourceX, sourceY, targetX, targetY }) {
   if (sourceY === targetY) return `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`

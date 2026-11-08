@@ -23,10 +23,11 @@ public final class TraceModelCall {
         return call(binding.tracer(), name, merged, operation);
     }
     public static <T> T call(Tracer tracer, String name, Map<String, ?> attributes, Supplier<T> operation) {
+        var inherited=Context.current().get(KEY);var identity=new java.util.HashMap<String,Object>();if(inherited!=null)identity.putAll(inherited.identity());identity.putAll(attributes);
         var span = tracer.spanBuilder(name).startSpan();
         TraceNode.begin(span, name);
         TraceAttributes.apply(span, attributes);
-        try (var scope = span.makeCurrent()) {
+        try (var scope = bind(Context.current().with(span),tracer,identity).makeCurrent()) {
             T result = operation.get();
             TraceDetails.output(result);
             TraceNode.success(span);

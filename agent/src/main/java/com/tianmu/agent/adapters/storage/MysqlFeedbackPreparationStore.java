@@ -34,10 +34,12 @@ public final class MysqlFeedbackPreparationStore implements FeedbackPreparationS
             Object at=r.get("lease_until");Instant lease=at==null?Instant.MIN:at instanceof Timestamp t?t.toInstant():((LocalDateTime)at).toInstant(ZoneOffset.UTC);
             return new Work(UUID.fromString(r.get("job_id").toString()),Step.valueOf(r.get("step").toString()),r.get("state").toString(),
                     ((Number)r.get("fence")).longValue(),((Number)r.get("attempts")).intValue(),lease,
-                    r.get("result_json")==null?null:json.readValue(r.get("result_json").toString(),Blob.class));
+                    r.get("result_json")==null?null:json.readValue(r.get("result_json").toString(),Blob.class),reference(r,"accepted"),reference(r,"trigger"));
         }catch(Exception invalid){throw new AgentException("STORAGE_CORRUPT","Invalid preparation ledger");}
     }
+    private Reference reference(Map<String,Object> row,String prefix){Object trace=row.get(prefix+"_trace_id"),span=row.get(prefix+"_span_id");return trace==null || span==null?null:new Reference(trace.toString(),span.toString());}
     public void request(UUID job,Step step){write(()->{lock(job);db.update("INSERT INTO agent_feedback_preparation(job_id,step) VALUES(?,?) ON DUPLICATE KEY UPDATE job_id=job_id",job.toString(),step.name());return null;});}
+    public void request(UUID job,Step step,Reference trigger){write(()->{lock(job);db.update("INSERT INTO agent_feedback_preparation(job_id,step,trigger_trace_id,trigger_span_id) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE job_id=job_id",job.toString(),step.name(),trigger==null?null:trigger.traceId(),trigger==null?null:trigger.spanId());return null;});}
     public Work get(UUID job,Step step){return database(()->{var rows=db.queryForList("SELECT * FROM agent_feedback_preparation WHERE job_id=? AND step=?",job.toString(),step.name());return rows.isEmpty()?null:row(rows.get(0));});}
     public Work claim(UUID job,Step step,Instant now,Duration lease){return write(()->{
         lock(job);var rows=db.queryForList("SELECT *, (lease_until IS NULL OR lease_until<=UTC_TIMESTAMP(6)) available FROM agent_feedback_preparation WHERE job_id=? AND step=? FOR UPDATE",job.toString(),step.name());
@@ -46,9 +48,10 @@ public final class MysqlFeedbackPreparationStore implements FeedbackPreparationS
         if(w.attempts()>=3)throw new AgentException("PREPARATION_RETRY_EXHAUSTED","Source preparation retry limit reached");
         db.update("UPDATE agent_feedback_preparation SET state='RUNNING',fence=fence+1,attempts=attempts+1,lease_until=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL ? MICROSECOND) WHERE job_id=? AND step=?",Math.multiplyExact(lease.toMillis(),1000),job.toString(),step.name());return get(job,step);
     });}
-    public boolean complete(Work w,Blob result){return write(()->{
+    public boolean complete(Work w,Blob result){return complete(w,result,null);}
+    public boolean complete(Work w,Blob result,Reference acceptedBy){return write(()->{
         lock(w.jobId());String encoded;try{encoded=json.writeValueAsString(result);}catch(Exception invalid){throw new IllegalArgumentException("Invalid result reference");}
-        return db.update("UPDATE agent_feedback_preparation SET state='COMPLETE',result_json=CAST(? AS JSON) WHERE job_id=? AND step=? AND state='RUNNING' AND fence=? AND lease_until>UTC_TIMESTAMP(6)",encoded,w.jobId().toString(),w.step().name(),w.fence())==1;
+        return db.update("UPDATE agent_feedback_preparation SET state='COMPLETE',result_json=CAST(? AS JSON),accepted_trace_id=?,accepted_span_id=? WHERE job_id=? AND step=? AND state='RUNNING' AND fence=? AND lease_until>UTC_TIMESTAMP(6)",encoded,acceptedBy==null?null:acceptedBy.traceId(),acceptedBy==null?null:acceptedBy.spanId(),w.jobId().toString(),w.step().name(),w.fence())==1;
     });}
     public void release(Work w){write(()->{db.update("UPDATE agent_feedback_preparation SET state='PENDING',lease_until=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL ? SECOND) WHERE job_id=? AND step=? AND fence=? AND state='RUNNING'",2*w.attempts(),w.jobId().toString(),w.step().name(),w.fence());return null;});}
     public void settle(UUID job,String state){

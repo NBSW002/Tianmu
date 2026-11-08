@@ -13,14 +13,15 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
     private final DeepSeekProperties config;
     private final ObjectMapper mapper;
     private final String emotionPrompt, understandingPrompt, intentPrompt;
+    private final PromptCatalog prompts;
     DeepSeekPreparationModel(DeepSeekClient client, DeepSeekProperties config, ObjectMapper mapper, PromptCatalog prompts) {
-        this.client = client; this.config = config; this.mapper = mapper;
+        this.client = client; this.config = config; this.mapper = mapper;this.prompts=prompts;
         String common = "\n\n" + prompts.text("common.current-focus-boundary") + "\n\n" + prompts.text("common.json-output");
         emotionPrompt = prompts.text("preparation.emotion") + common;
         understandingPrompt = prompts.text("preparation.understanding") + common;
         intentPrompt = prompts.text("preparation.intent") + common;
     }
-    private JsonNode call(String prompt, Input input, CallControl control, int tokens) {
+    private JsonNode call(String id,String variant,String prompt, Input input, CallControl control, int tokens) {
         Map<String, Object> payload = new java.util.LinkedHashMap<>();
         payload.put("memory", input.memory()); payload.put("query", input.query()); payload.put("businessDate", input.businessDate().toString());
         payload.put("requestedAt",input.requestedAt().toString());
@@ -32,7 +33,7 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
             if(!"AMBIGUOUS_ANALYSIS_SOURCES".equals(ambiguous.code()))throw ambiguous;
             payload.put("serverTaskCandidate",Map.of("type","unclassified","requiresClarification",true));
         }
-        return client.complete(config.preparationModel(), client.messages(prompt, payload,control), tokens, control);
+        return prompts.trace(id,variant,prompt,java.util.List.of("common.current-focus-boundary","common.json-output"),()->client.complete(config.preparationModel(), client.messages(prompt, payload,control), tokens, control));
     }
     @Override public String revision() {
         try {
@@ -41,7 +42,7 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
         } catch(Exception error){throw new IllegalStateException("Cannot fingerprint preparation model",error);}
     }
     public Emotion emotion(Input input, CallControl control) {
-        JsonNode result = call(emotionPrompt, input, control, 128);
+        JsonNode result = call("preparation.emotion","CLASSIFY",emotionPrompt, input, control, 128);
         fields(result, "emotion"); return Emotion.valueOf(text(result, "emotion"));
     }
     public Intent intent(Input input, CallControl control) {
@@ -50,10 +51,10 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
     @Override public IntentRecognition recognizeIntent(Input input,CallControl control) {
         // Explicit legacy adapter inputs retain their old response contract.
         if(input.intentCandidates().isEmpty()) {
-            JsonNode result=call(intentPrompt+"\n本请求未提供候选清单，兼容输出仅包含 intent 字段，值为 VIDEO_METRIC、DANMAKU_REPORT、KNOWLEDGE、OTHER、UNKNOWN。",input,control,128);
+            JsonNode result=call("preparation.intent","LEGACY",intentPrompt+"\n本请求未提供候选清单，兼容输出仅包含 intent 字段，值为 VIDEO_METRIC、DANMAKU_REPORT、KNOWLEDGE、OTHER、UNKNOWN。",input,control,128);
             fields(result,"intent");return new IntentRecognition(Intent.valueOf(text(result,"intent")),null,java.util.List.of(),java.util.List.of());
         }
-        JsonNode result=call(intentPrompt,input,control,256);fields(result,"primary","related");
+        JsonNode result=call("preparation.intent","CANDIDATES",intentPrompt,input,control,256);fields(result,"primary","related");
         if(!result.path("related").isArray() || result.path("related").size()>4)throw new IllegalArgumentException("Invalid related goals");
         var related=new java.util.ArrayList<String>();
         for(var item:result.path("related")){if(!item.isTextual())throw new IllegalArgumentException("Invalid related goal");related.add(item.textValue());}
@@ -61,7 +62,7 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
                 new IntentRecognition(Intent.UNKNOWN,text(result,"primary"),related,input.intentCandidates()));
     }
     public Understanding understand(Input input, CallControl control) {
-        JsonNode result = call(understandingPrompt, input, control, config.preparationMaxTokens());
+        JsonNode result = call("preparation.understanding","CLARIFICATION",understandingPrompt, input, control, config.preparationMaxTokens());
         boolean structured=result.has("issue") || result.has("missingFields");
         if(structured)fields(result,"needsClarification","clarificationQuestion","conditions","rewrittenQuery","issue","missingFields");
         else fields(result, "needsClarification", "clarificationQuestion", "conditions", "rewrittenQuery");

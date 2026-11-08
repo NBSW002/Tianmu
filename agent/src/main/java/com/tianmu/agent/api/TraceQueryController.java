@@ -12,6 +12,11 @@ import java.util.List;
 public final class TraceQueryController {
     private final TraceQueryService traces;
     public TraceQueryController(TraceQueryService traces) { this.traces = traces; }
+    @GetMapping("/{traceId}/records")
+    public ResponseEntity<List<java.util.Map<String,Object>>> records(@PathVariable String traceId,@RequestHeader(value="Authorization",required=false)String auth){
+        if(auth==null || !auth.startsWith("Bearer "))throw new AgentException("UNAUTHORIZED","Bearer authentication required");
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).header("X-Content-Type-Options","nosniff").body(traces.find(traceId,auth.substring(7)).stream().map(com.tianmu.agent.harness.trace.TraceRecord::from).toList());
+    }
     @GetMapping("/{traceId}")
     public ResponseEntity<List<TraceEnvelope>> get(@PathVariable String traceId,
             @RequestHeader(value="Authorization", required=false) String auth) {

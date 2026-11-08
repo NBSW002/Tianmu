@@ -52,9 +52,16 @@ public final class FeedbackPreparationCoordinator implements com.tianmu.agent.ru
                 for(var step:preparation.pending(job.id())){
                     String key=job.id()+":"+step;if(!submitted.add(key))continue;
                     try{workers.execute(()->{
-                        try{harness.execute(run,()->harness.stage(run,"feedback.prepare",null,null,Map.of("analysis.job_id",job.id().toString(),"analysis.phase",step.name()),()->{
-                            preparation.advance(job.id(),step,run.cancellation());return Map.of("step",step.name());
-                        }));}catch(AgentException failure){/* advance persisted retry/pause/failure; the stage records the error. */}
+                        try{harness.execute(run,()->{
+                            String traceId=io.opentelemetry.api.trace.Span.current().getSpanContext().getTraceId();
+                            var attrs=new HashMap<String,Object>(FeedbackCausalReferences.dependencies(step,job.request().sources(),traceId,predecessor->preparation.preparationWork(job.id(),predecessor)));attrs.put("analysis.job_id",job.id().toString());attrs.put("analysis.phase",step.name());
+                            if(step==FeedbackPreparationStore.Step.SNAPSHOT)preparation.materialTrigger(job.id(),traceId).ifPresent(id->attrs.put("analysis.trigger_span_id",id));
+                            harness.stage(run,"feedback.prepare",null,null,attrs,()->{
+                                boolean accepted=preparation.advance(job.id(),step,run.cancellation());
+                                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.accepted",accepted));
+                                return Map.of("step",step.name());
+                            });
+                        });}catch(AgentException failure){/* advance persisted retry/pause/failure; the stage records the error. */}
                         finally{submitted.remove(key);}
                     });}catch(RejectedExecutionException full){submitted.remove(key);}
                 }

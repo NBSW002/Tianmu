@@ -14,8 +14,9 @@ import org.springframework.stereotype.Component;
 public final class DeepSeekFeedbackModels implements FeedbackModels {
     private final DeepSeekClient client;private final DeepSeekProperties config;private final ObjectMapper json;
     private final String instruction,hash,pipelineInstruction,pipelineHash;
+    private final PromptCatalog prompts;
     public DeepSeekFeedbackModels(DeepSeekClient client,DeepSeekProperties config,ObjectMapper json,PromptCatalog prompts){
-        this.client=client;this.config=config;this.json=json;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha((instruction+"\n"+config.analysisProtocolRevision()).getBytes(StandardCharsets.UTF_8));
+        this.client=client;this.config=config;this.json=json;this.prompts=prompts;instruction=prompts.text("feedback.analysis");hash=FeedbackObjects.sha((instruction+"\n"+config.analysisProtocolRevision()).getBytes(StandardCharsets.UTF_8));
         pipelineInstruction=prompts.text("feedback.pipeline");pipelineHash=FeedbackObjects.sha((pipelineInstruction+"\n"+FeedbackSynthesis.VERSION+"\n"+config.analysisProtocolRevision()).getBytes(StandardCharsets.UTF_8));
     }
     public String modelName(){return config.analysisModel();}
@@ -49,12 +50,17 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             var rows=new LinkedHashMap<String,com.fasterxml.jackson.databind.JsonNode>();var members=new LinkedHashMap<String,List<String>>();
             for(var row:body.get("topics")){
                 if(!row.isObject())throw new IllegalArgumentException();
-                if(row.size()!=4){
+                if(row.has("selection")){
+                    var selection=row.get("selection");if(!selection.isObject() || selection.size()!=5 || !selection.path("representativeIds").isArray() || !selection.path("frameMs").isArray() || !selection.path("coherence").isTextual() || !selection.path("distinct").isBoolean() || !selection.path("reason").isTextual())throw new IllegalArgumentException();
+                    for(var id:selection.get("representativeIds"))if(!id.isTextual())throw new IllegalArgumentException();
+                    for(var at:selection.get("frameMs"))if(!at.isIntegralNumber() || !at.canConvertToLong())throw new IllegalArgumentException();
+                }
+                if(row.size()!=(row.has("selection")?5:4)){
                     if(!hostCounters)throw new IllegalArgumentException();
                     var fields=row.fields();
                     while(fields.hasNext()){
                         var field=fields.next();
-                        if(Set.of("key","title","observation","recommendation").contains(field.getKey()))continue;
+                        if(Set.of("key","title","observation","recommendation","selection").contains(field.getKey()))continue;
                         if(!Set.of("messages","author_messages").contains(field.getKey()) || !field.getValue().isIntegralNumber())throw new IllegalArgumentException();
                     }
                     // Model-derived counters never enter Proposal or the report; coverage is host-derived.
@@ -73,15 +79,16 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             // The model may echo known catalog entries with no current assignments. Such declarations
             // carry no evidence and must not become batch notes or force another paid classification.
             // Every supplied assignment still passes the planner's exact coverage/identity checks.
-            rows.forEach((key,row)->{if(!members.get(key).isEmpty())out.add(new Proposal(key,row.get("title").asText(),row.get("observation").asText(),row.get("recommendation").asText(),members.get(key)));});
+            for(var entry:rows.entrySet()){String key=entry.getKey();var row=entry.getValue();if(!members.get(key).isEmpty())out.add(new Proposal(key,row.get("title").asText(),row.get("observation").asText(),row.get("recommendation").asText(),members.get(key),row.has("selection")?json.treeToValue(row.get("selection"),FeedbackAnalysis.Selection.class):null));}
             return List.copyOf(out);
-        } catch(RuntimeException invalid){
+        } catch(Exception invalid){
             String reason=Set.of("INVALID_SCHEMA","TOPIC_LIMIT_EXCEEDED").contains(Objects.toString(invalid.getMessage(),""))?invalid.getMessage():"INVALID_TOPIC_OR_ASSIGNMENT";
             com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("model.validation_error",reason));
             throw new AgentException("INVALID_ANALYSIS","Provider analysis validation failed: "+reason+" (max_topics="+maxTopics+")");
         }
     }
     public String pipelinePolicyHash(){return pipelineHash;}
+    public boolean representativeReviewEnabled(){return true;}
     public List<Proposal> analyzePipeline(Input input,CallControl control){
         var payload=new LinkedHashMap<String,Object>();payload.put("kind",input.kind());
         var childIds=new LinkedHashMap<String,String>();
@@ -90,6 +97,11 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
         else {
             var material=FeedbackSynthesis.material(input.children());
             payload.putAll(material.payload());childIds.putAll(material.references());
+            if(!input.groups().isEmpty()){
+                payload.put("representative_review",true);
+                payload.put("groups",input.groups().stream().map(g->FeedbackModelProjection.group(g,json)).toList());
+                var bindings=new LinkedHashMap<String,List<String>>();childIds.forEach((alias,id)->bindings.put(alias,input.children().stream().filter(t->t.id().equals(id)).findFirst().orElseThrow().members()));payload.put("child_groups",bindings);
+            }
         }
         if(input.video()!=null)payload.put("video",Map.of("summary",input.video().summary(),"moments",input.video().moments(),"sampledAtMs",input.video().sampledAtMs(),"coverage",input.video().coverage(),"transcript",input.video().transcript()));
         if(input.kind()==FeedbackAnalysis.WorkKind.CLASSIFY && !input.knownTopics().isEmpty())
@@ -98,14 +110,15 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
             var aliases=new HashMap<String,String>();childIds.forEach((alias,id)->aliases.put(id,alias));
             payload.put("correction",Map.of("missing",input.correction().missing().stream().map(id->aliases.getOrDefault(id,id)).toList(),
                     "duplicates",input.correction().duplicates().stream().map(id->aliases.getOrDefault(id,id)).toList(),"unknown_count",input.correction().unknown().size(),"issue",input.correction().issue()));
+            if(!input.groups().isEmpty() && input.kind()==FeedbackAnalysis.WorkKind.MERGE)payload.put("previous_quality",input.correction().previousTopics().stream().filter(p->p.selection()!=null).map(p->Map.of("members",p.members().stream().map(id->aliases.getOrDefault(id,id)).toList(),"coherence",p.selection().coherence(),"distinct",p.selection().distinct())).toList());
         }
-        var result=parse(client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),config.analysisMaxTokens(),control,true),max,true);
+        var result=parse(prompts.trace("feedback.pipeline",input.correction()!=null?"CORRECTION":input.kind()==FeedbackAnalysis.WorkKind.MERGE && !input.groups().isEmpty()?"REPRESENTATIVE_REVIEW":input.kind().name(),pipelineInstruction,List.of(),()->client.complete(config.analysisModel(),client.messages(pipelineInstruction,payload),config.analysisMaxTokens(),control,true)),max,true);
         if(childIds.isEmpty())return result;
         return result.stream().map(p->new Proposal(p.key(),p.title(),p.observation(),p.recommendation(),
-                p.members().stream().map(id->childIds.getOrDefault(id,id)).toList())).toList();
+                p.members().stream().map(id->childIds.getOrDefault(id,id)).toList(),p.selection())).toList();
     }
     private com.fasterxml.jackson.databind.JsonNode complete(Input input,Map<String,Object> payload,CallControl control){
-        if(input.correction()==null)return client.complete(config.analysisModel(),client.messages(instruction,payload),config.analysisMaxTokens(),control,true);
+        if(input.correction()==null)return prompts.trace("feedback.analysis","CLASSIFY",instruction,List.of(),()->client.complete(config.analysisModel(),client.messages(instruction,payload),config.analysisMaxTokens(),control,true));
         var c=input.correction();var expected=new HashSet<String>();
         input.groups().forEach(g->expected.add(g.id()));input.children().forEach(t->expected.add(t.id()));
         var previous=new LinkedHashMap<String,String>();
@@ -117,7 +130,7 @@ public final class DeepSeekFeedbackModels implements FeedbackModels {
                 "duplicates",c.duplicates().stream().filter(expected::contains).toList(),
                 "unknown_count",c.unknown().size(),"issue",c.issue()));
         for(int detail=0;;detail++){
-            try { return client.complete(config.analysisModel(),client.messages(instruction,payload),config.analysisMaxTokens(),control,true); }
+            try { return prompts.trace("feedback.analysis","CORRECTION",instruction,List.of(),()->client.complete(config.analysisModel(),client.messages(instruction,payload),config.analysisMaxTokens(),control,true)); }
             catch(AgentException tooLarge){
                 if(!"MODEL_CONTEXT_TOO_LARGE".equals(tooLarge.code()) || detail==2)throw tooLarge;
                 // Both messages and the full provider envelope are guarded before any network call or model charge.

@@ -14,6 +14,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void traceRecordsOnlyActuallyCachedAndGeneratedVectors(){
+        var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(3);
+        when(vectors.fetch(any(),anyList(),any())).thenAnswer(call->{var refs=call.<List<FeedbackVectorIndex.Reference>>getArgument(1);return Map.of(refs.get(0),List.of(1f,0f,0f));});
+        var embedding=mock(FeedbackEmbedding.class);when(embedding.dimension()).thenReturn(3);when(embedding.version()).thenReturn("fixture");when(embedding.embed(anyList(),any())).thenReturn(List.of(List.of(1f,0f,0f)));
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);var recorded=new ArrayList<io.opentelemetry.sdk.trace.data.SpanData>();
+        var exporter=new io.opentelemetry.sdk.trace.export.SpanExporter(){public io.opentelemetry.sdk.common.CompletableResultCode export(Collection<io.opentelemetry.sdk.trace.data.SpanData> data){recorded.addAll(data);return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess();}public io.opentelemetry.sdk.common.CompletableResultCode flush(){return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess();}public io.opentelemetry.sdk.common.CompletableResultCode shutdown(){return flush();}};
+        try(var provider=io.opentelemetry.sdk.trace.SdkTracerProvider.builder().addSpanProcessor(io.opentelemetry.sdk.trace.export.SimpleSpanProcessor.create(exporter)).build()){
+            var span=provider.get("test").spanBuilder("feedback.prepare").startSpan();
+            try(var ignored=span.makeCurrent()){compression.warm(owner,request.query().videoId(),List.of(unit(1,Source.COMMENT,"画面很清晰甲",0L),unit(2,Source.COMMENT,"画面很清晰乙",0L)),control(),()->{});}finally{span.end();}
+        }
+        var attrs=com.tianmu.agent.harness.trace.TraceAttributes.from(recorded.get(0).getAttributes());assertEquals(1L,attrs.get("analysis.vector_cache_hits"));assertEquals(1L,attrs.get("analysis.vector_generated"));assertEquals(0L,attrs.get("analysis.vector_failed"));assertEquals(true,attrs.get("analysis.vector_counts_complete"));
+    }
     @Test void warmedRecordsUseExactlyTheReportCacheKeys(){
         var cache=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();var vectors=mock(FeedbackVectorIndex.class);
         when(vectors.dimension()).thenReturn(3);
@@ -78,6 +90,13 @@ class FeedbackCompressionTest {
         var at=Instant.parse("2026-11-01T01:00:00Z");var rows=List.of(new Unit("C:1",Source.COMMENT,"1","非常赞同","父评论：音乐太吵",false,null,"u1",at,0L),new Unit("C:2",Source.COMMENT,"2","非常赞同","父评论：音乐很好",false,null,"u2",at,0L));
         var material=s.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(2,0,0,0,2),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
         assertTrue(material.clusters().isEmpty());assertEquals(Set.of("C:1","C:2"),Set.copyOf(material.unclassified()));assertTrue(material.inputs().isEmpty());
+    }
+    @Test void meaningfulRepliesAndDeicticPhrasesKeepTheirExplicitSubject(){
+        var s=service(mock(FeedbackVectorIndex.class));var c=control();
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var at=Instant.parse("2026-11-01T01:00:00Z");var rows=List.of(new Unit("C:1",Source.COMMENT,"1","这个背景音乐太响了","父评论：音乐怎么样",false,null,"u1",at,0L),new Unit("C:2",Source.COMMENT,"2","背景音乐盖住人声了","父评论：收音怎么样",false,null,"u2",at,0L));
+        var material=s.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(2,0,0,0,2),List.of(s.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertEquals(1,material.clusters().size());assertTrue(material.unclassified().isEmpty());assertTrue(material.clusters().get(0).representatives().stream().anyMatch(r->r.text().contains("这个背景音乐")));
     }
     @Test void byteLimitsUseTheExactProductionProjectionIncludingEscapesAndGroupMetadata()throws Exception {
         var s=service(mock(FeedbackVectorIndex.class));var c=control();

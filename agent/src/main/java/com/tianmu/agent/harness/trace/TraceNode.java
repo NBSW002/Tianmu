@@ -23,6 +23,8 @@ public final class TraceNode {
     public static void begin(Span span, String name) {
         String type = type(name);
         TraceAttributes.apply(span, Map.of("node.type", type, "node.status", "RUNNING", "detail.input_state", "NOT_CAPTURED", "detail.output_state", "NOT_CAPTURED"));
+        TraceAttributes.apply(span,Map.of("message.role",type.equals("MODEL") || type.equals("DELIVERY")?"assistant":type.equals("TOOL")?"tool":"agent","code.state","NOT_APPLICABLE","code.execution_state","NOT_APPLICABLE","correction.state","NOT_APPLICABLE"));
+        TraceAttributes.apply(span,Map.of("detail.prompt_state",type.equals("MODEL")?"NOT_CAPTURED":"NOT_APPLICABLE","detail.code_state","NOT_APPLICABLE","detail.execution_state","NOT_APPLICABLE","detail.error_state","NOT_APPLICABLE"));
         if (type.equals("MODEL")) TraceAttributes.apply(span, Map.of("model.usage_state", "NOT_REPORTED", "model.first_token_state", "NOT_REPORTED", "execution.attempt", 1, "execution.retry_count", 0));
     }
     public static void success(Span span) { TraceAttributes.apply(span, Map.of("node.status", "SUCCEEDED")); }

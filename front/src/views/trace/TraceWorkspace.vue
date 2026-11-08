@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getAgentTrace, getTracePayload } from '@/api/agent'
+import { getAgentTrace, getTracePayload, getTraceRecords } from '@/api/agent'
 import { useUserStore } from '@/store/user'
 import '@/assets/css/workbench-tokens.css'
 import EchoMark from '@/components/agent/EchoMark.vue'
@@ -12,7 +12,8 @@ import TraceCode from '@/components/trace/TraceCode.vue'
 import TraceContext from '@/components/trace/TraceContext.vue'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { traceDetailSources, recordDetails } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
 const traces = ref(examples)
@@ -36,7 +37,9 @@ const payloadError = ref('')
 const inspector = ref(null)
 const userStore = useUserStore()
 const route = useRoute()
-let queryController, payloadController
+let queryController, payloadController, recordsController
+const exportingRecords = ref(false)
+const exportError = ref('')
 const studio = ref(null)
 const sidebarWidth = ref(224)
 const inspectorWidth = ref(330)
@@ -59,7 +62,7 @@ onMounted(() => {
 onBeforeUnmount(() => workspaceObserver?.disconnect())
 const previousTitle = document.title
 document.title = 'Trace Studio · EchoFrame运行追踪'
-onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort() })
+onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort(); recordsController?.abort() })
 
 const trace = computed(() => traces.value.find((item) => item.id === activeId.value) || traces.value[0])
 const presentation = computed(() => buildTraceOverview(buildTracePresentation(trace.value.nodes)))
@@ -74,6 +77,9 @@ const intentSelection = computed(() => intentDetails(selected.value))
 const contextSelection = computed(() => contextDetails(selected.value))
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
+const executionSelection = computed(() => executionFacts(selected.value, presentation.value))
+const standardSelection = computed(() => recordDetails(selectedSource.value))
+const privateSources = computed(() => ['prompt','code','execution'].flatMap(direction => traceDetailSources(selected.value,presentation.value,direction).map(source => ({direction,source}))))
 const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
 function toggleGroup(id) {
   const next = new Set(expanded.value)
@@ -128,8 +134,8 @@ watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCl
   payloadLoading.value = true
   try {
     const related = invocations.value.map(call => presentation.value.rawById.get(call.toolId)).filter(Boolean)
-    const results = await Promise.allSettled([...new Set([node, ...related, ...reasoningSources.value])].flatMap(target =>
-      (target === node ? ['input', 'output', 'error', 'provider_output', 'reasoning'] : reasoningSources.value.includes(target) ? ['reasoning'] : ['input', 'output']).map(async direction => {
+    const results = await Promise.allSettled([...new Set([node, ...related, ...reasoningSources.value, ...privateSources.value.map(item=>item.source)])].flatMap(target =>
+      [...new Set([...(target === node ? ['input', 'output', 'error', 'provider_output', 'reasoning'] : related.includes(target) ? ['input', 'output'] : []),...(reasoningSources.value.includes(target)?['reasoning']:[]),...privateSources.value.filter(item=>item.source===target).map(item=>item.direction)])].map(async direction => {
         const reference = target[`${direction}Ref`]
         if (target[direction] != null || !reference || reference === 'UNAVAILABLE') return
         const data = await getTracePayload(target.attributes['run.id'] || current.runId, reference, controller.signal)
@@ -145,6 +151,7 @@ watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCl
 })
 watch(selectedId, async () => { await nextTick(); if (inspector.value) inspector.value.scrollTop = 0 })
 watch(() => userStore.user?.token, () => {
+  recordsController?.abort();exportError.value=''
   cancelQuery()
   queryError.value = '登录状态已变化，请重新查询'
   payloadController?.abort()
@@ -153,6 +160,18 @@ watch(() => userStore.user?.token, () => {
   if (!traces.value.some((item) => item.id === activeId.value)) activeId.value = traces.value[0].id
   changeTrace()
 }, { flush: 'sync' })
+watch(() => trace.value.id, () => { recordsController?.abort(); exportError.value='' })
+async function exportRecords() {
+  recordsController?.abort(); const controller=new AbortController(); recordsController=controller; exportingRecords.value=true;exportError.value=''
+  const id=trace.value.id
+  try {
+    const rows=await getTraceRecords(id,controller.signal)
+    if(controller.signal.aborted) return
+    if(!Array.isArray(rows) || rows.some(row=>row.schema_version!=='1.0' || row.trace_id!==id))throw new Error('结构化记录格式不正确')
+    const url=URL.createObjectURL(new Blob([JSON.stringify(rows,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`trace-${id}-records.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+  } catch(error) { if(!controller.signal.aborted)exportError.value=error.message }
+  finally { if(recordsController===controller)exportingRecords.value=false }
+}
 function timingStyle(node) {
   const extent = trace.value.extentMs || 1
   return { left: `${Math.min(100, Math.max(0, (node.offsetMs || 0) / extent * 100))}%`, width: `${Math.min(100, Math.max(0.5, (node.durationMs || 0) / extent * 100))}%` }
@@ -208,11 +227,13 @@ function downloadExample() {
       <header class="workspace-header">
         <div class="workspace-heading"><span class="brand-symbol"><EchoMark /></span><h1>运行追踪</h1><span class="demo-badge">{{ trace.demo ? '示例' : trace.remote ? '在线查询' : '本地日志' }}</span></div>
         <router-link class="back-agent" to="/agent">返回助手 ↗</router-link>
+        <button v-if="trace.remote" class="export-records" type="button" :disabled="exportingRecords" title="导出状态、计量和受控详情引用，正文仍需权限校验" @click="exportRecords">{{ exportingRecords ? '正在导出…' : '导出结构化记录' }}</button>
       </header>
       <div class="run-toolbar">
+        <p v-if="exportError" role="status">{{ exportError }}</p>
         <div class="run-context"><h2 :title="trace.title">{{ trace.title }}</h2><span class="model-name" :title="trace.model">{{ trace.model }}</span></div>
         <span class="status-pill" :class="trace.status.toLowerCase()">{{ statusLabel(trace.status) }}</span>
-        <div class="run-metrics"><span><TraceIcon name="clock" :size="14" />{{ formatDuration(trace.durationMs) }}</span><span><TraceIcon name="token" :size="14" />{{ formatValue(trace.totalTokens) }}<small>Token</small><small v-if="!trace.usageComplete" title="部分节点未提供用量">部分</small></span></div>
+        <div class="run-metrics"><span><TraceIcon name="clock" :size="14" />{{ formatDuration(trace.durationMs) }}</span><span><TraceIcon name="token" :size="14" />{{ formatValue(trace.totalTokens) }}<small>Token</small><small v-if="!trace.usageComplete" title="部分节点未提供用量">部分</small></span><span v-if="trace.foregroundModelCalls != null || trace.preparationModelCalls != null || trace.backgroundModelCalls != null" title="来源任务的历史调用不计入本次"><small>本次模型调用：</small>前台 {{ trace.foregroundModelCalls ?? '未知' }} · 前置 {{ trace.preparationModelCalls ?? '未知' }} · 后台 {{ trace.backgroundModelCalls ?? '未知' }}</span></div>
       </div>
 
       <div class="workspace-panels">
@@ -222,6 +243,7 @@ function downloadExample() {
             <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
             <span>{{ graph.nodes.length }} 卡片 / {{ trace.nodes.length }} Span</span>
           </div>
+          <p v-if="mode === 'graph'" class="projection-notice">实线：直接父子；点划线：上级归属（中间节点折叠）；虚线：前置依赖；点线：任务触发。未记录的关系不会推断。</p>
           <TraceGraph :trace="trace" :graph="graph" :expanded="expanded" :selected-id="selectedId" :mode="mode" @select="selectNode" @toggle="toggleGroup" />
           <p v-if="mode === 'graph' && presentation.notices.length" class="projection-notice">{{ presentation.notices.join(' · ') }}</p>
           <section class="timing-panel" aria-label="执行时间线">
@@ -255,6 +277,8 @@ function downloadExample() {
               <p>原始消息保留；摘要只覆盖标明的范围，失效来源不会继续使用。</p>
             </section>
             <TraceContext :selection="contextSelection" />
+            <section class="metadata-section" aria-label="统一记录字段"><h3>统一记录字段</h3><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></section>
+            <section v-if="executionSelection.length" class="intent-selection" aria-label="执行与复用情况"><h3>执行与复用情况</h3><p v-for="fact in executionSelection" :key="fact">{{ fact }}</p></section>
             <section v-if="selected.cardKind === 'merge' && preparationSelection.visible" class="intent-selection" aria-label="前置合并与改写">
               <h3>前置合并与改写</h3>
               <p>{{ preparationSelection.reason }}</p>
@@ -299,6 +323,7 @@ function downloadExample() {
             <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
             <details v-for="(source, index) in reasoningSources" :key="source.id" open><summary>模型思考<span v-if="reasoningSources.length > 1"> · 第 {{ index + 1 }} 次调用</span></summary><TraceCode title="模型返回的思考内容" :value="source.reasoning" :state="source.reasoningState" :reference="source.reasoningRef" /></details>
             <details v-if="selectedSource && selected.provider_outputRef"><summary>模型原始返回</summary><TraceCode title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" /></details>
+            <details v-for="item in privateSources" :key="`${item.source.id}-${item.direction}`"><summary>{{ {prompt:'提示词快照',code:'生成的代码',execution:'代码执行结果'}[item.direction] }} · {{ item.source.attributes?.['prompt.variant'] || item.source.id }}</summary><TraceCode :title="{prompt:'提示词快照',code:'生成的代码',execution:'代码执行结果'}[item.direction]" :value="item.source[item.direction]" :state="item.source[`${item.direction}State`]" :reference="item.source[`${item.direction}Ref`]" /></details>
             <section class="metadata-section"><h3>节点属性</h3><dl class="node-metadata"><div><dt>{{ selected.synthetic ? '展示分组 ID' : 'Span ID' }}</dt><dd>{{ selected.id }}</dd></div><div><dt>Parent Span ID</dt><dd>{{ selected.parentId || '根节点' }}</dd></div><div><dt>开始时间 · 北京</dt><dd>{{ date(selected.startMs) }} {{ clock(selected.startMs) }}</dd></div><div><dt>模型</dt><dd>{{ selected.model || '—' }}</dd></div><div><dt>原始名称</dt><dd>{{ selected.name }}</dd></div></dl></section>
             <TraceCode v-if="selectedSource" title="原始属性" :value="selected.attributes" state="COMPLETE" />
           </div>
@@ -315,6 +340,8 @@ html.trace-workspace-page #app { max-width: none; background: var(--workbench-pa
 </style>
 
 <style scoped>
+.export-records { padding: 7px 10px; border: 1px solid var(--workbench-border); border-radius: 7px; background: var(--workbench-raised); color: var(--workbench-ink); font: inherit; font-size: 12px; cursor: pointer; }
+.export-records:disabled { opacity: .6; cursor: wait; }
 .trace-studio {
   --ink: var(--workbench-ink); --muted: var(--workbench-muted); --line: var(--workbench-border); --accent: var(--workbench-accent);
   --trace-mono: var(--workbench-mono);

@@ -84,6 +84,7 @@ public final class HarnessSession {
             TraceAttributes.apply(span, Map.of("span.type", type.value(), "loop.step", run.snapshot().steps()));
             TraceAttributes.apply(span, attributes);
             if (type == SpanType.RECEIVE_QUERY) TraceDetails.input(Map.of("message", run.message));
+            if (type == SpanType.RECEIVE_QUERY) TraceAttributes.apply(span,Map.of("message.role","user"));
             if (type == SpanType.FINISH) TraceDetails.output(attributes);
             TraceNode.success(span);
             if (type == SpanType.ERROR) { span.setStatus(StatusCode.ERROR); TraceAttributes.apply(span, Map.of("node.status", "FAILED")); }

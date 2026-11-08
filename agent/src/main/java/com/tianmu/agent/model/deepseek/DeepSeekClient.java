@@ -89,6 +89,8 @@ public final class DeepSeekClient {
         finally{span.end();}
     }
     private JsonNode invoke(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool) {
+        com.tianmu.agent.harness.trace.TracePrompt.capture(messages);
+        TraceAttributes.apply(Span.current(),Map.of("model.version_state","REQUESTED_ONLY"));
         control.checkpoint();
         if(quotaBlockedUntil!=0 && System.nanoTime()-quotaBlockedUntil<0)
             throw new AgentException("MODEL_QUOTA_EXHAUSTED","Model provider quota is unavailable; calls paused for five minutes");
@@ -136,6 +138,7 @@ public final class DeepSeekClient {
                 return streaming ? exchangeStream(request,control) : exchange(request, control);
             });
             TraceDetails.capture("provider_output", body, "MODEL_PROVIDER_RESPONSE");
+            if(body.path("model").isTextual())TraceAttributes.apply(Span.current(),Map.of("model.resolved_name",body.path("model").asText(),"model.version_state","PROVIDER_REPORTED"));
             JsonNode choice = body.path("choices").path(0);
             var reasoning=choice.path("message").path("reasoning_content");
             if(reasoning.isTextual() && !reasoning.asText().isBlank()) {
@@ -183,9 +186,11 @@ public final class DeepSeekClient {
         }
     }
     private static final ScheduledExecutorService STREAM_DEADLINES=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"model-stream-deadlines");t.setDaemon(true);return t;});
+    private void correctionAttempt(){if("REQUESTED".equals(com.tianmu.agent.harness.trace.TraceModelCall.identity().get("correction.state")))TraceAttributes.apply(Span.current(),Map.of("correction.state","ATTEMPTED","correction.attempted",true));}
     private JsonNode exchangeStream(HttpRequest request,CallControl control) {
         long started=System.nanoTime();var first=new java.util.concurrent.atomic.AtomicBoolean();
         control.beforeDispatch();
+        correctionAttempt();
         TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));
         var future=http.sendAsync(request,HttpResponse.BodyHandlers.ofInputStream());
         var body=new java.util.concurrent.atomic.AtomicReference<InputStream>();
@@ -220,6 +225,7 @@ public final class DeepSeekClient {
         long requestStarted = System.nanoTime();
         try {
             control.beforeDispatch();
+            correctionAttempt();
             TraceAttributes.apply(Span.current(),Map.of("model.dispatched",true));
             CompletableFuture<HttpResponse<byte[]>> future = http.sendAsync(request, info -> new com.tianmu.agent.resource.BoundedHttpBody(131072));
             try (var registration = control.cancellation().onCancel(() -> future.cancel(true))) {

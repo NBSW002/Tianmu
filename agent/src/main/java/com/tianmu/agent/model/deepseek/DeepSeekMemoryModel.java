@@ -27,7 +27,7 @@ public final class DeepSeekMemoryModel implements MemoryModelPort {
             var envelope=new com.tianmu.agent.core.ContextEnvelope("1.0",phase,"memory-v2",java.util.List.of(
                 new com.tianmu.agent.core.ContextEnvelope.Part(com.tianmu.agent.core.ContextEnvelope.Slot.SYSTEM_PROMPT,"memory-v2",Map.of("text",instruction)),
                 new com.tianmu.agent.core.ContextEnvelope.Part(com.tianmu.agent.core.ContextEnvelope.Slot.CURRENT_CONTEXT,"source-v1",Map.of("messages",java.util.List.of(Map.of("role","user","content",json.writeValueAsString(data)))))));
-            return client.complete(config.preparationModel(),new com.tianmu.agent.model.NativeContextProjector(json,policy).project(envelope).messages(),maxTokens,control);
+            return com.tianmu.agent.harness.trace.TracePrompt.call("memory."+phase.name().toLowerCase(java.util.Locale.ROOT),version(),phase.name(),instruction,java.util.List.of(),()->client.complete(config.preparationModel(),new com.tianmu.agent.model.NativeContextProjector(json,policy).project(envelope).messages(),maxTokens,control));
         }catch(java.io.IOException e){throw new IllegalArgumentException("Invalid memory model input",e);}
     }
 }

@@ -12,9 +12,10 @@ public interface FeedbackModels {
         public Group(String id,Source source,String text,String replyContext,boolean author,Long playbackMs,long messages,List<String> originalIds){this(id,source,text,replyContext,author,playbackMs,messages,originalIds,null);}
         public Group { originalIds = List.copyOf(originalIds); }
     }
-    record Correction(List<Proposal> previousTopics,List<String> missing,List<String> duplicates,List<String> unknown,String issue) {
+    record Correction(List<Proposal> previousTopics,List<String> missing,List<String> duplicates,List<String> unknown,String issue,int round) {
+        public Correction(List<Proposal> previousTopics,List<String> missing,List<String> duplicates,List<String> unknown,String issue){this(previousTopics,missing,duplicates,unknown,issue,0);}
         public Correction(List<Proposal> previousTopics,List<String> missing,List<String> duplicates,List<String> unknown){this(previousTopics,missing,duplicates,unknown,"MEMBERSHIP_MISMATCH");}
-        public Correction { previousTopics=List.copyOf(previousTopics);missing=List.copyOf(missing);duplicates=List.copyOf(duplicates);unknown=List.copyOf(unknown); }
+        public Correction { previousTopics=List.copyOf(previousTopics);missing=List.copyOf(missing);duplicates=List.copyOf(duplicates);unknown=List.copyOf(unknown);if(round<0 || round>1000)throw new IllegalArgumentException("Invalid correction round"); }
     }
     /** Classification context, not evidence: the first accepted title and cumulative message count. */
     record KnownTopic(String key,String title,long messages) {}
@@ -28,7 +29,8 @@ public interface FeedbackModels {
             knownTopics=knownTopics==null?(kind==WorkKind.CLASSIFY?children.stream().map(t->new KnownTopic(t.id(),t.title(),t.messages())).toList():List.of()):List.copyOf(knownTopics);
         }
     }
-    record Proposal(String key, String title, String observation, String recommendation, List<String> members) {
+    record Proposal(String key, String title, String observation, String recommendation, List<String> members,Selection selection) {
+        public Proposal(String key,String title,String observation,String recommendation,List<String> members){this(key,title,observation,recommendation,members,null);}
         public Proposal { members = List.copyOf(members); }
     }
     String modelName();
@@ -36,4 +38,5 @@ public interface FeedbackModels {
     List<Proposal> analyze(Input input, CallControl control);
     default String pipelinePolicyHash(){return policyHash();}
     default List<Proposal> analyzePipeline(Input input,CallControl control){return analyze(input,control);}
+    default boolean representativeReviewEnabled(){return false;}
 }

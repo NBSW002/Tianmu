@@ -73,4 +73,14 @@ class DeepSeekFeedbackAssignmentsTest {
         assertEquals("T1",known.path("key").asText());assertEquals("字幕可读性",known.path("title").asText());
         assertFalse(known.has("observation"));assertFalse(known.has("recommendation"));assertEquals(40,known.path("messages").asInt());
     }
+    @Test void selectionRejectsFractionalFramePositionsAndCoercedIds()throws Exception {
+        when(client.messages(anyString(),anyMap())).thenReturn(List.of(Map.of("role","user","content","fixture")));
+        var config=new DeepSeekProperties(URI.create("http://localhost"),"fixture","fixture","fixture",Duration.ofSeconds(1),384,3072);
+        var model=new DeepSeekFeedbackModels(client,config,json,new PromptCatalog());
+        for(String selection:List.of("{\"representativeIds\":[\"C:1\"],\"frameMs\":[1000.9],\"coherence\":\"COHERENT\",\"distinct\":true,\"reason\":\"依据\"}","{\"representativeIds\":[123],\"frameMs\":[],\"coherence\":\"COHERENT\",\"distinct\":true,\"reason\":\"依据\"}")){
+            var response=json.readTree("{\"topics\":[{\"key\":\"T1\",\"title\":\"声音\",\"observation\":\"观察\",\"recommendation\":\"建议\",\"selection\":"+selection+"}],\"assignments\":{\"G1\":\"T1\",\"G2\":\"T1\"}}");
+            when(client.complete(anyString(),anyList(),eq(16384),any(CallControl.class),eq(true))).thenReturn(response);
+            assertThrows(AgentException.class,()->model.analyzePipeline(input(),new CallControl(Instant.now().plusSeconds(30),new CancellationToken())));
+        }
+    }
 }

@@ -54,9 +54,13 @@ public final class FeedbackAnalysis {
             if (!"feedback-snapshot-v1".equals(version) || contentHash == null || !contentHash.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("Invalid feedback snapshot");
         }
     }
+    public record Selection(List<String> representativeIds,List<Long> frameMs,String coherence,boolean distinct,String reason) {
+        public Selection {representativeIds=List.copyOf(representativeIds);frameMs=List.copyOf(frameMs);if(coherence==null || !Set.of("COHERENT","MIXED","EXCLUDED").contains(coherence) || reason==null || reason.isBlank() || reason.length()>800)throw new IllegalArgumentException("Invalid review result");}
+    }
     /** members are batch group IDs for leaves and child-topic IDs for reducers. Counts are host-derived. */
     public record Topic(String id, String title, String observation, String recommendation,
-                        List<String> members, long messages, long authorMessages) {
+                        List<String> members, long messages, long authorMessages,Selection selection) {
+        public Topic(String id,String title,String observation,String recommendation,List<String> members,long messages,long authorMessages){this(id,title,observation,recommendation,members,messages,authorMessages,null);}
         public Topic {
             members = List.copyOf(members);
             if (id == null || id.isBlank() || id.length() > 120 || title == null || title.isBlank() || title.length() > 100

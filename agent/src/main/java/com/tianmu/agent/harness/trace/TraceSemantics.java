@@ -9,7 +9,9 @@ public final class TraceSemantics {
     private TraceSemantics() {}
     public static Map<String, Object> identity(com.tianmu.agent.runtime.RunState run) {
         return Map.of("policy.source",run.executionPolicy()==null?"LEGACY_CURRENT_POLICY":"SNAPSHOT_V1","policy.hash",run.executionPolicy()==null?"legacy-v0":run.executionPolicy().contentHash(),"run.id", run.id.toString(), "session.id", run.sessionId.toString(),
-                "run.turn_seq", run.turnSeq, "tenant.id", run.owner.tenantId(), "actor.id", run.owner.userId());
+                "run.turn_seq", run.turnSeq, "tenant.id", run.owner.tenantId(), "actor.id", run.owner.userId(),
+                "task.id",UUID.nameUUIDFromBytes(("agent-task/v1:"+run.id).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString(),
+                "turn.id",UUID.nameUUIDFromBytes(("agent-turn/v1:"+run.sessionId+":"+run.turnSeq).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString(),"task.scope","REQUEST");
     }
     public static Map<String, Object> result(SpanType type, Object value) {
         if ((type == SpanType.CLARIFICATION_CHECK || type == SpanType.TASK_READINESS) && value instanceof Optional<?> optional)

@@ -49,7 +49,7 @@ public final class FeedbackCompression {
     }
     public FeedbackCompressionProperties policy(){return policy;}
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
-    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v6").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v7").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
         var accepted=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;boolean statsOverflow=false;
         for(var u:rows){check(control);if(u.source()!=source)throw new AgentException("INVALID_EVIDENCE","Mixed preparation partition");
@@ -161,11 +161,13 @@ public final class FeedbackCompression {
         for(int i=0;i<eligibleIndices.size();i++){int n=eligibleIndices.get(i);var vector=transformed.vectors().get(i);if(vector==null)expressions.get(n).members().forEach(u->unclassified.add(u.id()));else{usable.add(n);rankingVectors.set(n,vector);}}
         eligibleIndices=usable;
         var partition=FiveBucketClustering.cluster(eligibleIndices.stream().map(rankingVectors::get).toList(),buckets.maxBuckets(),buckets.maxIterations(),transformed.threshold(),buckets.minMembers(),buckets.candidateSamples(),control);
-        var clusters=new ArrayList<Cluster>();var groupRows=new ArrayList<FeedbackModels.Group>();var inputs=new ArrayList<FeedbackModels.Input>();int representatives=0;
+        var clusters=new ArrayList<Cluster>();var similarity=new ArrayList<String>();var groupRows=new ArrayList<FeedbackModels.Group>();var inputs=new ArrayList<FeedbackModels.Input>();int representatives=0;
         for(int n:partition.unclassified())expressions.get(eligibleIndices.get(n)).members().forEach(u->unclassified.add(u.id()));
         for(var bucket:partition.buckets()){
             var indices=bucket.stream().map(eligibleIndices::get).toList();
             check(control);float[] center=new float[embedding.dimension()];for(int n:indices)for(int d=0;d<center.length;d++)center[d]+=rankingVectors.get(n)[d];normalize(center);
+            double minimum=indices.stream().mapToDouble(i->cosine(rankingVectors.get(i),center)).min().orElse(0);double mean=indices.stream().mapToDouble(i->cosine(rankingVectors.get(i),center)).average().orElse(0);
+            similarity.add(String.format(java.util.Locale.ROOT,"B%d:%.3f:%.3f",clusters.size()+1,minimum,mean));
             var members=new ArrayList<Unit>();indices.forEach(n->members.addAll(expressions.get(n).members()));var selected=new ArrayList<Integer>();
             for(var source:Source.values()){
                 var candidates=new ArrayList<>(indices.stream().filter(n->expressions.get(n).exemplar().source()==source).toList());
@@ -203,6 +205,10 @@ public final class FeedbackCompression {
         var examples=new ArrayList<Representative>();var unclassifiedSet=new HashSet<>(unclassified);
         rows.stream().filter(u->unclassifiedSet.contains(u.id())).sorted(Comparator.<Unit,Boolean>comparing(u->u.likeCount()==null).thenComparing(u->u.likeCount()==null?0L:u.likeCount(),Comparator.reverseOrder()).thenComparing(Unit::id)).limit(3).forEach(u->examples.add(representative(u,1,manifest.sha256())));
         var metric=new BucketMetric(transformed.mode(),transformed.fallback(),transformed.threshold(),transformed.vectors().size(),transformed.mode().equals("TASK_CENTERED_COSINE")?"task-mean-centered-v1":"raw-cosine-v1");
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of(
+                "analysis.bucket_sizes",clusters.stream().map(c->c.id()+":"+c.members().size()).toList(),
+                "analysis.bucket_candidates",clusters.stream().map(c->c.id()+":"+c.representatives().size()).toList(),"analysis.bucket_similarity",similarity));
+        for(int i=0;i<clusters.size() && i<5;i++)com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.bucket_"+(i+1)+"_candidate_ids",clusters.get(i).representatives().stream().map(Representative::id).toList()));
         return new Material(FIVE_VERSION,policy,fiveRevision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,representatives,bytes,unclassified,examples,metric,stats);
     }
     private int projectedBytes(List<FeedbackModels.Group> groups){return write(groups.stream().map(g->FeedbackModelProjection.group(g,json)).toList()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;}
@@ -223,6 +229,8 @@ public final class FeedbackCompression {
     }
     private List<float[]> encode(AccessScope owner,Request request,List<Expression> expressions,CallControl control,Runnable reserve){
         var out=new ArrayList<float[]>(Collections.nCopies(expressions.size(),null));
+        int cacheHits=0,generated=0,failed=0;boolean complete=false;
+        try {
         for(var source:Source.values()){
             var positions=new ArrayList<Integer>();for(int i=0;i<expressions.size();i++)if(expressions.get(i).exemplar().source()==source)positions.add(i);
             var ns=new FeedbackVectorIndex.Namespace(owner.tenantId(),owner.userId(),request.query().videoId(),source,embedding.version()+":representatives-text-v1");
@@ -232,12 +240,17 @@ public final class FeedbackCompression {
                     if(requestBytes+size>60000)break;requestBytes+=size;end++;}
                 var part=positions.subList(offset,end);offset=end;var refs=part.stream().map(i->FeedbackVectorIndex.Reference.from(expressions.get(i).exemplar())).toList();
                 var cached=new HashMap<>(vectors.fetch(ns,refs,control));var missing=new ArrayList<Integer>();for(int i=0;i<refs.size();i++)if(!cached.containsKey(refs.get(i)))missing.add(i);
-                if(!missing.isEmpty()){reserve.run();var computed=embedding.embed(missing.stream().map(i->expressions.get(part.get(i)).exemplar().text()).toList(),control);if(computed.size()!=missing.size())throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Embedding member count mismatch");
-                    var entries=new ArrayList<FeedbackVectorIndex.Entry>();for(int i=0;i<missing.size();i++){var ref=refs.get(missing.get(i));cached.put(ref,computed.get(i));entries.add(new FeedbackVectorIndex.Entry(ref,computed.get(i)));}vectors.upsert(ns,entries,control);}
+                cacheHits+=refs.size()-missing.size();
+                if(!missing.isEmpty())try{reserve.run();var computed=embedding.embed(missing.stream().map(i->expressions.get(part.get(i)).exemplar().text()).toList(),control);if(computed.size()!=missing.size())throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Embedding member count mismatch");
+                    var entries=new ArrayList<FeedbackVectorIndex.Entry>();for(int i=0;i<missing.size();i++){var ref=refs.get(missing.get(i));cached.put(ref,computed.get(i));entries.add(new FeedbackVectorIndex.Entry(ref,computed.get(i)));}vectors.upsert(ns,entries,control);generated+=missing.size();}catch(RuntimeException failure){failed+=missing.size();throw failure;}
                 for(int i=0;i<part.size();i++){var v=cached.get(refs.get(i));if(v==null || v.size()!=embedding.dimension())throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Embedding dimensions mismatch");float[] f=new float[v.size()];for(int n=0;n<f.length;n++){f[n]=v.get(n);if(!Float.isFinite(f[n]))throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Invalid embedding value");}normalize(f);out.set(part.get(i),f);}
             }
         }
-        return out;
+        complete=true;return out;
+        } finally {
+            var observed=new HashMap<String,Object>();observed.put("analysis.vector_cache_hits",cacheHits);observed.put("analysis.vector_generated",generated);observed.put("analysis.vector_counts_complete",complete);if(complete || failed>0)observed.put("analysis.vector_failed",failed);
+            com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),observed);
+        }
     }
     private String representativeText(List<Representative> rows){return write(rows.stream().map(r->{
         var m=new LinkedHashMap<String,Object>();m.put("id",r.id());m.put("text",r.text());m.put("context",r.context());m.put("source",r.source());
@@ -257,7 +270,7 @@ public final class FeedbackCompression {
     }
     private boolean compatible(Unit a,Unit b){if(a.source()==Source.COMMENT && b.source()==Source.COMMENT)return a.replyContext().equals(b.replyContext());if(a.playbackMs()!=null && b.playbackMs()!=null)return Math.abs(a.playbackMs()-b.playbackMs())<=policy.playbackBucketMs();return !a.text().matches(".*(这里|这个|这段|那里|刚才).*?") && !b.text().matches(".*(这里|这个|这段|那里|刚才).*?");}
     private static double cosine(float[] a,float[] b){double dot=0;for(int i=0;i<a.length;i++)dot+=(double)a[i]*b[i];return dot;}
-    private static boolean contextDependent(Unit unit){String text=unit.text();String context=unit.replyContext();return unit.source()==Source.COMMENT && !context.isBlank() && !context.equals("[]") || text.matches(".*(这里|这个|这段|那里|刚才).*") || text.matches("^(完全同意|同意|说得对|我也是|就是|没错|确实|是的|不对|不行)[\\p{P}\\p{Z}\\s]*$");}
+    private static boolean contextDependent(Unit unit){String text=unit.text();return text.matches("^(完全同意|非常赞同|赞同|同意|说得对|我也是|就是|没错|确实|是的|不对|不行)[\\p{P}\\p{Z}\\s]*$") || text.matches("^(这里|这个|这段|那里|刚才)(不错|很好|真好|不好|不行|可以|不对|有问题)?[\\p{P}\\p{Z}\\s]*$");}
     private static void check(CallControl c){c.checkpoint();if(!java.time.Instant.now().isBefore(c.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Material preparation deadline exceeded");}
     private static void normalize(float[] a){double norm=0;for(float v:a)norm+=(double)v*v;if(!Double.isFinite(norm) || norm<=0)throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Empty embedding norm");float scale=(float)(1/Math.sqrt(norm));for(int i=0;i<a.length;i++)a[i]*=scale;}
     private static String clip(String s,int length){int n=s.codePointCount(0,s.length());return n<=length?s:s.substring(0,s.offsetByCodePoints(0,length));}

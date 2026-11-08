@@ -114,21 +114,23 @@ public final class FeedbackAnalysisService {
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),
                         "analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));
                 Input stored=objects.get(work.input(),Input.class);
-                input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || FeedbackCompression.representativeVersion(j.request().rulesVersion()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
+                input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),(stored.kind()==WorkKind.MERGE && !stored.groups().isEmpty()) || stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || FeedbackCompression.representativeVersion(j.request().rulesVersion()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
                         work.kind()==WorkKind.CLASSIFY?(pipeline(j.request()) && policy.readParallelism()>1?directory.seeded(work,token):directory.before(work,token)):List.of());
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),correctionAttributes(input));
                 var claim=work;CallControl control=new CallControl(min(j.deadline(),Instant.now().plus(policy.modelTimeout())),token,new FeedbackBudget(store,work,governance.tokenReservation()),accountAttempt);
                 List<Proposal> proposals=null;boolean cacheHit=false;
                 String reuseKey=pipeline(j.request()) && resultCache!=null?resultCache.key(j,input):null;
                 if(reuseKey!=null && !j.request().forceReanalysis() && input.correction()==null){
                     reuseLease=resultCache.awaitOrLead(reuseKey,j,control);var cached=reuseLease.entry();
                     if(cached!=null)try{
-                        var restored=FeedbackResultCache.restore(input,cached);planner.validate(work.id().toString(),input,restored);FeedbackNarrativePolicy.validate(input,restored);
+                        var restored=FeedbackResultCache.restore(input,cached);planner.validate(work.id().toString(),input,restored);FeedbackNarrativePolicy.validate(input,restored);FeedbackRepresentativeReview.validate(input,restored);
                         proposals=restored;cacheHit=true;
+                        try{var producer=store.get(cached.sourceJob());if(producer!=null && producer.owner().tenantId().equals(j.owner().tenantId()) && producer.owner().userId().equals(j.owner().userId()))com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.cache_source_job_model_calls",producer.modelCalls()));}catch(RuntimeException unavailable){/* Diagnostic lookup never changes an accepted cache hit. */}
                     }catch(AgentException rejected){resultCache.invalidate(reuseKey,j);throw new AgentException("INVALID_ANALYSIS","Cached analysis failed current evidence validation");}
                 }
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.cache_hit",cacheHit,"analysis.force_reanalysis",j.request().forceReanalysis()));
                 if(!cacheHit){
-                if(input.kind()==WorkKind.MERGE && pipeline(j.request()) && input.children().size()==1){
+                if(input.kind()==WorkKind.MERGE && pipeline(j.request()) && input.children().size()==1 && input.groups().isEmpty()){
                     var child=input.children().get(0);
                     proposals=List.of(new Proposal("T1",child.title(),child.observation(),child.recommendation(),List.of(child.id())));
                 }else if(input.kind()==WorkKind.MERGE && !pipeline(j.request())){
@@ -138,12 +140,14 @@ public final class FeedbackAnalysisService {
                         throw new AgentException("STORAGE_CORRUPT","Aggregation references differ from accepted batch notes");
                     proposals=combine(leaves).stream().map(t->new Proposal(t.id(),t.title(),t.observation(),t.recommendation(),t.members())).toList();
                 }
-                else { var modelInput=input; proposals=com.tianmu.agent.harness.trace.TraceModelCall.call("feedback.model",Map.of("analysis.job_id",id.toString(),"analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),"analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)),()->pipeline(j.request())?models.analyzePipeline(modelInput,control):models.analyze(modelInput,control)); }
+                else { var modelInput=input;var attrs=new HashMap<String,Object>(correctionAttributes(input));attrs.putAll(Map.of("analysis.job_id",id.toString(),"analysis.work_id",work.id().toString(),"analysis.batch_ordinal",work.ordinal(),"analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));proposals=com.tianmu.agent.harness.trace.TraceModelCall.call("feedback.model",attrs,()->pipeline(j.request())?models.analyzePipeline(modelInput,control):models.analyze(modelInput,control)); }
                 }
                 token.checkpoint();source.authorize(j.owner(),j.request().query().videoId());var result=planner.validate(work.id().toString(),input,proposals);
                 if(pipeline(j.request()))FeedbackNarrativePolicy.validate(input,proposals);
+                FeedbackRepresentativeReview.validate(input,proposals);
                 boolean accepted=store.complete(work,objects.put(id,result));
-                if(accepted && !cacheHit && reuseKey!=null)resultCache.put(reuseKey,j,input,proposals,reuseLease);
+                if(input.correction()!=null)com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("correction.state",accepted?"ACCEPTED":"NOT_ACCEPTED"));
+                if(accepted && !cacheHit && reuseKey!=null && proposals.stream().noneMatch(p->p.selection()!=null && "EXCLUDED".equals(p.selection().coherence())))resultCache.put(reuseKey,j,input,proposals,reuseLease);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return Optional.empty();
             }
             finishLevel(store.get(id));
@@ -151,7 +155,7 @@ public final class FeedbackAnalysisService {
             com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",false,"analysis.validation_issue",e.correction().issue()));
             if(token.cancelled())store.cancel(id);
             else if(work!=null && input!=null)store.retry(work,e.code(),retryAt(work),3,
-                    objects.put(id,new Input(input.kind(),input.groups(),input.children(),null,e.correction())));
+                    objects.put(id,new Input(input.kind(),input.groups(),input.children(),null,nextCorrection(input,e.correction()))));
             else store.fail(id,e.code());
             return Optional.of(e);
         } catch(AgentException e) {
@@ -197,7 +201,11 @@ public final class FeedbackAnalysisService {
             long covered=0,authors=0;var roots=new ArrayList<Blob>();
             for(var row:rows){var node=objects.get(row.result(),ResultNode.class);covered+=node.covered();authors+=node.authorCovered();roots.add(row.result());}
             if(covered!=job.snapshot().counts().total() || authors!=job.snapshot().counts().authorComments()+job.snapshot().counts().authorDanmaku())throw new AgentException("INVALID_ANALYSIS","Bucket coverage differs from snapshot");
-            saveAsset(job,roots);return;
+            if(models.representativeReviewEnabled()){
+                var children=new ArrayList<Topic>();var groups=new ArrayList<Group>();
+                for(var row:rows){children.addAll(objects.get(row.result(),ResultNode.class).topics());groups.addAll(objects.get(row.input(),Input.class).groups());}
+                store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,groups,children,job.video()))));
+            }else saveAsset(job,roots);return;
         }
         if(rows.size()==1 && level>0){
             var result=objects.get(rows.get(0).result(),ResultNode.class);
@@ -210,6 +218,8 @@ public final class FeedbackAnalysisService {
         var inputs=FeedbackSynthesis.batches(children,objects::bytes).stream().map(input->objects.put(job.id(),input)).toList();
         store.planLevel(job.id(),job.version(),level+1,inputs);
     }
+    static Correction nextCorrection(Input input,Correction correction){int round=input.correction()==null?1:input.correction().round()==0?0:input.correction().round()+1;return new Correction(correction.previousTopics(),correction.missing(),correction.duplicates(),correction.unknown(),correction.issue(),round);}
+    static Map<String,Object> correctionAttributes(Input input){var c=input.correction();if(c==null)return Map.of("correction.state","NOT_APPLICABLE");var attrs=new HashMap<String,Object>();attrs.put("correction.state","REQUESTED");attrs.put("correction.kind",c.issue().startsWith("REPRESENTATIVE_")?"THEME_REVIEW":"ANALYSIS_VALIDATION");attrs.put("correction.round_state",c.round()==0?"LEGACY_UNKNOWN":"RECORDED");if(c.round()>0)attrs.put("correction.round",c.round());return attrs;}
     private Instant retryAt(FeedbackJobStore.Work work){
         boolean retryable=work.attempts()<governance.maxAttempts();
         long wait=retryable?Math.min(governance.retryMaxDelaySeconds(),work.attempts()*(long)governance.retryStepSeconds())*1000:0;

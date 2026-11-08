@@ -32,5 +32,9 @@ public class PromptCatalog {
         return prompt;
     }
     public String text(String id) { return get(id).content(); }
+    public <T>T trace(String id,String variant,String effective,List<String> components,java.util.function.Supplier<T> action){
+        var main=get(id);var revisions=new ArrayList<String>();revisions.add(main.id()+"@"+main.version());for(String component:components){var prompt=get(component);revisions.add(prompt.id()+"@"+prompt.version());}
+        return com.tianmu.agent.harness.trace.TracePrompt.call(id,main.version(),variant,effective,revisions,action);
+    }
     public Set<String> ids() { return prompts.keySet(); }
 }

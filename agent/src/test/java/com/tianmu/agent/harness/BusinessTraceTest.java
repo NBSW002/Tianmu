@@ -124,6 +124,7 @@ class BusinessTraceTest {
     }
     @Test void exportPreservesBoundedTypedListsButRejectsArbitraryPayloads() {
         assertEquals(List.of("list_skills"), TraceAttributes.sanitize(Map.of("agent.available_tools", List.of("list_skills"))).get("agent.available_tools"));
+        assertEquals(List.of("B1:23", "B2:17"), TraceAttributes.sanitize(Map.of("analysis.bucket_sizes", List.of("B1:23", "B2:17"))).get("analysis.bucket_sizes"));
         assertTrue(TraceAttributes.sanitize(Map.of("agent.available_tools", List.of(Map.of("secret", "raw")))).isEmpty());
         assertTrue(TraceAttributes.sanitize(Map.of("llmContent", "secret", "llmThinkingContent", "secret", "userQuery", "secret")).isEmpty());
     }

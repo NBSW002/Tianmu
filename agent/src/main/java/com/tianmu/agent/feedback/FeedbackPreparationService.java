@@ -41,9 +41,13 @@ public final class FeedbackPreparationService {
     public FeedbackJobStore.Job requestMaterials(UUID run,AccessScope owner,Request request,Instant deadline){
         if(!compressionEnabled() || !FeedbackCompression.representativeVersion(request.rulesVersion()))throw new AgentException("COMPRESSION_DISABLED","Representative pipeline is not enabled");
         var job=analysis.forRun(run);if(job!=null){job=analysis.owned(job.id(),owner);if(!job.request().equals(request))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Material request changed");analysis.verifyProtocol(job);}else job=analysis.submit(run,owner,request,null,deadline);
-        store.request(job.id(),Step.SNAPSHOT);
+        var trigger=FeedbackPreparationStore.Reference.current();
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.job_id",job.id().toString()));
+        store.request(job.id(),Step.SNAPSHOT,trigger);
         for(var source:request.sources())store.request(job.id(),Step.valueOf(source.name()));store.request(job.id(),Step.MATERIALS);return job;
     }
+    public Optional<String> materialTrigger(UUID job,String traceId){var work=store.get(job,Step.SNAPSHOT);var trigger=work==null?null:work.triggeredBy();return trigger!=null && trigger.traceId().equals(traceId)?Optional.of(trigger.spanId()):Optional.empty();}
+    public FeedbackPreparationStore.Work preparationWork(UUID job,Step step){return store.get(job,step);}
     public boolean materialsReady(UUID id){var w=store.get(id,Step.MATERIALS);return w!=null && w.state().equals("COMPLETE");}
     public FeedbackCompression.Material materials(UUID id,AccessScope owner,CallControl control){
         var job=analysis.owned(id,owner);var w=store.get(id,Step.MATERIALS);if(w==null || !w.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Representative materials are not ready");
@@ -105,13 +109,13 @@ public final class FeedbackPreparationService {
         if(result.source()!=source || manifest==null || !result.manifest().equals(manifest.result()))throw new AgentException("STORAGE_CORRUPT","Source evidence uses a different snapshot");
         snapshots.resolve(result.manifest(),job.runId(),owner,job.request(),control);return result;
     }
-    public void advance(UUID id,Step step,CancellationToken cancellation){
+    public boolean advance(UUID id,Step step,CancellationToken cancellation){
         FeedbackPreparationStore.Work claim=null;
         try {
-            var job=analysis.forJob(id);if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;
+            var job=analysis.forJob(id);if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return false;
             analysis.owned(id,job.owner());analysis.verifyProtocol(job);
             if(!Instant.now().isBefore(job.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Preparation deadline exceeded");
-            claim=store.claim(id,step,Instant.now(),Duration.ofSeconds(governance.preparationLeaseSeconds()));if(claim==null)return;
+            claim=store.claim(id,step,Instant.now(),Duration.ofSeconds(governance.preparationLeaseSeconds()));if(claim==null)return false;
             var control=new CallControl(job.deadline().isBefore(claim.leaseUntil())?job.deadline():claim.leaseUntil(),cancellation);
             Blob result;
             if(step==Step.SNAPSHOT)result=snapshots.materialize(id,job.runId(),job.owner(),job.request(),control);
@@ -140,8 +144,9 @@ public final class FeedbackPreparationService {
                 }
             }
             control.checkpoint();analysis.owned(id,job.owner());
-            if(Instant.now().isBefore(control.deadline())){if(!store.complete(claim,result))throw new AgentException("PREPARATION_CLAIM_LOST","Preparation result was not accepted");}
+            if(Instant.now().isBefore(control.deadline())){if(!store.complete(claim,result,FeedbackPreparationStore.Reference.current()))throw new AgentException("PREPARATION_CLAIM_LOST","Preparation result was not accepted");}
             else throw new AgentException("DEADLINE_EXCEEDED","Preparation deadline exceeded");
+            return true;
         }catch(AgentException failure){
             if(failure.code().equals("PREPARATION_CLAIM_LOST")){settle(id);throw failure;}
             if(cancellation.cancelled())analysis.cancel(id);
