@@ -33,7 +33,8 @@ class FeedbackCompressionTest {
         assertEquals(1,result.clusters().size());assertEquals(3,result.representativeCount());var text=result.inputs().get(0).groups().get(0).text();assertTrue(text.contains("画面很清晰甲"));assertTrue(text.contains("画面很清晰乙"));assertTrue(text.contains("画面很清晰丙"));
         var loose=new FeedbackCompressionProperties(true,3,15000,.90,32,.75,5,5,60,.96,300,600,32768,67108864,512);
         var fiveTarget=new FeedbackCompression(embedding,vectors,loose,json);var more=new ArrayList<>(rows);more.add(unit(4,Source.COMMENT,"画面很清晰丁",7L));more.add(unit(5,Source.COMMENT,"画面很清晰戊",6L));
-        var bounded=fiveTarget.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(5,0,0,0,5),List.of(fiveTarget.prepare(Source.COMMENT,more,c)),c,()->{});assertEquals(3,bounded.representativeCount());
+        for(int i=6;i<=10;i++)more.add(unit(i,Source.COMMENT,"画面非常清晰编号"+i,(long)i));
+        var bounded=fiveTarget.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(10,0,0,0,10),List.of(fiveTarget.prepare(Source.COMMENT,more,c)),c,()->{});assertEquals(8,bounded.representativeCount());
     }
     @Test void centeringFallsBackWhenOneNearMeanExpressionContainsMostOriginalFeedback(){
         var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(2);when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());

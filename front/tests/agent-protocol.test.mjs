@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   answerReport,
+  displayReportAnswer,
   buildReportMessage,
   buildChatMessage,
   buildChatRequest,
@@ -15,6 +16,15 @@ import {
 } from '../src/agent/protocol.mjs'
 
 const now = new Date('2026-10-25T04:00:00Z')
+test('report answer hides internal paths for both formats only when belonging to the current run', () => {
+  const run = '86d96246-0187-45cf-9fb4-6863e4d419da'
+  const path = `/api/agent/runs/${run}/reports/rp_45f9a811-1eae-4d26-bf7a-ff5afd4656f3`
+  for (const label of ['查看 HTML 报告', '查看反馈报告']) {
+    const text = `报告已生成。\n[${label}](${path})（需登录鉴权）`
+    assert.equal(displayReportAnswer(run, text), '报告已生成。\n报告预览见下方。')
+    assert.equal(displayReportAnswer('11111111-1111-1111-1111-111111111111', text), text)
+  }
+})
 test('answer notes stay separate, preserve evidence wording and display Beijing time', () => {
   const answer = { text: '查到了，这个视频在10月24日共有2,400条弹幕。', dataNotes: [{ text: '当前保留的记录', updatedAt: '2026-10-25T07:19:48Z' }] }
   assert.deepEqual(answerPresentation(answer), answerPresentation(JSON.parse(JSON.stringify(answer))))

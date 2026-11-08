@@ -33,11 +33,11 @@ class FiveBucketMultiRootTest {
         var job=preparation.requestMaterials(UUID.randomUUID(),owner,request,Instant.now().plusSeconds(90));
         for(int n=0;n<10 && !preparation.materialsReady(job.id());n++)for(var step:preparation.pending(job.id()))preparation.advance(job.id(),step,new CancellationToken());
         var control=new CallControl(Instant.now().plusSeconds(90),new CancellationToken());var material=preparation.materials(job.id(),owner,control);
-        assertEquals("TASK_CENTERED_COSINE",material.bucketMetric().mode());assertEquals(5,material.clusters().size());assertEquals(10,material.representativeCount());assertTrue(material.unclassified().isEmpty());
+        assertEquals("TASK_CENTERED_COSINE",material.bucketMetric().mode());assertEquals(5,material.clusters().size());assertEquals(20,material.representativeCount());assertTrue(material.unclassified().isEmpty());
         preparation.startCompressedReport(job.id(),owner,null,control);for(int n=0;n<20 && jobs.get(job.id()).phase()!=Phase.READY;n++)analysis.advance(job.id());
         assertEquals(Phase.READY,jobs.get(job.id()).phase());assertEquals(5,received.stream().mapToInt(x->x.groups().size()).sum());
-        var report=preparation.reportJson(job.id(),owner,control);assertEquals(report,preparation.storedReportJson(job.id(),owner));assertEquals(5,report.topics().size());assertEquals(20,report.topics().stream().mapToLong(FeedbackReportJson.TopicView::commentCount).sum());
-        assertTrue(new String(report.html(),java.nio.charset.StandardCharsets.UTF_8).contains("任务内中心化余弦"));
+        var report=preparation.reportJson(job.id(),owner,control);assertEquals(report,preparation.storedReportJson(job.id(),owner));assertEquals(5,report.topics().size());assertTrue(report.topics().stream().allMatch(t->t.representatives().size()==3));assertEquals(20,report.topics().stream().mapToLong(FeedbackReportJson.TopicView::commentCount).sum());
+        assertFalse(new String(report.html(),java.nio.charset.StandardCharsets.UTF_8).contains("任务内中心化余弦"));
     }
     @Test void distinctBucketsAcrossTwoBatchesRemainDistinctAndKeepAllCounts(){
         var json=new ObjectMapper().findAndRegisterModules();var objects=new FeedbackObjects(new FileObjectStore(directory),json);

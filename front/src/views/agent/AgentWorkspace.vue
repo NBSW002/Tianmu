@@ -123,7 +123,7 @@
                   {{ turn.snapshot.clarification }}
                 </p>
                 <p v-if="turn.snapshot?.answer" class="answer-text">
-                  {{ displayAnswer(answerPresentation(turn.snapshot.answer).text) }}
+                  {{ displayReportAnswer(turn.runId, answerPresentation(turn.snapshot.answer).text) }}
                 </p>
                 <details v-if="answerPresentation(turn.snapshot?.answer).notes.length" class="answer-data-notes">
                   <summary>数据说明</summary>
@@ -284,6 +284,7 @@ import {
 import {
   answerReport,
   answerPresentation,
+  displayReportAnswer,
   formatDataUpdatedAt,
   buildChatRequest,
   terminal,
@@ -467,14 +468,6 @@ function formatTime(value) {
 function elapsed(value) {
   return formatRunWait(value, clock.value);
 }
-function displayAnswer(text) {
-  return text.replace(
-    /\[查看 HTML 报告\]\(\/api\/agent\/runs\/[^)]+\)（需登录鉴权）/g,
-    '报告预览见下方。'
-  );
-}
-
-
 function stopMonitoring(cancelReports = true) {
   runMonitor.stop();
   restoreTicket?.abort();

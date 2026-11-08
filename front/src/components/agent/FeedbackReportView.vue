@@ -44,7 +44,7 @@ const nearbyMoments = (report, topic) => {
     <details v-if="report.method.raw_audience && report.topics?.length" class="chart"><summary>查看话题占比</summary><p class="topic-count">按全部观众反馈为分母，桶内数量为近似分配；未归类和过滤记录不属于任何主题。</p><div v-for="topic in report.topics" :key="topic.id"><p>{{ topic.title }} · {{ topic.commentCount + topic.danmakuCount }} 条 · {{ (100 * (topic.commentCount + topic.danmakuCount) / report.method.raw_audience).toFixed(1) }}%</p><div class="bar-track"><span :style="{ width: `${100 * (topic.commentCount + topic.danmakuCount) / report.method.raw_audience}%` }"></span></div></div></details>
     <details v-if="report.daily && Object.keys(report.daily).length"><summary>按发送日期查看反馈</summary><p class="topic-count">按反馈发送日期统计，与视频播放位置不同；未记录日期的反馈不计入。</p><p v-for="(count, date) in report.daily" :key="date">{{ date }}：{{ count }} 条</p></details>
     <p v-if="report.method.statistics_available === false" class="topic-count">本次材料未保存完整时间统计，无法展示时间图表。</p>
-    <footer><strong>处理口径</strong><p>原始 {{ report.method.raw }} 条，排除 {{ report.method.excluded }} 条，纳入 {{ report.method.eligible }} 条；联合聚类 {{ report.method.clusters }} 簇，未归类 {{ report.method.unclassified ?? 0 }} 条，模型读取 {{ report.method.representatives }} 条代表表达及有界语境。</p><p v-if="report.method.bucket_metric">相似度：{{ report.method.bucket_metric.mode === 'TASK_CENTERED_COSINE' ? '任务内中心化余弦' : '原始余弦' }}，门槛 {{ report.method.bucket_metric.threshold }}。</p><p>{{ report.method.interpretation }}</p><p>点赞未知时按频次及代表性排序。视频采样不等于完整逐帧或音频理解。</p></footer>
+    <footer><strong>数据说明</strong><p>内容根据代表反馈归纳，相关数量为近似统计。<template v-if="report.videoSummary"> 视频分析依据采样画面。</template></p></footer>
   </section>
 </template>
 

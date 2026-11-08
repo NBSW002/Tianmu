@@ -49,7 +49,7 @@ public final class FeedbackCompression {
     }
     public FeedbackCompressionProperties policy(){return policy;}
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
-    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-task-centering-three-stats-v5").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v6").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
         var accepted=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;boolean statsOverflow=false;
         for(var u:rows){check(control);if(u.source()!=source)throw new AgentException("INVALID_EVIDENCE","Mixed preparation partition");
@@ -184,7 +184,7 @@ public final class FeedbackCompression {
             float[] center=new float[embedding.dimension()];for(int n:choices)for(int d=0;d<center.length;d++)center[d]+=rankingVectors.get(n)[d];normalize(center);choices.sort((a,b)->compare(expressions.get(a),expressions.get(b),rankingVectors.get(a),rankingVectors.get(b),center));
             var members=cluster.members().stream().map(byId::get).toList();
             for(int pass=0;pass<2;pass++)for(int n:choices){
-                if(selected.size()>=Math.min(3,Math.min(policy.representativesPerCluster(),policy.maxPerCluster())) || representatives>=policy.maxRepresentatives())break;
+                if(selected.size()>=buckets.modelCandidatesPerBucket() || representatives>=policy.maxRepresentatives())break;
                 var e=expressions.get(n);if(selected.stream().anyMatch(r->r.id().equals(e.exemplar().id())))continue;
                 boolean duplicate=false;for(var r:selected)for(int previous:choices)if(expressions.get(previous).exemplar().id().equals(r.id()) && cosine(rankingVectors.get(n),rankingVectors.get(previous))>=policy.nearDuplicateSimilarity()){duplicate=true;break;}if(duplicate && pass==0)continue;
                 var next=new ArrayList<>(selected);next.add(representative(e.exemplar(),e.members().size(),manifest.sha256()));int delta=projectedBytes(groups(cluster.id(),members,next))-projectedBytes(groups(cluster.id(),members,selected));

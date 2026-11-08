@@ -10,9 +10,9 @@ public record FeedbackBucketProperties(@DefaultValue("5") int maxBuckets,
         @DefaultValue("50") int maxIterations,@DefaultValue("64") int candidateSamples,
         @DefaultValue("false") boolean centeringEnabled,@DefaultValue("20") int centerMinExpressions,
         @DefaultValue("0.01") double centerMinRms,@DefaultValue("0.001") double centerMinResidual,
-        @DefaultValue("0.30") double centeredSimilarity,@DefaultValue("0.20") double centerMaxExcludedFraction) {
-    public FeedbackBucketProperties(int maxBuckets,double minSimilarity,int minMembers,int maxIterations,int candidateSamples){this(maxBuckets,minSimilarity,minMembers,maxIterations,candidateSamples,false,20,.01,.001,.30,.20);}
-    public FeedbackBucketProperties(int maxBuckets,double minSimilarity,int minMembers,int maxIterations,int candidateSamples,boolean centeringEnabled,int centerMinExpressions,double centerMinRms,double centerMinResidual,double centeredSimilarity){this(maxBuckets,minSimilarity,minMembers,maxIterations,candidateSamples,centeringEnabled,centerMinExpressions,centerMinRms,centerMinResidual,centeredSimilarity,.20);}
+        @DefaultValue("0.30") double centeredSimilarity,@DefaultValue("0.20") double centerMaxExcludedFraction,@DefaultValue("8") int modelCandidatesPerBucket) {
+    public FeedbackBucketProperties(int maxBuckets,double minSimilarity,int minMembers,int maxIterations,int candidateSamples){this(maxBuckets,minSimilarity,minMembers,maxIterations,candidateSamples,false,20,.01,.001,.30,.20,8);}
+    public FeedbackBucketProperties(int maxBuckets,double minSimilarity,int minMembers,int maxIterations,int candidateSamples,boolean centeringEnabled,int centerMinExpressions,double centerMinRms,double centerMinResidual,double centeredSimilarity){this(maxBuckets,minSimilarity,minMembers,maxIterations,candidateSamples,centeringEnabled,centerMinExpressions,centerMinRms,centerMinResidual,centeredSimilarity,.20,8);}
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public FeedbackBucketProperties {
         if(maxBuckets<1 || maxBuckets>5 || !Double.isFinite(minSimilarity) || minSimilarity<0 || minSimilarity>1
@@ -20,7 +20,7 @@ public record FeedbackBucketProperties(@DefaultValue("5") int maxBuckets,
                 || centerMinExpressions<5 || centerMinExpressions>5000 || !Double.isFinite(centerMinRms) || centerMinRms<=0 || centerMinRms>1
                 || !Double.isFinite(centerMinResidual) || centerMinResidual<=0 || centerMinResidual>centerMinRms
                 || !Double.isFinite(centeredSimilarity) || centeredSimilarity<0 || centeredSimilarity>1
-                || !Double.isFinite(centerMaxExcludedFraction) || centerMaxExcludedFraction<0 || centerMaxExcludedFraction>1)
+                || !Double.isFinite(centerMaxExcludedFraction) || centerMaxExcludedFraction<0 || centerMaxExcludedFraction>1 || modelCandidatesPerBucket<2 || modelCandidatesPerBucket>8)
             throw new IllegalArgumentException("Invalid feedback bucket policy");
     }
     public String revision(){return "feedback-buckets-v2:"+FeedbackObjects.sha(toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));}

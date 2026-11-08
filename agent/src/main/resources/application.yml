@@ -73,6 +73,7 @@ agent:
       max-iterations: ${FEEDBACK_BUCKETS_MAX_ITERATIONS:50}
       candidate-samples: ${FEEDBACK_BUCKETS_CANDIDATE_SAMPLES:64}
       centering-enabled: ${FEEDBACK_BUCKETS_CENTERING_ENABLED:false}
+      model-candidates-per-bucket: ${FEEDBACK_BUCKETS_MODEL_CANDIDATES_PER_BUCKET:8}
       center-min-expressions: ${FEEDBACK_BUCKETS_CENTER_MIN_EXPRESSIONS:20}
       center-min-rms: ${FEEDBACK_BUCKETS_CENTER_MIN_RMS:0.01}
       center-min-residual: ${FEEDBACK_BUCKETS_CENTER_MIN_RESIDUAL:0.001}

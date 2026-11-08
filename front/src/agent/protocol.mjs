@@ -64,6 +64,11 @@ export function answerReport(runId, text = '') {
   return paths.map((path) => reportPath(runId, path)).find(Boolean) || ''
 }
 
+export function displayReportAnswer(runId, text = '') {
+  return text.replace(/\[查看(?: HTML 报告|反馈报告)\]\((\/api\/agent\/runs\/[0-9a-f-]+\/reports\/rp_[0-9a-f-]+)\)（需登录鉴权）/gi,
+    (original, path) => reportPath(runId, path) ? '报告预览见下方。' : original)
+}
+
 export function chinaTime(date = new Date()) {
   return new Date(date.getTime() + 8 * 3600000).toISOString().slice(0, 16)
 }
