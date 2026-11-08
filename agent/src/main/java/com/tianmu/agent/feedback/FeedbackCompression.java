@@ -212,6 +212,15 @@ public final class FeedbackCompression {
             out.add(new FeedbackModels.Group(id+"_"+source.name(),source,representativeText(reps.stream().filter(r->r.source()==source).toList()),"",false,null,part.size(),part.stream().map(Unit::id).toList(),id));
         }return out;
     }
+    /** Preheat every accepted record with exactly the report's cleaning, version and text projection. */
+    public void warm(AccessScope owner,long video,List<Unit> rows,CallControl control,Runnable reserve){
+        if(rows.size()>16)throw new IllegalArgumentException("Warm batch exceeds 16 records");
+        var accepted=new ArrayList<Unit>();
+        for(var source:Source.values())accepted.addAll(prepare(source,rows.stream().filter(u->u.source()==source).toList(),control).eligible());
+        var query=new com.tianmu.agent.core.DanmakuTypes.Query(video,com.tianmu.agent.core.DanmakuTypes.ALL_TIME_START,java.time.LocalDateTime.of(2100,1,1,0,0));
+        var request=new Request(query,EnumSet.allOf(Source.class),Grounding.FEEDBACK_ONLY,null,null,FIVE_VERSION);
+        encode(owner,request,accepted.stream().map(u->new Expression(u,List.of(u))).toList(),control,reserve);
+    }
     private List<float[]> encode(AccessScope owner,Request request,List<Expression> expressions,CallControl control,Runnable reserve){
         var out=new ArrayList<float[]>(Collections.nCopies(expressions.size(),null));
         for(var source:Source.values()){

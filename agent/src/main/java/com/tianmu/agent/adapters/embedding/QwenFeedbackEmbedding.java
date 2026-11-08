@@ -18,7 +18,9 @@ public final class QwenFeedbackEmbedding implements FeedbackEmbedding {
         URI uri;try{uri=URI.create(endpoint);}catch(RuntimeException invalid){throw new IllegalArgumentException("Invalid embedding endpoint");}
         if(uri.getHost()==null || !(uri.getScheme().equals("https") || uri.getScheme().equals("http") && Set.of("127.0.0.1","localhost").contains(uri.getHost()))
                 || uri.getUserInfo()!=null || uri.getQuery()!=null || uri.getFragment()!=null || !uri.getPath().endsWith("/embeddings"))throw new IllegalArgumentException("Embedding endpoint must be an explicit HTTPS embeddings URL");
-        if(!"qwen3.7-text-embedding-flash".equals(model) || revision==null || !revision.matches("[A-Za-z0-9_.:-]{1,100}") || !Set.of(256,512,768,1024).contains(dimension))throw new IllegalArgumentException("Invalid Qwen embedding profile");
+        boolean supported="qwen3.7-text-embedding-flash".equals(model) && Set.of(256,512,768,1024).contains(dimension)
+                || "qwen3.7-text-embedding".equals(model) && Set.of(256,512,768,1024,1536,2048,2560).contains(dimension);
+        if(!supported || revision==null || !revision.matches("[A-Za-z0-9_.:-]{1,100}"))throw new IllegalArgumentException("Invalid Qwen embedding profile");
         if(token==null || token.isBlank() || token.length()>8192 || token.chars().anyMatch(c->c<33 || c>126))throw new IllegalArgumentException("Invalid embedding token");
         this.endpoint=endpoint;this.token=token;this.model=model;this.revision=revision;this.dimension=dimension;this.json=json.copy();
         http=new OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).connectTimeout(3,TimeUnit.SECONDS).readTimeout(30,TimeUnit.SECONDS).build();

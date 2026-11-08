@@ -50,4 +50,14 @@ class QwenFeedbackEmbeddingTest {
         var c=control();c.cancellation().cancel(com.tianmu.agent.core.StopReason.USER_CANCELLED);
         assertThrows(AgentException.class,()->embedding.embed(List.of("x"),c));assertTrue(requests.isEmpty());
     }
+    @Test void standardModelSupportsLargerDimensionsAndIsolatesCacheVersion()throws Exception {
+        String endpoint="http://127.0.0.1:"+server.getAddress().getPort()+"/embeddings";
+        var standard=new QwenFeedbackEmbedding(endpoint,"test-only-token","qwen3.7-text-embedding","test-20261105",2560,json);
+        assertEquals(2560,standard.dimension());assertNotEquals(embedding.version(),standard.version());
+        assertThrows(IllegalArgumentException.class,()->new QwenFeedbackEmbedding(endpoint,"test-only-token","qwen3.7-text-embedding-flash","test-20261105",2560,json));
+        var standardSmall=new QwenFeedbackEmbedding(endpoint,"test-only-token","qwen3.7-text-embedding","test-20261105",256,json);
+        response=json.writeValueAsString(Map.of("model","qwen3.7-text-embedding","data",List.of(row(0,1))));
+        assertEquals(256,standardSmall.embed(List.of("画面清晰"),control()).get(0).size());
+        assertEquals("qwen3.7-text-embedding",requests.get(0).path("model").asText());
+    }
 }

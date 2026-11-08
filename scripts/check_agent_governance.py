@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "agent/docs"
 JAVA = ROOT / "agent/src/main/java/com/tianmu/agent"
 POLICIES = (
+    "feedback/FeedbackWarmProperties.java",
     "feedback/FeedbackBucketProperties.java",
     "feedback/FeedbackCompressionProperties.java",
     "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java",
@@ -54,6 +55,9 @@ def catalog():
               "| `agent.models.analysis-max-tokens` | 16384 | 后台分析单次总输出预算，含思考及最终JSON；8192–32768 Token。显式别名 `AGENT_ANALYSIS_MAX_OUTPUT_TOKENS`。消费DeepSeekFeedbackModels及DeepSeekAudienceModel，预算随实际值预留；job总预算不变，变化进入反馈policyHash。 |", ""]
     lines += ["## agent.feedback思考调用时限", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.feedback.model-timeout` | 基础30s；deepseek profile 120s | FeedbackPolicy → FeedbackAnalysisService；显式环境别名 `FEEDBACK_MODEL_TIMEOUT`，启动生效，精确范围1–180秒。单次模型调用取此值与job剩余deadline较小者；工作租约为超时加model-lease-margin-seconds，取消、fence、调用与Token预算不变。修改前排空既有任务，不将新策略冒充旧job版本。 |", ""]
+    lines += ["## agent.feedback.embedding", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+              "| `agent.feedback.embedding.model` | qwen3.7-text-embedding | 环境变量 `AGENT_FEEDBACK_EMBEDDING_MODEL`；支持标准版及 flash，启动时绑定。模型与维数进入向量缓存命名空间及反馈策略版本；切换前排空未完成任务，旧模型向量不复用。 |",
+              "| `agent.feedback.embedding.dimension` | 2560 | 环境变量 `AGENT_FEEDBACK_EMBEDDING_DIMENSION`；标准版支持 256、512、768、1024、1536、2048、2560，flash 支持至 1024。须与 Milvus 集合维数一致；站点 overlay 以 `FEEDBACK_EMBEDDING_DIMENSION` 同时设置两者，更换维数须事先创建独立集合并重建向量。 |", ""]
     sources = {p: p.read_text(encoding="utf-8") for p in JAVA.rglob("*.java")}
     errors = []
     for relative in POLICIES:

@@ -21,6 +21,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @EnabledIfEnvironmentVariable(named="BUSINESS_IT", matches="true")
 class BusinessIntegrationTest {
+    @Test void vectorWorkCoalescesAndFencesOldCompletions(){
+        new ResourceDatabasePopulator(new org.springframework.core.io.FileSystemResource("deploy/site/migrations/20261108_feedback_vector_work.sql")).execute(source);
+        db.update("DELETE FROM feedback_vector_work");
+        var work=new FeedbackVectorWork(db,"tianmu");work.changed(1001);assertNull(work.claim());db.update("UPDATE feedback_vector_work SET next_at=UTC_TIMESTAMP(6)");var first=work.claim();assertNotNull(first);
+        work.changed(1001);work.finish(first,true);
+        assertEquals(1L,db.queryForObject("SELECT completed_generation FROM feedback_vector_work WHERE video_id=1001",Long.class));
+        db.update("UPDATE feedback_vector_work SET next_at=UTC_TIMESTAMP(6)");var second=work.claim();assertNotNull(second);assertEquals(2,second.generation());
+        assertThrows(BridgeException.class,()->work.finish(first,true));work.finish(second,false);
+        db.update("UPDATE feedback_vector_work SET next_at=UTC_TIMESTAMP(6)");var retry=work.claim();assertNotNull(retry);work.finish(retry,true);assertNull(work.claim());
+        work.changed(1001);db.update("UPDATE feedback_vector_work SET next_at=UTC_TIMESTAMP(6)");var crashed=work.claim();assertNotNull(crashed);assertNull(work.claim());
+        db.update("UPDATE feedback_vector_work SET lease_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND)");
+        var recovered=work.claim();assertNotNull(recovered);assertThrows(BridgeException.class,()->work.finish(crashed,true));work.finish(recovered,true);
+    }
     @Test void feedbackLikesAreActorBoundIdempotentAndFrozenInSnapshot()throws Exception {
         new ResourceDatabasePopulator(new org.springframework.core.io.FileSystemResource("deploy/site/migrations/20261108_feedback_reactions.sql")).execute(source);
         db.update("UPDATE video SET status=2 WHERE video_id=1001");long id=901234567L;

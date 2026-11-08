@@ -14,6 +14,21 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void warmedRecordsUseExactlyTheReportCacheKeys(){
+        var cache=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();var vectors=mock(FeedbackVectorIndex.class);
+        when(vectors.dimension()).thenReturn(3);
+        when(vectors.fetch(any(),anyList(),any())).thenAnswer(call->{var found=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();for(var ref:call.<List<FeedbackVectorIndex.Reference>>getArgument(1))if(cache.containsKey(ref))found.put(ref,cache.get(ref));return found;});
+        doAnswer(call->{for(var entry:call.<List<FeedbackVectorIndex.Entry>>getArgument(1))cache.put(entry.reference(),entry.vector());return null;}).when(vectors).upsert(any(),anyList(),any());
+        var embedding=mock(FeedbackEmbedding.class);when(embedding.dimension()).thenReturn(3);when(embedding.version()).thenReturn("standard:2560-test");
+        when(embedding.embed(anyList(),any())).thenAnswer(call->call.<List<String>>getArgument(0).stream().map(t->List.of(1f,0f,0f)).toList());
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        var rows=List.of(unit(1,Source.COMMENT,"  画面很清晰  ",0L),unit(2,Source.COMMENT,"声音很清楚",0L));
+        compression.warm(owner,request.query().videoId(),rows,control(),()->{});
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        compression.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(2,0,0,0,2),List.of(compression.prepare(Source.COMMENT,rows,control())),control(),()->fail("Warmed report must not dispatch embedding"));
+        verify(embedding,times(1)).embed(anyList(),any());
+        verify(vectors,atLeastOnce()).fetch(argThat(ns->ns.embeddingVersion().endsWith(":representatives-text-v1")),anyList(),any());
+    }
     @Test void sourceAggregateNeverPushesAnOtherwiseValidObjectOverItsSizeLimit(@TempDir Path directory){
         var objects=new FeedbackObjects(new com.tianmu.agent.adapters.storage.FileObjectStore(directory),json);var excluded=new ArrayList<FeedbackCompression.Excluded>();
         for(long i=0;i<18000;i++)excluded.add(new FeedbackCompression.Excluded("D:"+(1000000000000000000L+i),"SHORT_TEXT"));

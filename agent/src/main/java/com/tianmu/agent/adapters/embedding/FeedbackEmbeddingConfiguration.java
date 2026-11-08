@@ -13,7 +13,7 @@ import java.nio.file.*;
 @EnableConfigurationProperties(FeedbackEmbeddingConfiguration.Properties.class)
 public class FeedbackEmbeddingConfiguration {
     @ConfigurationProperties("agent.feedback.embedding")
-    public record Properties(String endpoint,String tokenFile,@DefaultValue("qwen3.7-text-embedding-flash") String model,String revision,@DefaultValue("1024") int dimension) {}
+    public record Properties(String endpoint,String tokenFile,@DefaultValue("qwen3.7-text-embedding") String model,String revision,@DefaultValue("2560") int dimension) {}
     @Bean FeedbackEmbedding feedbackEmbedding(Properties p,ObjectMapper json){
         String token;if(p.tokenFile()==null || p.tokenFile().isBlank())throw new IllegalArgumentException("Configure embedding token-file");
         try(var in=Files.newInputStream(Path.of(p.tokenFile()))){var bytes=in.readNBytes(8193);if(bytes.length>8192)throw new IllegalArgumentException("Embedding token file exceeds limit");token=new String(bytes,java.nio.charset.StandardCharsets.UTF_8).strip();}

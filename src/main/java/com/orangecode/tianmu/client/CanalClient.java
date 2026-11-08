@@ -40,6 +40,9 @@ public class CanalClient implements CommandLineRunner {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private org.springframework.beans.factory.ObjectProvider<com.orangecode.tianmu.agentbridge.FeedbackVectorWork> vectorWork;
+
 
     private static final int MAX_RETRY_TIMES = 5; // 发生错误后最大重试次数
 
@@ -51,7 +54,7 @@ public class CanalClient implements CommandLineRunner {
 
     private static final long IDLE_CHECK_INTERVAL = 5000; // 5秒检查一次空闲状态
     // 需要监听的表名集合
-    private static final Set<String> MONITOR_TABLES = Set.of("user", "video", "video_stats", "user_stats", "bullet");
+    private static final Set<String> MONITOR_TABLES = Set.of("user", "video", "video_stats", "user_stats", "bullet", "comment");
 
     @Override
     public void run(String... args) {
@@ -209,6 +212,14 @@ public class CanalClient implements CommandLineRunner {
 
 
             for (CanalEntry.RowData rowData : rowChange.getRowDatasList()) {
+                // Persist before ACK; failure rolls the Canal batch back for redelivery.
+                if(Set.of("bullet","comment","video").contains(tableName)){
+                    var work=vectorWork.getIfAvailable();
+                    if(work!=null){
+                        var columns=rowChange.getEventType()==CanalEntry.EventType.DELETE?rowData.getBeforeColumnsList():rowData.getAfterColumnsList();
+                        columns.stream().filter(c->c.getName().equals("video_id")).findFirst().ifPresent(c->work.changed(Long.parseLong(c.getValue())));
+                    }
+                }
                 switch (rowChange.getEventType()) {
                     case INSERT -> handleInsert(rowData.getAfterColumnsList(), tableName);
                     case UPDATE -> handleUpdate(rowData.getAfterColumnsList(), tableName);

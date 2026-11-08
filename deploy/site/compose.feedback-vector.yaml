@@ -13,13 +13,13 @@ services:
       AGENT_FEEDBACK_EMBEDDING_ENDPOINT: https://maas.qianwenaiapi.com/compatible-mode/v1/embeddings
       AGENT_FEEDBACK_EMBEDDING_TOKEN_FILE: /run/secrets/feedback-embedding-token
       AGENT_FEEDBACK_EMBEDDING_REVISION: ${FEEDBACK_EMBEDDING_REVISION:?Set an explicit embedding cache revision}
-      AGENT_FEEDBACK_EMBEDDING_DIMENSION: "1024"
+      AGENT_FEEDBACK_EMBEDDING_DIMENSION: "${FEEDBACK_EMBEDDING_DIMENSION:-2560}"
       AGENT_FEEDBACK_MILVUS_ENABLED: "true"
       AGENT_FEEDBACK_MILVUS_ENDPOINT: ${FEEDBACK_MILVUS_ENDPOINT:?Set the private Milvus endpoint}
       AGENT_FEEDBACK_MILVUS_TOKEN_FILE: /run/secrets/feedback-milvus-token
       AGENT_FEEDBACK_MILVUS_DATABASE: ${FEEDBACK_MILVUS_DATABASE:-default}
       AGENT_FEEDBACK_MILVUS_COLLECTION: ${FEEDBACK_MILVUS_COLLECTION:?Set the provisioned collection}
-      AGENT_FEEDBACK_MILVUS_DIMENSION: "1024"
+      AGENT_FEEDBACK_MILVUS_DIMENSION: "${FEEDBACK_EMBEDDING_DIMENSION:-2560}"
     secrets:
       - feedback-embedding-token
       - feedback-milvus-token

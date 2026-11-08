@@ -88,9 +88,9 @@ agent:
       enabled: ${AGENT_FEEDBACK_EMBEDDING_ENABLED:false}
       endpoint: ${AGENT_FEEDBACK_EMBEDDING_ENDPOINT:https://maas.qianwenaiapi.com/compatible-mode/v1/embeddings}
       token-file: ${AGENT_FEEDBACK_EMBEDDING_TOKEN_FILE:}
-      model: qwen3.7-text-embedding-flash
+      model: ${AGENT_FEEDBACK_EMBEDDING_MODEL:qwen3.7-text-embedding}
       revision: ${AGENT_FEEDBACK_EMBEDDING_REVISION:}
-      dimension: ${AGENT_FEEDBACK_EMBEDDING_DIMENSION:1024}
+      dimension: ${AGENT_FEEDBACK_EMBEDDING_DIMENSION:2560}
     milvus:
       enabled: ${AGENT_FEEDBACK_MILVUS_ENABLED:false}
       endpoint: ${AGENT_FEEDBACK_MILVUS_ENDPOINT:}

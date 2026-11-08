@@ -1,0 +1,16 @@
+# Apply the queue migration and provision 2560-dimensional Milvus before enabling.
+services:
+  business:
+    environment:
+      FEEDBACK_VECTORWORK_ENABLED: "true"
+      FEEDBACK_VECTORWORK_TOKENFILE: /run/secrets/feedback-warm-token
+    secrets: [feedback-warm-token]
+  agent:
+    environment:
+      AGENT_FEEDBACK_WARM_ENABLED: "true"
+      AGENT_FEEDBACK_WARM_BUSINESSURL: http://127.0.0.1:8101/api
+      AGENT_FEEDBACK_WARM_TOKENFILE: /run/secrets/feedback-warm-token
+    secrets: [feedback-warm-token]
+secrets:
+  feedback-warm-token:
+    file: '${SITE_CONFIG_DIR}/secrets/feedback-warm-token'
