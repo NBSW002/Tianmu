@@ -98,20 +98,20 @@ public final class MinioObjectStore implements ObjectStore {
         checkpoint(control);
         if(java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis()<5000)throw original;
         try{get(key,body.length,FileObjectStore.hash(body));checkpoint(control);
-            com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.write_verified",true));return;
+            com.tianmu.agent.harness.trace.TraceAttributes.storage(Map.of("storage.write_verified",true));return;
         }catch(StorageFailure read){
             checkpoint(control);if(read.status!=404 || !(original instanceof StorageFailure failed) || !failed.retryable)throw original;
         }
         // One retry after a definitive missing response; reserve time for the bounded SDK call.
         if(java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis()<5000)throw original;
         checkpoint(control);
-        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.retry_count",1));
+        com.tianmu.agent.harness.trace.TraceAttributes.storage(Map.of("storage.retry_count",1));
         try{put(key,body);checkpoint(control);}
         catch(StorageFailure second){
             checkpoint(control);if(!second.retryable && second.status!=412)throw second;
             if(java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis()<5000)throw second;
             try{get(key,body.length,FileObjectStore.hash(body));checkpoint(control);
-                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.write_verified",true));
+                com.tianmu.agent.harness.trace.TraceAttributes.storage(Map.of("storage.write_verified",true));
             }catch(StorageFailure unverified){checkpoint(control);throw second;}
         }
     }
@@ -143,7 +143,7 @@ public final class MinioObjectStore implements ObjectStore {
         return readFailure(error instanceof java.io.IOException?"TRANSPORT":"PROTOCOL",0,error instanceof java.io.IOException);
     }
     private static void operation(String name,long started){
-        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.operation",name,"storage.elapsed_ms",Math.max(0,(System.nanoTime()-started)/1_000_000)));
+        com.tianmu.agent.harness.trace.TraceAttributes.storage(Map.of("storage.operation",name,"storage.elapsed_ms",Math.max(0,(System.nanoTime()-started)/1_000_000)));
     }
     private static final class StorageFailure extends AgentException {
         final int status;final boolean retryable;
@@ -152,7 +152,7 @@ public final class MinioObjectStore implements ObjectStore {
 
     private static AgentException readFailure(String kind,int status,boolean retryable) {
         // Only bounded diagnostics; never export SDK messages, endpoints, keys or credentials.
-        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),
+        com.tianmu.agent.harness.trace.TraceAttributes.storage(
                 Map.of("storage.failure_kind",kind,"storage.http_status",status));
         return new StorageFailure(status,retryable);
     }

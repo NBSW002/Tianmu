@@ -89,8 +89,10 @@ public final class TraceDetails {
             UUID runId = binding.runId();
             String sha = FileObjectStore.hash(body), spanId = span.getSpanContext().getSpanId();
             String key = key(runId, spanId, direction, sha);
-            try { objects.put(key, body); }
-            catch (RuntimeException e) { objects.get(key, body.length, sha); } // Same immutable snapshot may be captured twice.
+            try(var storageScope=Context.current().with(TraceAttributes.STORAGE_SUPPRESSED,true).makeCurrent()){
+                try { objects.put(key, body); }
+                catch (RuntimeException e) { objects.get(key, body.length, sha); } // Same immutable snapshot may be captured twice.
+            }
             TraceAttributes.apply(span, Map.of(prefix + "_ref", spanId + "/" + direction + "/" + body.length + "/" + sha,
                     prefix + "_state", state, prefix + "_bytes", originalBytes, prefix + "_redacted", redacted[0]));
         } catch (RuntimeException | java.io.IOException e) {

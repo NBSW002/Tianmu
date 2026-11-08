@@ -7,6 +7,10 @@ import java.util.*;
 /** Export allowlist is the final boundary, including for attributes added by third-party hooks. */
 public final class TraceAttributes {
     private TraceAttributes() {}
+    public static final io.opentelemetry.context.ContextKey<Boolean> STORAGE_SUPPRESSED=io.opentelemetry.context.ContextKey.named("trace.storage.suppressed");
+    public static void storage(Map<String,?> attributes){
+        if(!Boolean.TRUE.equals(io.opentelemetry.context.Context.current().get(STORAGE_SUPPRESSED)))apply(Span.current(),attributes);
+    }
     private static final Set<String> STORAGE_AND_VECTOR = Set.of("storage.operation","storage.elapsed_ms","storage.retry_count","storage.write_verified","analysis.vector_prewarm_hits","analysis.vector_report_hits","analysis.vector_unknown_hits","analysis.vector_generation_origin","tool.native_group_id","tool.join_group_id","tool.join_call_ids","tool.join_batch_id");
     private static final Set<String> ALLOWED = Set.of("analysis.vector_cache_hits", "analysis.vector_generated", "analysis.vector_failed", "analysis.cache_wait_ms", "analysis.cache_hit", "analysis.cache_age_ms", "analysis.cache_source_job", "analysis.force_reanalysis", "storage.failure_kind", "storage.http_status", "video.shared_wait", "video.shared_wait_ms", "budget.token_limit", "budget.charged_tokens", "budget.reported_calls", "budget.unsettled_calls", "video.frame_count", "video.audio_available", "video.id", "video.source_version", "video.start_ms", "video.end_ms", "video.cache_hit", "run.id", "run.status", "run.steps", "run.stop_reason", "run.model_calls", "run.finalizing", "loop.step",
             "detail.reasoning_ref", "detail.reasoning_state", "detail.reasoning_bytes", "detail.reasoning_redacted", "model.reasoning_effort",

@@ -150,7 +150,7 @@ public final class FeedbackAnalysisService {
                 if(accepted && !cacheHit && reuseKey!=null && proposals.stream().noneMatch(p->p.selection()!=null && "EXCLUDED".equals(p.selection().coherence())))resultCache.put(reuseKey,j,input,proposals,reuseLease);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return Optional.empty();
             }
-            finishLevel(store.get(id));
+            finishWithRecovery(id,token);
         } catch(FeedbackCorrectionException e) {
             com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",false,"analysis.validation_issue",e.correction().issue()));
             if(token.cancelled())store.cancel(id);
@@ -170,10 +170,29 @@ public final class FeedbackAnalysisService {
         finally {if(reuseLease!=null)reuseLease.close();if(registration!=null)registration.close();running.computeIfPresent(id,(key,active)->{active.remove(token);return active.isEmpty()?null:active;});}
         return Optional.empty();
     }
-    private void finishLevel(FeedbackJobStore.Job job) {
+    /** Retry deterministic reduction only, never a paid model call. */
+    private void finishWithRecovery(UUID id,CancellationToken token){
+        for(int attempt=1;attempt<=governance.maxAttempts();attempt++){
+            var job=store.get(id);if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;
+            var control=new CallControl(job.deadline(),token).withDispatchBarrier(()->source.authorize(job.owner(),job.request().query().videoId()));control.checkpoint();
+            if(!Instant.now().isBefore(job.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Reduction deadline exceeded");
+            source.authorize(job.owner(),job.request().query().videoId());
+            try{finishLevel(job,control);return;}
+            catch(AgentException failure){
+                if(!Set.of("OBJECT_STORE_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(failure.code()) || attempt==governance.maxAttempts())throw failure;
+                long delay=Math.min(governance.retryMaxDelaySeconds(),attempt*(long)governance.retryStepSeconds())*1000;
+                delay=Math.min(delay,Math.max(0,Duration.between(Instant.now(),job.deadline()).toMillis()));
+                var wake=new java.util.concurrent.CountDownLatch(1);
+                try(var registration=token.onCancel(wake::countDown)){wake.await(delay,java.util.concurrent.TimeUnit.MILLISECONDS);}
+                catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new AgentException("CANCELLED","Reduction interrupted");}
+                control.checkpoint();
+            }
+        }
+    }
+    private void finishLevel(FeedbackJobStore.Job job,CallControl control) {
         if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;
-        if(pipeline(job.request())){finishPipeline(job);return;}
-        if(job.snapshot().counts().total()==0){saveAsset(job,List.of());return;}
+        if(pipeline(job.request())){finishPipeline(job,control);return;}
+        if(job.snapshot().counts().total()==0){saveAsset(job,List.of(),control);return;}
         var rows=store.completedLevel(job.id(),0);
         if(rows.isEmpty())return;
         if(store.hasLevel(job.id(),1)){
@@ -184,17 +203,17 @@ public final class FeedbackAnalysisService {
             var root=objects.get(rows.get(0).result(),ResultNode.class);
             if(root.covered()!=job.snapshot().counts().total() || root.authorCovered()!=job.snapshot().counts().authorComments()+job.snapshot().counts().authorDanmaku())
                 throw new AgentException("INVALID_ANALYSIS","Root coverage differs from snapshot");
-            saveAsset(job,List.of(rows.get(0).result()));return;
+            saveAsset(job,List.of(rows.get(0).result()),control);return;
         }
         // One deterministic fold by stable topic key. Historical leaf detail stays in its own result object.
         var children=new ArrayList<Topic>();
         for(var row:rows)children.addAll(objects.get(row.result(),ResultNode.class).topics());
         // Store references and weights, not another potentially huge copy of all accepted prose.
         var compact=children.stream().map(t->new Topic(t.id(),t.title(),"","",t.members(),t.messages(),t.authorMessages())).toList();
-        store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),compact,null))));
+        store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),compact,null),control)));
     }
-    private void finishPipeline(FeedbackJobStore.Job job) {
-        if(job.snapshot().counts().total()==0){saveAsset(job,List.of());return;}
+    private void finishPipeline(FeedbackJobStore.Job job,CallControl control) {
+        if(job.snapshot().counts().total()==0){saveAsset(job,List.of(),control);return;}
         int level=0;while(store.hasLevel(job.id(),level+1))level++;
         var rows=store.completedLevel(job.id(),level);if(rows.isEmpty())return;
         if(FeedbackCompression.FIVE_VERSION.equals(job.request().rulesVersion()) && level==0){
@@ -204,18 +223,18 @@ public final class FeedbackAnalysisService {
             if(models.representativeReviewEnabled()){
                 var children=new ArrayList<Topic>();var groups=new ArrayList<Group>();
                 for(var row:rows){children.addAll(objects.get(row.result(),ResultNode.class).topics());groups.addAll(objects.get(row.input(),Input.class).groups());}
-                store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,groups,children,job.video()))));
-            }else saveAsset(job,roots);return;
+                store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,groups,children,job.video()),control)));
+            }else saveAsset(job,roots,control);return;
         }
         if(rows.size()==1 && level>0){
             var result=objects.get(rows.get(0).result(),ResultNode.class);
             if(result.covered()!=job.snapshot().counts().total() || result.authorCovered()!=job.snapshot().counts().authorComments()+job.snapshot().counts().authorDanmaku())
                 throw new AgentException("INVALID_ANALYSIS","Report synthesis coverage differs from shared snapshot");
-            saveAsset(job,List.of(rows.get(0).result()));return;
+            saveAsset(job,List.of(rows.get(0).result()),control);return;
         }
         if(level>=16)throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Report reduction exceeded bounded depth");
         var children=new ArrayList<Topic>();for(var row:rows)children.addAll(objects.get(row.result(),ResultNode.class).topics());
-        var inputs=FeedbackSynthesis.batches(children,objects::bytes).stream().map(input->objects.put(job.id(),input)).toList();
+        var inputs=FeedbackSynthesis.batches(children,objects::bytes).stream().map(input->objects.put(job.id(),input,control)).toList();
         store.planLevel(job.id(),job.version(),level+1,inputs);
     }
     static Correction nextCorrection(Input input,Correction correction){int round=input.correction()==null?1:input.correction().round()==0?0:input.correction().round()+1;return new Correction(correction.previousTopics(),correction.missing(),correction.duplicates(),correction.unknown(),correction.issue(),round);}
@@ -238,11 +257,11 @@ public final class FeedbackAnalysisService {
                     rows.stream().mapToLong(Topic::authorMessages).reduce(0,Math::addExact));
         }).toList();
     }
-    private void saveAsset(FeedbackJobStore.Job j,List<Blob> roots) {
+    private void saveAsset(FeedbackJobStore.Job j,List<Blob> roots,CallControl control) {
         var batches=store.completedLevel(j.id(),0).stream().map(w->objects.get(w.result(),ResultNode.class)).toList();
         var asset=new Asset(j.id(),j.runId(),j.owner().tenantId(),j.owner().userId(),j.request(),j.snapshot(),roots,j.model(),j.policyHash(),j.video(),
                 batches.stream().map(b->b.topics().size()).toList());
-        if(store.ready(j.id(),j.version(),objects.put(j.id(),asset))){completed.put(cacheKey(j),batches);directory.invalidate(j.id());}
+        if(store.ready(j.id(),j.version(),objects.put(j.id(),asset,control))){completed.put(cacheKey(j),batches);directory.invalidate(j.id());}
     }
     public Asset asset(UUID id,AccessScope caller,Request expected) {
         var j=owned(id,caller);if(j.phase()!=Phase.READY || j.asset()==null)throw new AgentException("ANALYSIS_NOT_READY","Analysis is not complete");

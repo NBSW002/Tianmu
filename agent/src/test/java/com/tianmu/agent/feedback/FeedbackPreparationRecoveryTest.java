@@ -49,6 +49,17 @@ class FeedbackPreparationRecoveryTest {
     FeedbackAnalysisService analysis(){return new FeedbackAnalysisService(jobs,objects(),source,models,FeedbackPolicy.defaults());}
     FeedbackPreparationService preparation(FeedbackAnalysisService analysis){return new FeedbackPreparationService(analysis,work,objects(),FeedbackPolicy.defaults(),new FeedbackClusters(null,null));}
     CallControl control(){return new CallControl(Instant.now().plusSeconds(30),new CancellationToken());}
+    @Test void reductionReadRecoversWithoutRepeatingCompletedModelCalls(){
+        var service=analysis();var prep=preparation(service);UUID run=UUID.randomUUID();
+        var job=prep.request(run,owner,request,video,control().deadline(),Source.COMMENT);prep.request(run,owner,request,video,job.deadline(),Source.DANMAKU);
+        for(var step:FeedbackPreparationStore.Step.values())prep.advance(job.id(),step,new CancellationToken());prep.startReport(job.id(),owner,control());
+        for(int i=0;i<10 && jobs.completedLevel(job.id(),0).size()<2;i++)service.advance(job.id());
+        assertEquals(2,jobs.completedLevel(job.id(),0).size());int calls=inputs.size();
+        readFailures.set(1);assertTrue(service.advance(job.id(),new CancellationToken(),()->{}).isEmpty());
+        assertEquals(calls,inputs.size());assertTrue(MemoryFeedbackJobStore.active(jobs.get(job.id()).phase()));assertEquals(0,readFailures.get());
+        for(int i=0;i<10 && jobs.get(job.id()).phase()!=Phase.READY;i++)service.advance(job.id());
+        assertEquals(Phase.READY,jobs.get(job.id()).phase());assertEquals(3,jobs.get(job.id()).modelCalls());
+    }
 
     @Test void seededParallelReadsOverlapWithoutEarlyMergeOrMissingEvidence()throws Exception {
         var entered=new java.util.concurrent.CountDownLatch(2);var release=new java.util.concurrent.CountDownLatch(1);
