@@ -1,21 +1,21 @@
 # EchoFrame 前端
 
-Vue 3 视频平台与 EchoFrame 运营助手，与仓库根目录的业务后端、`agent/` 协作。
+Vue 3 视频平台与 EchoFrame 个人助手，与仓库根目录的业务后端、`agent/` 协作。
 
 对外标题由 `vue.config.js` 的页面title设置。按用户最新要求，标签页图标使用B站公开首页favicon，页面引用 `public/bilibili-favicon-v1.ico`，同时同步 `public/favicon.ico`。替换图标时更新文件名及 `public/index.html` 引用，避免浏览器复用旧缓存。横幅与图标的原始地址见 `src/assets/img/home/README.md`。
 
-首页使用荷塘横幅、叠加导航、双排频道与响应式推荐网格；视频卡片和轮播均使用本项目数据。已有分区跳转真实categoryId，其余话题入口进入带关键词的视频搜索，不创建虚构分区。换一换重新请求第一页并轮换该页顺序，保留后续分页顺序；搜索允许游客访问，投稿和个人入口沿用登录校验。
+首页使用 EchoFrame 横幅、频道导航与响应式推荐网格；视频卡片和轮播均使用本项目数据。已有分区跳转真实categoryId，其余话题入口进入带关键词的视频搜索，不创建虚构分区。换一换重新请求第一页并轮换该页顺序，保留后续分页顺序；搜索允许游客访问，投稿和个人入口沿用登录校验。
 
-## Trace Studio 第一版
+## Trace Studio
 
 安装依赖并运行 `npm run serve` 后，打开开发服务器的 `/trace`（默认 `http://localhost:8080/trace`）。该页面无需登录和后端，可单独验收前端交互。
 
-- 深色三栏布局：运行信息、可缩放平移的调用图、节点详情。
+- 三栏布局：运行信息、可缩放平移的调用图、节点详情。
 - 点击调用图、节点列表或时间线中的节点，联动查看输入、输出、耗时、状态、Token 和原始属性。
 - 下拉切换正常完成、工具超时两份**合成演示日志**；演示数据不作为场景 C 的实验结果。
 - 支持导入 Tianmu TraceEnvelope JSON 数组、JSONL，以及 `{ "spans": [...], "details": { "spanId": { "input": ..., "output": ... } } }` 格式。日志在浏览器本地解析，不上传。
 - 原始 JSONL 只有元数据和私有详情引用时，页面明确显示“未提供”，不会加载其他运行的演示输入输出。可用“下载示例日志”查看包含详情的格式。
-- 本版尚未连接在线 Trace 查询或详情接口。运行级 Token 使用汇总口径，不与子节点用量重复相加；缺失 Token 不记为 0，OTel `UNSET` 不记为业务成功。
+- 登录用户可按 Trace ID 在线查询已授权的运行和详情；离线示例与本地导入仍可独立使用。运行级 Token 使用汇总口径，不与子节点用量重复相加；缺失 Token 不记为 0，OTel `UNSET` 不记为业务成功。
 
 核心代码：`src/views/trace/TraceWorkspace.vue`、`src/components/trace/` 和 `src/trace/`。数据解析检查包含在 `npm run test:agent` 中。
 

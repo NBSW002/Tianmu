@@ -9,7 +9,7 @@
 | 方式 | 必要依赖 | 可选接入 |
 | --- | --- | --- |
 | Agent Demo | JDK 17、Maven 3.6.3+ | 无需模型 Key 或中间件 |
-| Trace Studio | Node.js 22、npm | 导入真实 Trace 文件；无需后端 |
+| Trace Studio | Node.js 22、npm | 离线示例和文件导入无需后端；在线查询需登录网站 |
 | 完整视频社区 | JDK 17、Maven、Node.js、MySQL、Redis、MinIO、Elasticsearch（IK）、RocketMQ、Canal | 创作者 Agent 与模型服务 |
 | 真实创作者 Agent | 业务后端与登录、文本模型凭据；持久化模式另需 Agent 专用 MySQL、Redis 与私有对象存储 | 画面理解需 FFmpeg / ffprobe 与视觉模型；转写单独配置；Kafka / ClickHouse 用于可选 Trace 存储 |
 
@@ -66,7 +66,7 @@ npm run serve
 
 打开终端显示的开发服务器地址，访问 `/trace`，通常为 `http://localhost:8080/trace`。页面内置演示日志，也支持导入真实的 JSON / JSONL 日志；文件在浏览器本地解析。
 
-当前版本提供离线可视化，尚未连接在线 Trace 查询。更多说明见[前端文档](../front/README.md)。
+离线示例与文件导入无需后端；连接网站并登录后，可按 Trace ID 查询本人有权查看的运行。更多说明见[前端文档](../front/README.md)。
 
 ## 方式三：运行完整网站
 
