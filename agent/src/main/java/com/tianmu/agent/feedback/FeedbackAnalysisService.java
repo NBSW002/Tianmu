@@ -150,7 +150,7 @@ public final class FeedbackAnalysisService {
                 if(accepted && !cacheHit && reuseKey!=null && proposals.stream().noneMatch(p->p.selection()!=null && "EXCLUDED".equals(p.selection().coherence())))resultCache.put(reuseKey,j,input,proposals,reuseLease);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return Optional.empty();
             }
-            finishWithRecovery(id,token);
+            finishWithRecovery(j,token);
         } catch(FeedbackCorrectionException e) {
             com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",false,"analysis.validation_issue",e.correction().issue()));
             if(token.cancelled())store.cancel(id);
@@ -171,17 +171,15 @@ public final class FeedbackAnalysisService {
         return Optional.empty();
     }
     /** Retry deterministic reduction only, never a paid model call. */
-    private void finishWithRecovery(UUID id,CancellationToken token){
+    private void finishWithRecovery(FeedbackJobStore.Job initial,CancellationToken token){
+        var control=new CallControl(initial.deadline(),token).withDispatchBarrier(()->source.authorize(initial.owner(),initial.request().query().videoId()));
         for(int attempt=1;attempt<=governance.maxAttempts();attempt++){
-            var job=store.get(id);if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;
-            var control=new CallControl(job.deadline(),token).withDispatchBarrier(()->source.authorize(job.owner(),job.request().query().videoId()));control.checkpoint();
-            if(!Instant.now().isBefore(job.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Reduction deadline exceeded");
-            source.authorize(job.owner(),job.request().query().videoId());
-            try{finishLevel(job,control);return;}
+            reductionBarrier(control);
+            try{var job=store.get(initial.id());if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;finishLevel(job,control);return;}
             catch(AgentException failure){
                 if(!Set.of("OBJECT_STORE_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(failure.code()) || attempt==governance.maxAttempts())throw failure;
                 long delay=Math.min(governance.retryMaxDelaySeconds(),attempt*(long)governance.retryStepSeconds())*1000;
-                delay=Math.min(delay,Math.max(0,Duration.between(Instant.now(),job.deadline()).toMillis()));
+                delay=Math.min(delay,Math.max(0,Duration.between(Instant.now(),initial.deadline()).toMillis()));
                 var wake=new java.util.concurrent.CountDownLatch(1);
                 try(var registration=token.onCancel(wake::countDown)){wake.await(delay,java.util.concurrent.TimeUnit.MILLISECONDS);}
                 catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new AgentException("CANCELLED","Reduction interrupted");}
@@ -189,6 +187,7 @@ public final class FeedbackAnalysisService {
             }
         }
     }
+    private static void reductionBarrier(CallControl control){control.beforeDispatch();if(!Instant.now().isBefore(control.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Reduction deadline exceeded");}
     private void finishLevel(FeedbackJobStore.Job job,CallControl control) {
         if(job==null || !MemoryFeedbackJobStore.active(job.phase()))return;
         if(pipeline(job.request())){finishPipeline(job,control);return;}
@@ -210,7 +209,7 @@ public final class FeedbackAnalysisService {
         for(var row:rows)children.addAll(objects.get(row.result(),ResultNode.class).topics());
         // Store references and weights, not another potentially huge copy of all accepted prose.
         var compact=children.stream().map(t->new Topic(t.id(),t.title(),"","",t.members(),t.messages(),t.authorMessages())).toList();
-        store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),compact,null),control)));
+        var prepared=objects.put(job.id(),new Input(WorkKind.MERGE,List.of(),compact,null),control);reductionBarrier(control);store.planLevel(job.id(),job.version(),1,List.of(prepared));
     }
     private void finishPipeline(FeedbackJobStore.Job job,CallControl control) {
         if(job.snapshot().counts().total()==0){saveAsset(job,List.of(),control);return;}
@@ -223,7 +222,7 @@ public final class FeedbackAnalysisService {
             if(models.representativeReviewEnabled()){
                 var children=new ArrayList<Topic>();var groups=new ArrayList<Group>();
                 for(var row:rows){children.addAll(objects.get(row.result(),ResultNode.class).topics());groups.addAll(objects.get(row.input(),Input.class).groups());}
-                store.planLevel(job.id(),job.version(),1,List.of(objects.put(job.id(),new Input(WorkKind.MERGE,groups,children,job.video()),control)));
+                var prepared=objects.put(job.id(),new Input(WorkKind.MERGE,groups,children,job.video()),control);reductionBarrier(control);store.planLevel(job.id(),job.version(),1,List.of(prepared));
             }else saveAsset(job,roots,control);return;
         }
         if(rows.size()==1 && level>0){
@@ -235,7 +234,7 @@ public final class FeedbackAnalysisService {
         if(level>=16)throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Report reduction exceeded bounded depth");
         var children=new ArrayList<Topic>();for(var row:rows)children.addAll(objects.get(row.result(),ResultNode.class).topics());
         var inputs=FeedbackSynthesis.batches(children,objects::bytes).stream().map(input->objects.put(job.id(),input,control)).toList();
-        store.planLevel(job.id(),job.version(),level+1,inputs);
+        reductionBarrier(control);store.planLevel(job.id(),job.version(),level+1,inputs);
     }
     static Correction nextCorrection(Input input,Correction correction){int round=input.correction()==null?1:input.correction().round()==0?0:input.correction().round()+1;return new Correction(correction.previousTopics(),correction.missing(),correction.duplicates(),correction.unknown(),correction.issue(),round);}
     static Map<String,Object> correctionAttributes(Input input){var c=input.correction();if(c==null)return Map.of("correction.state","NOT_APPLICABLE");var attrs=new HashMap<String,Object>();attrs.put("correction.state","REQUESTED");attrs.put("correction.kind",c.issue().startsWith("REPRESENTATIVE_")?"THEME_REVIEW":"ANALYSIS_VALIDATION");attrs.put("correction.round_state",c.round()==0?"LEGACY_UNKNOWN":"RECORDED");if(c.round()>0)attrs.put("correction.round",c.round());return attrs;}
@@ -261,7 +260,8 @@ public final class FeedbackAnalysisService {
         var batches=store.completedLevel(j.id(),0).stream().map(w->objects.get(w.result(),ResultNode.class)).toList();
         var asset=new Asset(j.id(),j.runId(),j.owner().tenantId(),j.owner().userId(),j.request(),j.snapshot(),roots,j.model(),j.policyHash(),j.video(),
                 batches.stream().map(b->b.topics().size()).toList());
-        if(store.ready(j.id(),j.version(),objects.put(j.id(),asset,control))){completed.put(cacheKey(j),batches);directory.invalidate(j.id());}
+        var prepared=objects.put(j.id(),asset,control);reductionBarrier(control);
+        if(store.ready(j.id(),j.version(),prepared)){completed.put(cacheKey(j),batches);directory.invalidate(j.id());}
     }
     public Asset asset(UUID id,AccessScope caller,Request expected) {
         var j=owned(id,caller);if(j.phase()!=Phase.READY || j.asset()==null)throw new AgentException("ANALYSIS_NOT_READY","Analysis is not complete");
