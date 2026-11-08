@@ -9,6 +9,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.util.ReflectionTestUtils;
 import java.util.Base64;
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -62,6 +63,15 @@ class JWTInterceptorTest {
         request.setAttribute(CurrentUser.ATTRIBUTE, 2L);
         assertTrue(interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
         assertNull(request.getAttribute(CurrentUser.ATTRIBUTE)); verifyNoInteractions(values);
+    }
+
+    @Test void onlyExactVectorServiceEndpointsSkipUserSession() throws Exception {
+        for(String path:List.of("/api/internal/agent/vector-work/claim", "/api/internal/agent/vector-work/snapshot", "/api/internal/agent/vector-work/complete")){
+            var request=request("");request.setRequestURI(path);request.setAttribute(CurrentUser.ATTRIBUTE,2L);
+            assertTrue(interceptor.preHandle(request,new MockHttpServletResponse(),new Object()));assertNull(request.getAttribute(CurrentUser.ATTRIBUTE));
+        }
+        var request=request("");request.setRequestURI("/api/internal/agent/vector-work/other");
+        assertFalse(interceptor.preHandle(request,new MockHttpServletResponse(),new Object()));
     }
 
     @Test void missingOrInvalidTokenCannotPopulateIdentity() throws Exception {

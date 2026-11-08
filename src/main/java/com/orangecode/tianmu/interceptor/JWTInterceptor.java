@@ -49,6 +49,9 @@ public class JWTInterceptor implements HandlerInterceptor {
         // Public image URLs are restricted by MediaController to registered image files.
         if (request.getRequestURI().startsWith("/api/media/")) return true;
 
+        // These private endpoints authenticate their dedicated service token in the controller.
+        if (List.of("/api/internal/agent/vector-work/claim", "/api/internal/agent/vector-work/snapshot", "/api/internal/agent/vector-work/complete").contains(request.getRequestURI())) return true;
+
         if (excludePaths.contains(request.getRequestURI())) {
             return true;
         }
