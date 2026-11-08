@@ -20,22 +20,22 @@ public final class MemoryTypes {
     public record Compaction(UUID id,long revision,long fromSequence,long throughSequence,int messageCount,Map<String,Object> content){
         public Compaction { content=ImmutablePayload.map(content); }
     }
-    public record View(long version, String olderSummary, List<Message> recent, boolean truncated, String boundary,
+    public record View(long version, String olderSummary, List<Message> recent, boolean truncated,
                        RequestContext environment, Focus focus,List<Persistent> persistent,List<Compaction> compaction) {
-        public View(long version,String summary,List<Message> recent,boolean truncated,String boundary,RequestContext environment,Focus focus,List<Persistent> persistent){this(version,summary,recent,truncated,boundary,environment,focus,persistent,List.of());}
-        public View(long version,String summary,List<Message> recent,boolean truncated,String boundary,RequestContext environment,Focus focus) {
-            this(version,summary,recent,truncated,boundary,environment,focus,List.of());
+        public View(long version,String summary,List<Message> recent,boolean truncated,RequestContext environment,Focus focus,List<Persistent> persistent){this(version,summary,recent,truncated,environment,focus,persistent,List.of());}
+        public View(long version,String summary,List<Message> recent,boolean truncated,RequestContext environment,Focus focus) {
+            this(version,summary,recent,truncated,environment,focus,List.of());
         }
-        public View(long version, String summary, List<Message> recent, boolean truncated, String boundary) {
-            this(version, summary, recent, truncated, boundary, null, null);
+        public View(long version, String summary, List<Message> recent, boolean truncated) {
+            this(version, summary, recent, truncated, null, null);
         }
         public View { recent = List.copyOf(recent);persistent=persistent==null?List.of():List.copyOf(persistent);compaction=compaction==null?List.of():List.copyOf(compaction); }
         public View withContext(RequestContext environment, Focus focus) {
-            return new View(version, olderSummary, recent, truncated, boundary, environment, focus,persistent,compaction);
+            return new View(version, olderSummary, recent, truncated, environment, focus,persistent,compaction);
         }
-        public View withPersistent(List<Persistent> value){return new View(version,olderSummary,recent,truncated,boundary,environment,focus,value,compaction);}
-        public View withRecent(List<Message> value){return new View(version,olderSummary,value,truncated,boundary,environment,focus,persistent,compaction);}
-        public View withCompaction(List<Compaction> value){return new View(version,olderSummary,recent,truncated,boundary,environment,focus,persistent,value);}
-        public static View empty() { return new View(0, "", List.of(), false, ""); }
+        public View withPersistent(List<Persistent> value){return new View(version,olderSummary,recent,truncated,environment,focus,value,compaction);}
+        public View withRecent(List<Message> value){return new View(version,olderSummary,value,truncated,environment,focus,persistent,compaction);}
+        public View withCompaction(List<Compaction> value){return new View(version,olderSummary,recent,truncated,environment,focus,persistent,value);}
+        public static View empty() { return new View(0, "", List.of(), false); }
     }
 }

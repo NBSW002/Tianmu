@@ -61,7 +61,7 @@ public final class HarnessContextBuilder {
         List<Map<String,Object>> out=new ArrayList<>();
         for(var prior:history) if(Set.of("user","assistant").contains(prior.role())) out.add(message(prior.role(),prior.text()));
         var parts=new ArrayList<ContextEnvelope.Part>();
-        parts.add(part(ContextEnvelope.Slot.SYSTEM_PROMPT,Map.of("text",instruction+"\n用户负向情绪只影响回应语气，不改变事实、任务条件或权限。能力识别仅描述目标，关联目标不自动增加分析来源，仍按注册能力和确认条件执行。")));
+        parts.add(part(ContextEnvelope.Slot.SYSTEM_PROMPT,Map.of("text",instruction)));
         if(!context.availableTools().isEmpty())parts.add(part(ContextEnvelope.Slot.TOOL_CATALOG,Map.of("tools",data(context.availableTools()))));
         var index=new TreeMap<String,Map<String,Object>>();
         if(context.preparation()!=null && context.preparation().recognition()!=null)

@@ -10,28 +10,23 @@
     "path": "common/json-output.md"
   },
   {
-    "id": "common.current-focus-boundary",
-    "version": "2.1.1",
-    "path": "common/current-focus-boundary.md"
-  },
-  {
     "id": "preparation.emotion",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "path": "preparation/emotion.md"
   },
   {
     "id": "preparation.intent",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "path": "preparation/intent.md"
   },
   {
     "id": "preparation.understanding",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "path": "preparation/understanding.md"
   },
   {
     "id": "harness.system",
-    "version": "6.1.1",
+    "version": "7.0.1",
     "path": "harness/system.md"
   },
   {

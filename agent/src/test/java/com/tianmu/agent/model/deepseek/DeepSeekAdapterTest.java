@@ -279,7 +279,7 @@ class DeepSeekAdapterTest {
     }
     @Test void bothPreparationAndHarnessSendCompactedHistoryWithoutMutatingSource() throws Exception {
         var bounded = new DeepSeekClient(properties, mapper, new com.tianmu.agent.model.ContextPolicy(98304, 256));
-        var memory = new com.tianmu.agent.core.MemoryTypes.View(1, "old".repeat(2000), List.of(), false, "untrusted");
+        var memory = new com.tianmu.agent.core.MemoryTypes.View(1, "old".repeat(2000), List.of(), false);
         var adapters = new DeepSeekAdapters();
         answer = request -> request.path("model").asText().equals(properties.preparationModel())
                 ? "{\"emotion\":\"NEUTRAL\"}" : "{\"kind\":\"CLARIFY\",\"clarification\":\"Which date?\"}";

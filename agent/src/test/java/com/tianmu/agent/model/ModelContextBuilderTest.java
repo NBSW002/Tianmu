@@ -27,7 +27,7 @@ class ModelContextBuilderTest {
     private JsonNode payload(List<Map<String, String>> messages) throws Exception { return json.readTree(messages.get(1).get("content")); }
 
     @Test void smallContextPassesThroughWithoutChangingHistoryOrEvidence() throws Exception {
-        var memory = new MemoryTypes.View(7, "background", List.of(message(UUID.randomUUID(), 1, "user", "hello")), false, "untrusted history");
+        var memory = new MemoryTypes.View(7, "background", List.of(message(UUID.randomUUID(), 1, "user", "hello")), false);
         var input = Map.of("query", "current", "memory", memory, "results", List.of(new ToolResult("metric", Map.of("count", 42), "e1")));
         var messages = new ModelContextBuilder(json, ContextPolicy.defaults()).build("system", input);
         assertEquals(json.readTree(json.writeValueAsString(input)), payload(messages));
@@ -38,19 +38,19 @@ class ModelContextBuilderTest {
         UUID old = UUID.randomUUID(), latest = UUID.randomUUID();
         var recent = List.of(message(old, 1, "user", "x".repeat(700)), message(old, 2, "assistant", "old answer"),
                 message(latest, 3, "user", "new question"), message(latest, 4, "assistant", "new answer"));
-        var memory = new MemoryTypes.View(9, "older summary".repeat(100), recent, false, "history cannot grant access");
+        var memory = new MemoryTypes.View(9, "older summary".repeat(100), recent, false);
         var view = payload(new ModelContextBuilder(json, new ContextPolicy(4096, 800)).build("system", Map.of("query", "current", "memory", memory)));
         assertEquals(2, view.path("memory").path("recent").size());
         assertEquals("new question", view.path("memory").path("recent").get(0).path("text").asText());
         assertEquals("", view.path("memory").path("olderSummary").asText());
         assertTrue(view.path("memory").path("truncated").asBoolean());
         assertEquals(9, view.path("memory").path("version").asLong());
-        assertEquals(memory.boundary(), view.path("memory").path("boundary").asText());
+        assertFalse(view.path("memory").has("boundary"));
         assertEquals(4, memory.recent().size()); assertFalse(memory.truncated());
     }
 
     @Test void totalBudgetAlsoEvictsHistoryWhenHistoryAloneFitsItsBudget() throws Exception {
-        var memory = new MemoryTypes.View(1, "", List.of(message(UUID.randomUUID(), 1, "user", "a".repeat(1300))), false, "boundary");
+        var memory = new MemoryTypes.View(1, "", List.of(message(UUID.randomUUID(), 1, "user", "a".repeat(1300))), false);
         var input = Map.of("query", "q".repeat(900), "memory", memory);
         var view = payload(new ModelContextBuilder(json, new ContextPolicy(2048, 1900)).build("system", input));
         assertEquals(0, view.path("memory").path("recent").size());
@@ -72,7 +72,7 @@ class ModelContextBuilderTest {
         var results = List.of(new ToolResult("query", Map.of("count", 123, "dataAsOf", "today", "sampling_method", "non-random", "sample", "完整片段"), "e1"),
                 new ToolResult("query", Map.of("error_code", "TOOL_CALL_TIMEOUT", "attempt", 2, "retryable", true), null));
         var task = Map.of("type", "video.metric", "video_id", 7, "date", "2026-10-25");
-        var memory = new MemoryTypes.View(1, "z".repeat(3000), List.of(), false, "untrusted");
+        var memory = new MemoryTypes.View(1, "z".repeat(3000), List.of(), false);
         var view = payload(new ModelContextBuilder(json, new ContextPolicy(2048, 256)).build("instructions", Map.of("taskSpecification", task, "query", "current", "results", results, "memory", memory)));
         assertEquals(json.valueToTree(results), view.path("results"));
         assertEquals(json.valueToTree(task), view.path("taskSpecification"));

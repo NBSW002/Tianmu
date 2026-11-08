@@ -16,7 +16,7 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
     private final PromptCatalog prompts;
     DeepSeekPreparationModel(DeepSeekClient client, DeepSeekProperties config, ObjectMapper mapper, PromptCatalog prompts) {
         this.client = client; this.config = config; this.mapper = mapper;this.prompts=prompts;
-        String common = "\n\n" + prompts.text("common.current-focus-boundary") + "\n\n" + prompts.text("common.json-output");
+        String common = "\n\n" + prompts.text("common.json-output");
         emotionPrompt = prompts.text("preparation.emotion") + common;
         understandingPrompt = prompts.text("preparation.understanding") + common;
         intentPrompt = prompts.text("preparation.intent") + common;
@@ -33,7 +33,7 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
             if(!"AMBIGUOUS_ANALYSIS_SOURCES".equals(ambiguous.code()))throw ambiguous;
             payload.put("serverTaskCandidate",Map.of("type","unclassified","requiresClarification",true));
         }
-        return prompts.trace(id,variant,prompt,java.util.List.of("common.current-focus-boundary","common.json-output"),()->client.complete(config.preparationModel(), client.messages(prompt, payload,control), tokens, control));
+        return prompts.trace(id,variant,prompt,java.util.List.of("common.json-output"),()->client.complete(config.preparationModel(), client.messages(prompt, payload,control), tokens, control));
     }
     @Override public String revision() {
         try {

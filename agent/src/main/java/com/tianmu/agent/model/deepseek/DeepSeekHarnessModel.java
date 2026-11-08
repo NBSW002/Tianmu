@@ -14,11 +14,11 @@ public final class DeepSeekHarnessModel implements ModelPort {
     private final DeepSeekClient client;
     private final DeepSeekProperties config;
     private final ObjectMapper mapper;
-    private final String systemPrompt, focusPrompt;
+    private final String systemPrompt;
     private final PromptCatalog prompts;
     public DeepSeekHarnessModel(DeepSeekClient client, DeepSeekProperties config, ObjectMapper mapper, PromptCatalog prompts) {
         this.client = client; this.config = config; this.mapper = mapper;this.prompts=prompts;
-        focusPrompt = prompts.text("common.current-focus-boundary"); systemPrompt = prompts.text("harness.system");
+        systemPrompt = prompts.text("harness.system");
     }
     public boolean streamsText(){return true;}
     public String modelName() { return config.harnessModel(); }
@@ -26,12 +26,12 @@ public final class DeepSeekHarnessModel implements ModelPort {
         return decide(context, new CallControl(Instant.now().plusSeconds(30), new CancellationToken()));
     }
     public Decision decide(ModelContext context, CallControl control) {
-        String prompt = systemPrompt + "\n\n" + focusPrompt;
+        String prompt = systemPrompt;
         String requiredTool=context.finalizing() || context.availableTools().isEmpty()?null:com.tianmu.agent.application.ResourceSelection.requiredTool(context);
         if("read_skill".equals(requiredTool))prompt+="\n本轮先读取 resource-discovery Skill，以开放已有报告读取工具。";
         if("read_report".equals(requiredTool))prompt+="\n已有报告链接已在当前问题或历史工具结果中给出，不要再搜索历史。提取该链接的 run_id 与 artifact_id，读取报告；回答选题与结论时读取 topics。";
         if("ask_clarification".equals(requiredTool))prompt+="\n当前可读历史已检索结束，没有找到可验证的报告引用。请用户提供报告链接，不猜测报告编号。";
-        String effective=prompt;JsonNode result = prompts.trace("harness.system",context.finalizing()?"FINALIZE":requiredTool==null?"NATIVE_TOOLS":"RESOURCE_REQUIRED",effective,List.of("common.current-focus-boundary"),()->client.completeHarness(config.harnessModel(), client.harnessMessages(effective,context,control),context.availableTools(), config.harnessMaxTokens(), control,requiredTool));
+        String effective=prompt;JsonNode result = prompts.trace("harness.system",context.finalizing()?"FINALIZE":requiredTool==null?"NATIVE_TOOLS":"RESOURCE_REQUIRED",effective,List.of(),()->client.completeHarness(config.harnessModel(), client.harnessMessages(effective,context,control),context.availableTools(), config.harnessMaxTokens(), control,requiredTool));
         try {
             if(result.path("tool_calls").isArray()) {
                 var calls=result.path("tool_calls");

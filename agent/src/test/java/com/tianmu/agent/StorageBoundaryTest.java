@@ -67,7 +67,7 @@ class StorageBoundaryTest {
         var source = history(10, 50); var view = new MemoryBuilder().build(7, source);
         assertEquals(20, source.size()); assertEquals(4, view.recent().size());
         assertEquals(17, view.recent().get(0).sequence()); assertEquals(7, view.version());
-        assertTrue(view.olderSummary().isBlank()); assertTrue(view.boundary().contains("CURRENT_FOCUS_BOUNDARY"));
+        assertTrue(view.olderSummary().isBlank());
         assertThrows(UnsupportedOperationException.class, () -> view.recent().clear());
     }
     @Test void rawHistoryAlsoHonorsTheTotalCharacterLimitWithoutSplittingPairs() {

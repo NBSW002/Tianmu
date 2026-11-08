@@ -57,7 +57,7 @@ class NativeToolHistoryTest {
         var exchanges=List.of(new ToolExchange(new ToolCall(first.tool(),Map.of(),"q1","batch"),first),
                 new ToolExchange(new ToolCall(video.tool(),Map.of("video_id",1001),"v1","batch"),video),
                 new ToolExchange(new ToolCall(last.tool(),Map.of("offset",0,"evidence_id","ev_a","section","topics"),"r1"),last));
-        var turn=UUID.randomUUID();var memory=new MemoryTypes.View(1,"",List.of(new MemoryTypes.Message(UUID.randomUUID(),turn,1,"user","old question",Instant.now())),false,"");
+        var turn=UUID.randomUUID();var memory=new MemoryTypes.View(1,"",List.of(new MemoryTypes.Message(UUID.randomUUID(),turn,1,"user","old question",Instant.now())),false);
         var context=context(List.of(first,video,last),exchanges,memory);String original=json.writeValueAsString(context);
         var messages=new HarnessContextBuilder(json,new ContextPolicy(4096,0)).build("rules",context);
         assertEquals(List.of("q1","v1","r1"),replyIds(messages));paired(messages);

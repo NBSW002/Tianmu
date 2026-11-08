@@ -51,7 +51,7 @@ public final class PreparationContextResolver {
         if(prior==null)prior=ConversationFocus.recover(memory.recent(),page);
         var focus=ConversationFocus.update(input.runId(),input.originalQuery(),page,prior);
         var projected=memory.focus()!=null && !Objects.equals(memory.focus().referenceVideoId(),focus.referenceVideoId())
-                ?new MemoryTypes.View(memory.version(),"",List.of(),true,memory.boundary(),page,focus):memory.withContext(page,focus);
+                ?new MemoryTypes.View(memory.version(),"",List.of(),true,page,focus):memory.withContext(page,focus);
         String query=discovery.isPresent() && page!=null?VideoDiscovery.analysisText(input.query()):input.query();
         boolean lookup=discovery.isPresent() && page==null || VideoDiscovery.historicalReport(input.query()) && !DanmakuTarget.matcher(input.query()).find();
         var specification=lookup?new Specification("resource.lookup",Map.of("selection_required",discovery.isPresent() && page==null && VideoDiscovery.requiresSelection(input.query()),
