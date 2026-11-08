@@ -18,11 +18,14 @@ public final class FeedbackObjects {
     @org.springframework.beans.factory.annotation.Autowired
     public FeedbackObjects(ObjectStore store, ObjectMapper json,FeedbackObjectIndex index, com.tianmu.agent.feedback.FeedbackRuntimeProperties governance) { this.governance=governance; this.store = store; this.json = json.copy().findAndRegisterModules();this.index=index; }
     public Blob put(UUID job, Object value) {
+        return put(job,value,null);
+    }
+    public Blob put(UUID job,Object value,com.tianmu.agent.runtime.control.CallControl control){
         try {
             byte[] body = json.writeValueAsBytes(value);
             String hash = sha(body), key = "fb_" + UUID.randomUUID().toString().replace("-", "") + ".json";
             var ref = new Blob(key, body.length, hash);index.register(job,ref);
-            com.tianmu.agent.harness.trace.IoTimings.measure(com.tianmu.agent.harness.trace.IoTimings.Kind.FEEDBACK_OBJECT,()->{store.put(key,body);return null;});return ref;
+            com.tianmu.agent.harness.trace.IoTimings.measure(com.tianmu.agent.harness.trace.IoTimings.Kind.FEEDBACK_OBJECT,()->{if(control==null)store.put(key,body);else store.put(key,body,control);return null;});return ref;
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new AgentException("INVALID_ANALYSIS", "Cannot encode analysis object"); }
     }
     public <T> T get(Blob ref, Class<T> type) {

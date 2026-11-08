@@ -1,7 +1,7 @@
 {
   "name": "audience-report",
-  "version": "5.0.0",
-  "description": "按冻结范围协调视频、弹幕与评论证据，完整阅读并综合后保存报告。",
+  "version": "5.1.0",
+  "description": "按冻结范围并行准备视频与反馈材料，分析有限代表后生成报告。",
   "tools": [
     "analyze_video_content",
     "analyze_feedback",

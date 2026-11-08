@@ -10,7 +10,7 @@ const protectedPayload = computed(() => props.value?.memoryProtected === true
   && /^[0-9a-f-]{36}$/i.test(props.value?.runId || '')
   && props.value.details === 'Read authorized memory references from the run memory endpoint'
   && Object.keys(props.value).sort().join(',') === 'details,memoryProtected,runId')
-const stateLabels = { DISABLED: '已关闭采集', CAPTURE_FAILED: '采集失败', LIMIT_REACHED: '已达采集上限', NOT_CAPTURED: '未采集', UNAVAILABLE: '内容不可用', TRUNCATED: '内容已截断', SOURCE_PROTECTED: '来源内容已保护', NOT_APPLICABLE: '本节点不适用' }
+const stateLabels = { DISABLED: '已关闭采集', CAPTURE_FAILED: '采集失败', LIMIT_REACHED: '已达采集上限', NOT_CAPTURED: '未采集', UNAVAILABLE: '内容不可用', TRUNCATED: '内容已截断', SOURCE_PROTECTED: '旧记录未保留正文', SOURCE_GUARDED: '查看时校验来源权限', NOT_APPLICABLE: '本节点不适用' }
 const content = computed(() => typeof props.value === 'string' ? props.value : JSON.stringify(props.value, null, 2))
 const tokens = computed(() => {
   if (props.value == null) return []

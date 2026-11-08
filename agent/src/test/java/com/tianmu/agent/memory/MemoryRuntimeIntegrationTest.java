@@ -69,7 +69,9 @@ class MemoryRuntimeIntegrationTest {
         assertTrue(runs.messages(consumer.sessionId,owner,Long.MAX_VALUE).stream().filter(m->m.role().equals("assistant")).noneMatch(m->m.text().contains("使用过该偏好")));
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM agent_memory_source WHERE tenant_id=? AND declaration<>''",Integer.class,owner.tenantId()));
     }
-    @Test void reasoningPayloadRequiresLiveMemoryAuthorityAndRejectsForgottenSource() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"reasoning","input","output","provider_output","error","prompt","code","execution"})
+    void payloadRequiresLiveMemoryAuthorityAndRejectsForgottenSource(String direction) throws Exception {
         owner=new AccessScope(owner.tenantId(),owner.userId(),owner.videoIds(),UUID.randomUUID().toString());
         var saved=store.create(owner,new Content(new Scope(ScopeType.VIDEO,"1001"),PersonalMemory.Kind.PREFERENCE,"先说明数据来源",null),"reasoning-root");
         var consumer=run("解释一下结果");ledger.begin(consumer);
@@ -78,10 +80,10 @@ class MemoryRuntimeIntegrationTest {
         try(var provider=io.opentelemetry.sdk.trace.SdkTracerProvider.builder().build()){
             var span=provider.get("test").spanBuilder("model.request").startSpan();
             try(var scope=traceDetails.bind(io.opentelemetry.context.Context.root().with(span),consumer.id).makeCurrent()){
-                com.tianmu.agent.harness.trace.TraceDetails.reasoning("按偏好先说明数据来源，邮箱 person@example.com");
+                com.tianmu.agent.harness.trace.TraceDetails.capture(direction,"按偏好先说明数据来源，邮箱 person@example.com","TEST");
             }
             span.end();
-            reference=((io.opentelemetry.sdk.trace.ReadableSpan)span).toSpanData().getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("detail.reasoning_ref"));
+            reference=((io.opentelemetry.sdk.trace.ReadableSpan)span).toSpanData().getAttributes().get(io.opentelemetry.api.common.AttributeKey.stringKey("detail."+direction+"_ref"));
         }
         assertNotNull(reference);var ref=reference.split("/");
         var fresh=new AccessScope(owner.tenantId(),owner.userId(),owner.videoIds(),UUID.randomUUID().toString());

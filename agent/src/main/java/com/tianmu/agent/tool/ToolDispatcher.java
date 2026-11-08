@@ -103,7 +103,7 @@ public class ToolDispatcher {
     }
     public boolean parallelSafe(ToolCall call,RunState run){
         var tool=registry.admit(call.name(),run.execution().activeSkills(),snapshotTools(run));
-        if(!tool.parallelSafe())return false;
+        if(!tool.parallelSafe() && !tool.parallelSubmission())return false;
         if(call.name().equals("read_result")){
             var e=run.execution().evidence().get(Objects.toString(call.arguments().get("result_id"),""));
             return e!=null && e.lookup()==null && e.feedback()==null;
@@ -120,6 +120,7 @@ public class ToolDispatcher {
         private final Map<String,Evidence> evidence;
         private final com.tianmu.agent.runtime.EvidenceContext policy;
         private final ToolContext context;
+        private com.tianmu.agent.core.PendingOperation submittedOperation;
         Branch(ToolCall call,RunState run,AgentTool tool){
             this.call=call;this.run=run;this.tool=tool;evidence=run.execution().evidence().snapshot();
             var owner=run.owner;var task=run.task();var date=run.businessDate;
@@ -145,6 +146,20 @@ public class ToolDispatcher {
                 public Evidence registerVideoEvidence(VideoContent.Facts f){return business.registerVideoEvidence(policy,f);}
                 public <T>T query(Function<CallControl,T> operation){return harness.toolCall(run,operation);}
                 public <T>T videoQuery(Function<CallControl,T> operation){return harness.videoToolCall(run,operation);}
+                public ToolResult prepareFeedbackMaterials(){
+                    if(!tool.parallelSubmission() || !tool.name().equals("prepare_feedback_materials") || preparation==null)
+                        throw new AgentException("TOOL_CAPABILITY_DENIED","Parallel material submission unavailable");
+                    var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(task.specification());
+                    com.tianmu.agent.application.FeedbackTaskPolicy.require(task.specification(),request);
+                    run.checkpoint();run.verifyMemory();
+                    if(!owner.videoIds().contains(request.query().videoId()))throw new AgentException("FORBIDDEN","Feedback video outside scope");
+                    var job=preparation.requestMaterials(run.id,owner,request,run.deadline());
+                    if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()) && !preparation.materialsReady(job.id()))
+                        throw new AgentException("ANALYSIS_NOT_READY","Material preparation cannot proceed");
+                    submittedOperation=com.tianmu.agent.core.PendingOperation.bounded(job.id(),"feedback-materials",job.deadline(),run.deadline());
+                    if(operations!=null)operations.getObject().require(submittedOperation.kind());
+                    return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,submittedOperation);
+                }
             };
         }
         public ToolResult execute(){
@@ -153,7 +168,7 @@ public class ToolDispatcher {
             var result=tool.execute(call,context);validate(result);return result;
         }
         public void validate(ToolResult result){
-            if(result==null || !result.tool().equals(call.name()) || result.pending()!=null || result.terminalAnswer()!=null || result.terminalClarification()!=null || result.data().containsKey("input_validation") || result.data().containsKey("batch_validation"))
+            if(result==null || !result.tool().equals(call.name()) || result.pending()!=null && (!tool.parallelSubmission() || !result.pending().equals(submittedOperation)) || result.terminalAnswer()!=null || result.terminalClarification()!=null || result.data().containsKey("input_validation") || result.data().containsKey("batch_validation"))
                 throw new AgentException("INVALID_TOOL_RESULT","Parallel read cannot mutate delivery state");
             if(result.evidenceId()!=null && !delta.snapshot().containsKey(result.evidenceId()) && !evidence.containsKey(result.evidenceId()))throw new AgentException("INVALID_EVIDENCE","Unknown branch evidence");
         }

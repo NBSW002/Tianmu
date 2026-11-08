@@ -49,7 +49,7 @@ class TraceRecordTest {
             var span=provider.get("test").spanBuilder("model.request").startSpan();TraceNode.begin(span,"model.request");
             try(var scope=details.bind(Context.current().with(span),UUID.randomUUID()).makeCurrent()){TraceDetails.protectMemory();TracePrompt.inline("memory.test","1","EXTRACTION","DO_NOT_EXPOSE");}finally{span.end();}
         }
-        var envelope=TraceEnvelope.from(captured.get(0),"test","test");assertEquals("SOURCE_PROTECTED",TraceRecord.from(envelope).get("prompt_text_state"));assertFalse(envelope.attributes().toString().contains("DO_NOT_EXPOSE"));
+        var envelope=TraceEnvelope.from(captured.get(0),"test","test");assertEquals("SOURCE_GUARDED",TraceRecord.from(envelope).get("prompt_text_state"));assertFalse(envelope.attributes().toString().contains("DO_NOT_EXPOSE"));
     }
     static SpanExporter exporter(List<SpanData> captured){return new SpanExporter(){public CompletableResultCode export(Collection<SpanData> data){captured.addAll(data);return CompletableResultCode.ofSuccess();}public CompletableResultCode flush(){return CompletableResultCode.ofSuccess();}public CompletableResultCode shutdown(){return flush();}};}
 }

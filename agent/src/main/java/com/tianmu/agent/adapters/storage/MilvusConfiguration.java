@@ -16,7 +16,8 @@ import java.time.Duration;
 public class MilvusConfiguration {
     @ConfigurationProperties("agent.feedback.milvus")
     public record Properties(String endpoint,String tokenFile,@DefaultValue("default") String database,
-                             String collection,int dimension,@DefaultValue("5s") Duration timeout) {}
+                             String collection,int dimension,@DefaultValue("5s") Duration timeout,
+                             @DefaultValue("false") boolean provenanceEnabled) {}
 
     @Bean FeedbackVectorIndex feedbackVectorIndex(Properties p,ObjectMapper json){
         if(p.tokenFile()==null || p.tokenFile().isBlank())throw new IllegalArgumentException("Configure Milvus token-file");
@@ -27,6 +28,6 @@ public class MilvusConfiguration {
             token=new String(bytes,java.nio.charset.StandardCharsets.UTF_8).strip();
         }catch(java.io.IOException e){throw new IllegalArgumentException("Milvus token file is unavailable");}
         if(token.isBlank())throw new IllegalArgumentException("Milvus token file is empty");
-        return new MilvusFeedbackVectorIndex(p.endpoint(),token,p.database(),p.collection(),p.dimension(),p.timeout(),json);
+        return new MilvusFeedbackVectorIndex(p.endpoint(),token,p.database(),p.collection(),p.dimension(),p.timeout(),json,p.provenanceEnabled());
     }
 }

@@ -40,7 +40,7 @@ class GovernanceConfigurationBaselineTest {
             assertEquals(98304, context.getBean(ContextPolicy.class).maxInputBytes());
             assertEquals(4, context.getBean(ContextPolicy.class).recentMaxMessages());
             assertEquals(8192, context.getBean(ContextPolicy.class).recentMaxBytes());
-            assertFalse(context.getBean(ToolParallelPolicy.class).enabled());
+            assertTrue(context.getBean(ToolParallelPolicy.class).enabled());
             assertEquals(2, context.getBean(ToolParallelPolicy.class).perRun());
             assertEquals(1, context.getBean(ExecutionProperties.class).deadlineThreads());
             assertEquals(2, context.getBean(ExecutionProperties.class).maintenanceThreads());

@@ -19,6 +19,8 @@ public interface AgentTool {
     default boolean batchable() { return false; }
     /** Host promises that the handler uses only the isolated read context. */
     default boolean parallelSafe(){return false;}
+    /** Host-fenced durable submission; may return only its registered pending operation. */
+    default boolean parallelSubmission(){return false;}
     default ToolDefinition describe(ToolDefinition declared, SkillCatalog skills) { return declared; }
     ToolResult execute(ToolCall call, ToolContext context);
 }

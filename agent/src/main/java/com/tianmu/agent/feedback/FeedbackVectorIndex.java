@@ -37,8 +37,19 @@ public interface FeedbackVectorIndex {
                 throw new IllegalArgumentException("Reference source differs from namespace");
         }
     }
-    record Entry(Reference reference,List<Float> vector) {
-        public Entry {Objects.requireNonNull(reference);vector=List.copyOf(vector);}
+    enum Origin { PREWARM, REPORT_ANALYSIS, UNKNOWN }
+    record Provenance(Origin origin,java.time.Instant generatedAt,String embeddingVersion) {
+        public Provenance {
+            Objects.requireNonNull(origin);
+            if(origin!=Origin.UNKNOWN && (generatedAt==null || embeddingVersion==null || embeddingVersion.isBlank() || embeddingVersion.length()>256))
+                throw new IllegalArgumentException("Incomplete vector provenance");
+            if(origin==Origin.UNKNOWN){generatedAt=null;embeddingVersion=null;}
+        }
+        public static Provenance unknown(){return new Provenance(Origin.UNKNOWN,null,null);}
+    }
+    record Entry(Reference reference,List<Float> vector,Provenance provenance) {
+        public Entry(Reference reference,List<Float> vector){this(reference,vector,Provenance.unknown());}
+        public Entry {Objects.requireNonNull(reference);vector=List.copyOf(vector);Objects.requireNonNull(provenance);}
     }
     record Candidate(Reference reference,double similarity) {
         public Candidate {
@@ -49,6 +60,10 @@ public interface FeedbackVectorIndex {
     }
     void upsert(Namespace namespace,List<Entry> entries,CallControl control);
     default Map<Reference,List<Float>> fetch(Namespace namespace,List<Reference> references,CallControl control){return Map.of();}
+    /** Legacy adapters must report UNKNOWN rather than infer provenance from a cache hit. */
+    default Map<Reference,Entry> fetchEntries(Namespace namespace,List<Reference> references,CallControl control){
+        var found=new HashMap<Reference,Entry>();fetch(namespace,references,control).forEach((ref,vector)->found.put(ref,new Entry(ref,vector)));return Map.copyOf(found);
+    }
     List<Candidate> search(Namespace namespace,List<Float> vector,int limit,CallControl control);
     void delete(Namespace namespace,List<Reference> references,CallControl control);
 

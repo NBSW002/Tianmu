@@ -49,6 +49,26 @@ class TraceDetailsTest {
     }
     @TempDir Path directory;
     final ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+    @Test void sourceGuardRetainsRedactedBodiesForEveryDirectionIncludingTruncatedPreviews()throws Exception{
+        var recording=new HarnessLifecycleTest.Recording();var details=new TraceDetails(new FileObjectStore(directory),json,4096,true);var run=UUID.randomUUID();
+        try(var provider=SdkTracerProvider.builder().addSpanProcessor(SimpleSpanProcessor.create(recording)).build()){
+            var span=provider.get("test").spanBuilder("agent.model").startSpan();
+            try(var scope=details.bind(Context.root().with(span),run).makeCurrent()){
+                TraceDetails.protectMemory();
+                for(String direction:List.of("input","output","provider_output","error","reasoning","prompt","code","execution"))
+                    TraceDetails.capture(direction,Map.of("body","ACTUAL_BODY "+"文".repeat(direction.equals("output")?10000:1),"password","private-password"),"TEST");
+            }finally{span.end();}
+            var attrs=recording.spans.get(0).getAttributes();
+            for(String direction:List.of("input","output","provider_output","error","reasoning","prompt","code","execution")){
+                String[] ref=attrs.get(AttributeKey.stringKey("detail."+direction+"_ref")).split("/");
+                byte[] payload=details.read(run,ref[0],ref[1],Long.parseLong(ref[2]),ref[3]);
+                assertTrue(details.requiresSourceGuard(payload),direction);
+                String body=new String(payload,java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(body.contains("ACTUAL_BODY"),direction);assertFalse(body.contains("private-password"));assertFalse(body.contains("memoryProtected"));
+                assertEquals("SOURCE_GUARDED",attrs.get(AttributeKey.stringKey("detail."+direction+"_access")));
+            }
+        }
+    }
     @Test void providerJsonTextRetainsWhitespaceAndMalformedTrailingBracesForDiagnosis() throws Exception {
         var recording=new HarnessLifecycleTest.Recording();
         var details=new TraceDetails(new FileObjectStore(directory),json,4096,true);UUID run=UUID.randomUUID();

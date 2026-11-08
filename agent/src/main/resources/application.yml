@@ -37,7 +37,7 @@ agent:
       enabled: ${AGENT_MEMORY_CONSOLIDATION_ENABLED:false}
   tools:
     parallel:
-      enabled: ${AGENT_TOOLS_PARALLEL_ENABLED:false}
+      enabled: ${AGENT_TOOLS_PARALLEL_ENABLED:true}
       per-run: ${AGENT_TOOLS_PARALLEL_PER_RUN:2}
   compaction:
     enabled: ${AGENT_COMPACTION_ENABLED:false}
@@ -99,6 +99,7 @@ agent:
       collection: ${AGENT_FEEDBACK_MILVUS_COLLECTION:}
       dimension: ${AGENT_FEEDBACK_MILVUS_DIMENSION:0}
       timeout: ${AGENT_FEEDBACK_MILVUS_TIMEOUT:5s}
+      provenance-enabled: ${AGENT_FEEDBACK_MILVUS_PROVENANCE_ENABLED:false}
     max-records: 5000
     max-snapshot-bytes: 67108864
     batch-bytes: 24000

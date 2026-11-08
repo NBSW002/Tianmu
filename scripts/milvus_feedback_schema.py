@@ -22,11 +22,15 @@ def main():
     parser.add_argument("--collection", required=True, type=identifier)
     parser.add_argument("--database", default="default", type=identifier)
     parser.add_argument("--dimension", required=True, type=dimension)
+    parser.add_argument("--with-provenance", action="store_true", help="New isolated collection for atomic vector provenance; never reuse an old-writer collection")
     args = parser.parse_args()
     fields = [{"fieldName": name, "dataType": "VarChar",
                "elementTypeParams": {"max_length": str(length)}}
               for name, length in [("id", 64), ("scope_key", 64), ("record_id", 21), ("content_version", 64)]]
     fields[0]["isPrimary"] = True
+    if args.with_provenance:
+        fields.append({"fieldName": "provenance", "dataType": "VarChar",
+                       "elementTypeParams": {"max_length": "2048"}})
     fields.append({"fieldName": "vector", "dataType": "FloatVector",
                    "elementTypeParams": {"dim": str(args.dimension)}})
     print(json.dumps({

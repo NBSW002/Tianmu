@@ -39,7 +39,7 @@ public final class ToolBatchExecutor {
                     int index=next++;var call=calls.get(index);var branch=branches.get(index);
                     var task=new FutureTask<Result>(()->{
                         var value=harness.stage(run,"agent.tool",null,null,
-                            Map.of("tool.name",call.name(),"tool.batch_index",index,"tool.execution_mode","PARALLEL","tool.call_id",call.providerCallId()==null?"batch-"+index:call.providerCallId()),()->{
+                            Map.of("tool.name",call.name(),"tool.batch_index",index,"tool.execution_mode","PARALLEL","tool.call_id",call.providerCallId()==null?"batch-"+index:call.providerCallId(),"tool.native_group_id",Objects.toString(call.providerGroupId(),""),"tool.batch_id",ToolBatchLedger.id(run)),()->{
                         run.checkpoint();TraceDetails.input(call);
                         try{
                             var cached=ledger==null?null:ledger.replay(run,index);

@@ -58,6 +58,9 @@ def catalog():
     lines += ["## agent.feedback.embedding", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.feedback.embedding.model` | qwen3.7-text-embedding | 环境变量 `AGENT_FEEDBACK_EMBEDDING_MODEL`；支持标准版及 flash，启动时绑定。模型与维数进入向量缓存命名空间及反馈策略版本；切换前排空未完成任务，旧模型向量不复用。 |",
               "| `agent.feedback.embedding.dimension` | 2560 | 环境变量 `AGENT_FEEDBACK_EMBEDDING_DIMENSION`；标准版支持 256、512、768、1024、1536、2048、2560，flash 支持至 1024。须与 Milvus 集合维数一致；站点 overlay 以 `FEEDBACK_EMBEDDING_DIMENSION` 同时设置两者，更换维数须事先创建独立集合并重建向量。 |", ""]
+    lines += ["## 并行准备与向量来源（2026-11-08）", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+              "| `agent.tools.parallel.enabled` | true | ToolParallelPolicy → ToolBatchExecutor；YAML别名 AGENT_TOOLS_PARALLEL_ENABLED。仅已准入的独立读取或宿主受限持久提交可并行，默认每Run 2路，范围1–4。启动生效；关闭回退同批串行，材料后台仍可在提交后推进。切换前排空在途任务。 |",
+              "| `agent.feedback.milvus.provenance-enabled` | false | MilvusConfiguration → MilvusFeedbackVectorIndex。YAML别名 AGENT_FEEDBACK_MILVUS_PROVENANCE_ENABLED。启动生效；启用前创建含provenance字段的独立集合并切换collection，所有写者统一升级。false兼容旧五字段集合、命中来源为UNKNOWN；true将来源、生成时间、embedding版本与vector同条upsert。不得对旧集合直接打开或允许旧writer写入新集合。 |", ""]
     sources = {p: p.read_text(encoding="utf-8") for p in JAVA.rglob("*.java")}
     errors = []
     for relative in POLICIES:

@@ -724,7 +724,7 @@ CompactionOnlyIntegrationTest补了与父类一致的AGENT_MEMORY_IT环境门禁
 | agent.context.recent-max-bytes | 8192 UTF-8序列化字节；AGENT_CONTEXT_RECENT_MAX_BYTES | 同上，实际取min(recent-max-bytes,max-history-bytes) | 0..4194304；0不装入近期历史；不放宽max-input-bytes |
 | agent.execution.deadline-threads | 1线程；AGENT_EXECUTION_DEADLINE_THREADS | ExecutionProperties → deadlineScheduler | 1..128；启动生效，仍与maintenance分池 |
 | agent.execution.maintenance-threads | 2线程；AGENT_EXECUTION_MAINTENANCE_THREADS | ExecutionProperties → maintenanceScheduler | 1..128；启动生效 |
-| agent.tools.parallel.enabled | false；AGENT_TOOLS_PARALLEL_ENABLED（既有） | ToolParallelPolicy → ToolBatchExecutor | boolean；由@Value迁为强类型，启动生效 |
+| agent.tools.parallel.enabled | true；AGENT_TOOLS_PARALLEL_ENABLED（既有） | ToolParallelPolicy → ToolBatchExecutor | boolean；强类型，启动生效；2026-11-08启用受限并行默认值，显式false仍可回退 |
 | agent.tools.parallel.per-run | 2调用；AGENT_TOOLS_PARALLEL_PER_RUN（既有） | 同上 | 1..4，与原校验一致；实际worker许可归属不变 |
 
 行为保持：ContextPolicy二参构造仍补4/8192；完整回合裁剪未变，奇数消息上限也不会保留半个回合；清空近期历史不移除当前请求、固定槽位或原生工具配对。线程数只改变对应池的配置来源，不修改deadline回调职责、取消和队列策略。工具并行保留既有键和测试构造，生产由Spring唯一强类型构造注入。
@@ -1650,9 +1650,9 @@ public record ContextEnvelope(String schemaVersion,Phase phase,String policyVers
 ```
 # Trace 执行事实展示补充（本地变更）
 
-反馈准备 Span 记录实际向量缓存命中与新生成的表达数，以及每个桶的成员和模型候选数；这些数字只在本次材料准备成功时写入，历史记录缺失时展示未采集。现有缓存键不记录写入来源，因此不能把缓存命中宣称为发送后预热。视频缓存命中与未命中均记录已返回事实的采样帧数量和是否有转录，不由空转录推断是否存在音频。反馈结果缓存的命中与原任务年龄来自原有 Span；后台模型调用数只统计本次实际调用。
+反馈准备 Span 记录实际向量缓存命中与新生成的表达数，以及每个桶的成员和模型候选数；历史记录缺失时展示未采集。旧五字段向量集合不记录写入来源，命中不能宣称为发送后预热；新集合原子来源记录及迁移开关见本文末“材料并行与Trace正文修复”。视频缓存命中与未命中均记录已返回事实的采样帧数量和是否有转录，不由空转录推断是否存在音频。反馈结果缓存的命中与原任务年龄来自原有 Span；后台模型调用数只统计本次实际调用。
 
-Trace 图仅根据真实父子 Span、明确记录的前置 Span 和异步触发 Span 画线；时间用于布局及并行重叠说明，不构造因果关系。反馈准备快照的触发来源与已接受阶段的 Span 写入准备账本，结果和接受来源由同一 fenced 更新提交，因此重启或跨实例读取仍可恢复关联；历史任务、不同 Trace 或采集缺失时明确标记关联不完整。异步触发不表示工具结束后工作才开始，原始 Span 的父节点不变；实线、点划线、虚线和点线分别表达直接父子、折叠中间节点后的上级归属、依赖和触发。模型节点依据实际请求的思考状态说明。桶内相似度展示表达向量到中心的最低值和平均值，不将其当作语义质量判定。向量由预热还是先前报告写入仍未区分；语义复核的本地后续实现见下节。详细测试和真实部署验收状态以本次交付记录为准。
+Trace 图仅根据真实父子 Span、明确记录的前置 Span 和异步触发 Span 画线；时间用于布局及并行重叠说明，不构造因果关系。反馈准备快照的触发来源与已接受阶段的 Span 写入准备账本，结果和接受来源由同一 fenced 更新提交，因此重启或跨实例读取仍可恢复关联；历史任务、不同 Trace 或采集缺失时明确标记关联不完整。异步触发不表示工具结束后工作才开始，原始 Span 的父节点不变；实线、点划线、虚线和点线分别表达直接父子、折叠中间节点后的上级归属、依赖和触发。模型节点依据实际请求的思考状态说明。桶内相似度展示表达向量到中心的最低值和平均值，不将其当作语义质量判定。旧集合或未启用来源迁移时，向量来源仍为未知；新集合记录见本文末节。语义复核的本地实现见下节。详细测试和真实部署验收状态以本次交付记录为准。
 
 ## 五桶报告整体复核（2026-11-08，本地实现）
 
@@ -1688,8 +1688,29 @@ Selection 与 Topic 同一结果对象持久化，网页、下载 HTML 和交付
 | code_snippet、execution_result | TraceCoding 提供代码生成/执行埋点，受相同脱敏、来源保护和大小上限约束。当前没有代码执行工具，现有节点默认 NOT_APPLICABLE；此记录契约不新增执行器或扩大工具权限 |
 | fix_attempt、fix_round、fix_state、fix_kind | 与 execution.retry_count 独立。模型在实际派发处才记录纠正尝试；反馈纠正输入持久 round，首次纠正为1，普通网络重试不递增。旧 Correction 缺 round 时为0/LEGACY_UNKNOWN，后续仍保留未知，不能倒推历史纠正次数 |
 
-Prompt Scope 随调用关闭，元数据由当前任务传播到模型请求子 Span；提示词正文、代码及执行结果只进入 TraceDetails 的 prompt/code/execution 新方向。受保护来源沿用替换与授权策略；新详情计入既有单条和每运行采集配额。新 reader 可读取无新属性、无 Correction.round 的旧记录；旧二进制读取新字段与新详情方向的回滚能力需单独验证，发布保留支持本格式的基线。
+Prompt Scope 随调用关闭，元数据由当前任务传播到模型请求子 Span；提示词正文、代码及执行结果只进入 TraceDetails 的 prompt/code/execution 新方向。原先的来源替换策略已由本文末正文修复改为私有脱敏保存及实时来源校验；新详情计入既有单条和每运行采集配额。新 reader 可读取无新属性、无 Correction.round 的旧记录；旧二进制读取新字段与新详情方向的回滚能力需单独验证，发布保留支持本格式的基线。
 
 验证覆盖稳定身份重建、提示词快照及脱敏、旧记录未知状态、受保护正文状态、结构化导出鉴权/撤权、纠正轮次序列化、普通重试不递增、SSE 模型名保留，以及前端选中子树内加载。代码字段已具备记录契约，但不将未发生的代码生成或执行列为真实验收。
 
-本轮本地结果：后端 `mvn verify` 共854项，769项通过、85项因外部存储/记忆/付费模型门控跳过，零失败、零错误并完成制品构建；日志另有测试子 JVM 在 System.exit(0) 后30秒未退出、由 Surefire结束的清理警告，未将该项解释为进程清理验证通过。前端102项测试和生产构建通过，治理目录检查通过，独立实现审查发现已关闭。证据保存在工作区 `var/governance-release/trace-fields-verify.log`、`trace-fields-second.log`、`trace-fields-front.log` 及 `representative-front-test.log`/`representative-front-build.log`。以上不表示已经推送、部署或完成生产真实场景验收。
+该批本地结果：后端 `mvn verify` 共854项，769项通过、85项因外部存储/记忆/付费模型门控跳过，零失败、零错误并完成制品构建；日志另有测试子 JVM 在 System.exit(0) 后30秒未退出、由 Surefire结束的清理警告，未将该项解释为进程清理验证通过。前端102项测试和生产构建通过，治理目录检查通过，独立实现审查发现已关闭。证据保存在工作区 `var/governance-release/trace-fields-verify.log`、`trace-fields-second.log`、`trace-fields-front.log` 及 `representative-front-test.log`/`representative-front-build.log`。该批随后以ea3b66c发布；以下修复是新的本地变更，不沿用该批发布验收。
+
+## 材料并行与Trace正文修复（2026-11-08，本地实现）
+
+对应用户Trace `9624ea5c2fd1807a72526ee83e2aaa5d`、`973704e2ad5ef6b31a7c74547b001158`。前者开启记忆/压缩后全局保护把普通详情替换成引用，正文已丢失；后者视频和材料工具实际串行，只有评论/弹幕后台准备重叠。不能仅改页面布局宣称已并行。
+
+| 范围 | 当前本地行为 | 边界 |
+|---|---|---|
+| 视频与反馈准备 | Skill 5.1.0要求无视频证据时同批调用。宿主以独立读取和parallelSubmission两种能力准入；后者只允许固定材料提交，冻结请求、授权、同Run job和Pending deadline不变。并行默认开启、每Run 2路，仍可显式关闭。 | 仅同批准入才并行调度；模型分轮调用不会被Trace伪装成同批并行。新增工具不能靠声明能力获得任意副作用权限。 |
+| 准备调度 | 已提交的持久MATERIALS请求可在本实例RUNNING期间推进，使用原准备账本、fence、worker池和取消信号；task尚未装配或无请求时跳过。 | 原生工具全部配对并进入WAITING才绑定材料及恢复；持久RUNNING崩溃不自动重放，终态孤儿取消job并结清未完成准备。 |
+| Trace汇合 | 新增准备结果交接Span；MATERIALS的接受Span引用来自账本；宿主batch ID与native group标明已配对的工具批次。前端以同Run、同宿主批次、同group画依赖。 | 供应商跨轮复用call/group ID不串线；时间仅布局和证明重叠，缺历史引用不猜箭头。 |
+| 正文保护 | 输入、输出、provider输出、错误、思考、提示词、代码及执行结果私有保存脱敏正文，所有受保护载荷及截断预览携带requiresSourceGuard。 | 详情端点读取时校验当前来源权限；来源撤销/authority缺失拒绝。旧占位记录不可恢复。没有取消来源保护或开放公开对象URL。 |
+| 对象存储 | GET/PUT/DELETE记录有界错误类别、HTTP状态与耗时。受控结果写入遇未知提交先用同key、长度、SHA读取验证；只有404可最多同key重写一次，第二次未知只做最终读验证。 | 生产HTTP受原deadline/取消限制；403/冲突内容/完整性错误不盲重试。旧故障缺操作级诊断，仍不能认定其具体网络/服务根因。未扩展模型预算。 |
+| 向量来源 | Entry原子记录PREWARM/REPORT_ANALYSIS、生成时间及embedding版本；旧Entry为UNKNOWN。Trace区分三类命中、本次生成与失败，私有输入详情保存逐条版本/来源元数据，不复制向量或反馈全文。 | Milvus新字段必须在独立集合启用。默认false兼容旧集合并保持UNKNOWN，配置和迁移见运维手册；未迁移不能算线上来源记录已生效。 |
+
+对象受控写入用于后台模型结果、联合聚类材料及报告JSON。已有其他无CallControl读写不自动增加重试；Trace采集失败仍不改变业务终态。向量索引不是权限事实或模型证据；所有命中仍与授权冻结快照精确版本相交。新旧向量协议不改变最多五桶、每桶最多八候选和报告最多三条展示。
+
+验证：`trace-fixes-verify.log`全量864项，779项通过、85项外部门控跳过，零失败/错误并构建成功；最后的宿主batch关联和向量私有元数据修改后，`trace-fixes-final.log`定向verify共93项，82项通过、11项记忆数据库门控跳过，零失败/错误并重新打包。最终集成用例证明材料在视频返回前完成、汇合晚于视频结束且引用真实MATERIALS接受Span、原生配对顺序不变、取消与视频撤权后不交付。源撤销的八方向真实数据库参数化用例已补齐，但门控未开启，不能计为执行通过。
+
+当前工作区前端111项通过，最终Trace子集31项通过，生产构建成功；治理检查及其负例通过。最终JAR的三种Demo冒烟（默认、规则回退、策略快照）均已有PASS日志，HTTP/SSE/私有报告/Trace关联与脱敏无付费调用。第一次同时启动三个Demo时默认场景出现一次路由/结果断言失败，日志`trace-fixes-smoke-0.log`与`var/demo-failure.log`保留；随后单独重跑`trace-fixes-smoke-0-retry.log`通过。原失败缺终态详情，不能据重跑通过认定其根因；此结果不是多实例负载稳定性验收。
+
+独立复审关闭RUNNING未装配task被误杀、第二次未知对象写入缺最终校验、宿主批次缺失导致跨轮串线；最新实现未发现未关闭P0/P1/P2。审查记录见[架构审查](Agent架构治理设计审查.md)。本批尚未推送/部署、未迁移线上向量集合，未执行四种生产真实场景及付费提供方验证；不得以本地Provider fixture替代。

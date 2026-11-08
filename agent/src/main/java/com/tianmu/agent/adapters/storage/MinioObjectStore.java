@@ -16,13 +16,18 @@ public final class MinioObjectStore implements ObjectStore {
     private final MinioClient client;
     private final String bucket;
     private final String prefix;
+    private final java.util.function.Function<com.tianmu.agent.runtime.control.CallControl,MinioClient> controlledClients;
 
     public MinioObjectStore(MinioClient client, String bucket, String prefix) {
+        this(client,bucket,prefix,null);
+    }
+    private MinioObjectStore(MinioClient client,String bucket,String prefix,java.util.function.Function<com.tianmu.agent.runtime.control.CallControl,MinioClient> controlledClients){
         if (client == null || bucket == null || !bucket.matches("[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]")
                 || bucket.contains("..") || prefix == null || prefix.length() > 128
                 || !prefix.matches("[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*/"))
             throw new IllegalArgumentException("Configure an Agent bucket and a bounded object prefix");
         this.client = client; this.bucket = bucket; this.prefix = prefix;
+        this.controlledClients=controlledClients;
     }
 
     public static MinioObjectStore connect(String endpoint, String accessKey, String secretKey, String bucket, String prefix) {
@@ -37,7 +42,19 @@ public final class MinioObjectStore implements ObjectStore {
                     .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build();
             MinioClient client = MinioClient.builder().endpoint(endpoint).credentials(accessKey, secretKey)
                     .httpClient(http).build();
-            MinioObjectStore store = new MinioObjectStore(client, bucket, prefix);
+            MinioObjectStore store = new MinioObjectStore(client, bucket, prefix,control->{
+                var bounded=http.newBuilder().eventListenerFactory(call->new okhttp3.EventListener(){
+                    private com.tianmu.agent.runtime.control.CancellationToken.Registration registration;
+                    @Override public void callStart(okhttp3.Call call){
+                        long remaining=java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis();
+                        call.timeout().timeout(Math.max(1,Math.min(5000,remaining)),TimeUnit.MILLISECONDS);
+                        registration=control.cancellation().onCancel(call::cancel);
+                    }
+                    @Override public void callEnd(okhttp3.Call call){if(registration!=null)registration.close();}
+                    @Override public void callFailed(okhttp3.Call call,java.io.IOException failure){if(registration!=null)registration.close();}
+                }).build();
+                return MinioClient.builder().endpoint(endpoint).credentials(accessKey,secretKey).httpClient(bounded).build();
+            });
             store.initialize();
             return store;
         } catch (AgentException e) { throw e; }
@@ -58,44 +75,94 @@ public final class MinioObjectStore implements ObjectStore {
     @Override public void put(String key, byte[] body) {
         String object = object(key);
         if (body.length > MAX_BYTES) throw new AgentException("ARTIFACT_TOO_LARGE", "Artifact exceeds 1 MiB");
+        long started=System.nanoTime();
         try {
             client.putObject(PutObjectArgs.builder().bucket(bucket).object(object)
                     .stream(new ByteArrayInputStream(body), body.length, -1)
                     .contentType(key.endsWith(".html") ? "text/html; charset=utf-8" : "application/json")
                     .extraHeaders(Map.of("If-None-Match", "*")).build());
-        } catch (Exception e) { throw unavailable(); }
+        } catch (Exception e) { throw failure(e); }
+        finally{operation("PUT",started);}
+    }
+
+    @Override public void put(String key,byte[] body,com.tianmu.agent.runtime.control.CallControl control){
+        if(controlledClients!=null){new MinioObjectStore(controlledClients.apply(control),bucket,prefix).controlledPut(key,body,control);return;}
+        controlledPut(key,body,control);
+    }
+    private void controlledPut(String key,byte[] body,com.tianmu.agent.runtime.control.CallControl control){
+        checkpoint(control);AgentException original;
+        try{put(key,body);checkpoint(control);return;}catch(StorageFailure failure){
+            if(!failure.retryable && failure.status!=412)throw failure;original=failure;
+        }
+        // The key and expected digest stay identical. Never retry an unknown write blindly.
+        checkpoint(control);
+        if(java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis()<5000)throw original;
+        try{get(key,body.length,FileObjectStore.hash(body));checkpoint(control);
+            com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.write_verified",true));return;
+        }catch(StorageFailure read){
+            checkpoint(control);if(read.status!=404 || !(original instanceof StorageFailure failed) || !failed.retryable)throw original;
+        }
+        // One retry after a definitive missing response; reserve time for the bounded SDK call.
+        if(java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis()<5000)throw original;
+        checkpoint(control);
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.retry_count",1));
+        try{put(key,body);checkpoint(control);}
+        catch(StorageFailure second){
+            checkpoint(control);if(!second.retryable && second.status!=412)throw second;
+            if(java.time.Duration.between(java.time.Instant.now(),control.deadline()).toMillis()<5000)throw second;
+            try{get(key,body.length,FileObjectStore.hash(body));checkpoint(control);
+                com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.write_verified",true));
+            }catch(StorageFailure unverified){checkpoint(control);throw second;}
+        }
+    }
+    private static void checkpoint(com.tianmu.agent.runtime.control.CallControl control){
+        control.beforeDispatch();
+        if(!java.time.Instant.now().isBefore(control.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Object write deadline exceeded");
     }
 
     @Override public byte[] get(String key, long size, String sha) {
         String object = object(key);
         if (size < 0 || size > MAX_BYTES || sha == null || !sha.matches("[a-f0-9]{64}"))
             throw readFailure("INVALID_REFERENCE",0,false);
+        long started=System.nanoTime();
         try (var stream = client.getObject(GetObjectArgs.builder().bucket(bucket).object(object).build())) {
             byte[] body = stream.readNBytes((int) size + 1);
             if (body.length != size || !FileObjectStore.hash(body).equals(sha)) throw readFailure("INTEGRITY",0,false);
             return body;
         } catch (AgentException e) { throw e; }
-        catch (io.minio.errors.ErrorResponseException e) {
-            int status=e.response()==null?0:e.response().code();
-            String code=e.errorResponse()==null?"":e.errorResponse().code();
+        catch (Exception e) { throw failure(e); }
+        finally{operation("GET",started);}
+    }
+
+    private static AgentException failure(Exception error){
+        if(error instanceof io.minio.errors.ErrorResponseException e){
+            int status=e.response()==null?0:e.response().code();String code=e.errorResponse()==null?"":e.errorResponse().code();
             boolean retry=status==408 || status==429 || status>=500 || java.util.Set.of("RequestTimeout","SlowDown","InternalError","ServiceUnavailable").contains(code);
-            throw readFailure(retry?"SERVICE":status==404?"MISSING":status==403?"ACCESS_DENIED":"PROTOCOL",status,retry);
-        } catch (java.io.IOException e) { throw readFailure("TRANSPORT",0,true); }
-        catch (Exception e) { throw readFailure("PROTOCOL",0,false); }
+            return readFailure(retry?"SERVICE":status==404?"MISSING":status==401 || status==403?"ACCESS_DENIED":status==412?"CONFLICT":"PROTOCOL",status,retry);
+        }
+        return readFailure(error instanceof java.io.IOException?"TRANSPORT":"PROTOCOL",0,error instanceof java.io.IOException);
+    }
+    private static void operation(String name,long started){
+        com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("storage.operation",name,"storage.elapsed_ms",Math.max(0,(System.nanoTime()-started)/1_000_000)));
+    }
+    private static final class StorageFailure extends AgentException {
+        final int status;final boolean retryable;
+        StorageFailure(int status,boolean retryable){super(retryable?"OBJECT_STORE_UNAVAILABLE":"ARTIFACT_UNAVAILABLE",retryable?"Private object storage temporarily unavailable":"Private object operation rejected or inconsistent");this.status=status;this.retryable=retryable;}
     }
 
     private static AgentException readFailure(String kind,int status,boolean retryable) {
         // Only bounded diagnostics; never export SDK messages, endpoints, keys or credentials.
         com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),
                 Map.of("storage.failure_kind",kind,"storage.http_status",status));
-        return new AgentException(retryable?"OBJECT_STORE_UNAVAILABLE":"ARTIFACT_UNAVAILABLE",
-                retryable?"Private object read temporarily unavailable":"Artifact is missing or inconsistent");
+        return new StorageFailure(status,retryable);
     }
 
     @Override public void delete(String key) {
         String object = object(key);
+        long started=System.nanoTime();
         try { client.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(object).build()); }
-        catch (Exception e) { throw unavailable(); }
+        catch (Exception e) { throw failure(e); }
+        finally{operation("DELETE",started);}
     }
 
     @Override public void verifyReady() {

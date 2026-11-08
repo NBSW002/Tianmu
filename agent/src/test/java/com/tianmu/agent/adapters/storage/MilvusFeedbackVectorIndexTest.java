@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MilvusFeedbackVectorIndexTest {
     HttpServer server; ExecutorService threads; MilvusFeedbackVectorIndex index;
-    final ObjectMapper json=new ObjectMapper();
+    final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
     final Namespace ns=new Namespace("tenant","owner",1001,Source.COMMENT,"embedding-model@revision:template-v1:dim3");
     final Reference ref=new Reference("C:1","a".repeat(64));
     final List<Float> vector=List.of(1f,0f,0f);
@@ -52,6 +52,21 @@ class MilvusFeedbackVectorIndexTest {
         assertEquals(ref.key(ns),row.path("id").asText());assertEquals(ns.key(),row.path("scope_key").asText());
         assertEquals(Set.of("id","scope_key","record_id","content_version","vector"),json.convertValue(row,Map.class).keySet());
         assertEquals("/v2/vectordb/entities/upsert",paths.get(0));
+    }
+    @Test void vectorAndProvenanceAreOneAtomicRowAndOldEntriesResetOrigin()throws Exception{
+        index=new MilvusFeedbackVectorIndex("http://127.0.0.1:"+server.getAddress().getPort(),"test-only-token","default","feedback_provenance_v2",3,Duration.ofSeconds(2),json,true);
+        var origin=new Provenance(Origin.PREWARM,Instant.parse("2026-11-08T00:00:00Z"),ns.embeddingVersion());
+        index.upsert(ns,List.of(new Entry(ref,vector,origin)),control());
+        var row=requests.get(0).path("data").get(0);
+        assertTrue(row.has("vector"));assertEquals("PREWARM",json.readTree(row.path("provenance").asText()).path("origin").asText());
+        searchReply(List.of(json.convertValue(row,Map.class)));
+        assertEquals(origin,index.fetchEntries(ns,List.of(ref),control()).get(ref).provenance());
+        reply="{\"code\":0,\"data\":{\"upsertCount\":1}}";index.upsert(ns,List.of(new Entry(ref,vector)),control());
+        assertEquals("UNKNOWN",json.readTree(requests.get(requests.size()-1).path("data").get(0).path("provenance").asText()).path("origin").asText());
+        var legacy=hit();legacy.remove("distance");legacy.put("vector",vector);searchReply(List.of(legacy));
+        assertEquals(Origin.UNKNOWN,index.fetchEntries(ns,List.of(ref),control()).get(ref).provenance().origin());
+        legacy.put("provenance",json.writeValueAsString(new Provenance(Origin.REPORT_ANALYSIS,Instant.now(),"wrong-version")));searchReply(List.of(legacy));
+        assertEquals("VECTOR_PROTOCOL_ERROR",code(()->index.fetchEntries(ns,List.of(ref),control())));
     }
     @Test void everyOwnershipAndVersionDimensionChangesNamespace(){
         for(var other:List.of(new Namespace("other","owner",1001,Source.COMMENT,ns.embeddingVersion()),

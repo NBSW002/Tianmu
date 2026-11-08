@@ -145,7 +145,7 @@ public final class FeedbackAnalysisService {
                 token.checkpoint();source.authorize(j.owner(),j.request().query().videoId());var result=planner.validate(work.id().toString(),input,proposals);
                 if(pipeline(j.request()))FeedbackNarrativePolicy.validate(input,proposals);
                 FeedbackRepresentativeReview.validate(input,proposals);
-                boolean accepted=store.complete(work,objects.put(id,result));
+                boolean accepted=store.complete(work,objects.put(id,result,control));
                 if(input.correction()!=null)com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("correction.state",accepted?"ACCEPTED":"NOT_ACCEPTED"));
                 if(accepted && !cacheHit && reuseKey!=null && proposals.stream().noneMatch(p->p.selection()!=null && "EXCLUDED".equals(p.selection().coherence())))resultCache.put(reuseKey,j,input,proposals,reuseLease);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.result_accepted",accepted));return Optional.empty();

@@ -24,6 +24,7 @@ public final class TraceRecord {
     private static void detail(Map<String,Object> target,Map<String,Object> a,String field,String direction){
         target.put(field,null);target.put(field+"_ref",a.get("detail."+direction+"_ref"));
         Object state=a.getOrDefault("detail."+direction+"_state","NOT_CAPTURED");
-        target.put(field+"_state",Set.of("COMPLETE","TRUNCATED").contains(state) && "SOURCE_PROTECTED".equals(a.get("detail."+direction+"_access"))?"SOURCE_PROTECTED":state);
+        Object access=a.get("detail."+direction+"_access");
+        target.put(field+"_state",Set.of("COMPLETE","TRUNCATED").contains(state) && Set.of("SOURCE_PROTECTED","SOURCE_GUARDED").contains(Objects.toString(access,""))?access:state);
     }
 }

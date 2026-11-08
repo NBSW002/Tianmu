@@ -11,7 +11,7 @@ titles.memory='记忆召回'
 titles.memory_restore='恢复固定记忆'
 titles.memory_write='整理长期记忆'
 titles.compaction='上下文压缩'
-Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', finish: '运行结束' })
+Object.assign(titles, { delivery: '结果交付', report_delivery: '报告就绪', material_join: '准备结果汇合', finish: '运行结束' })
 Object.assign(phaseNames, { ANALYZING: '分析反馈', SNAPSHOT: '冻结反馈快照', COMMENT: '整理评论', DANMAKU: '整理弹幕', MATERIALS: '联合聚类与代表选择', REPORT_JSON: '校验并保存报告' })
 Object.assign(toolNames, { analyze_danmaku: '分析弹幕', analyze_comments: '分析评论' })
 Object.assign(toolNames, { prepare_feedback_materials: '聚类并选择代表反馈', generate_feedback_report: '分析代表并生成报告' })
@@ -87,7 +87,9 @@ export function executionFacts(node, presentation) {
     if (Number.isFinite(a['analysis.vector_cache_hits']) && Number.isFinite(a['analysis.vector_generated'])) {
       add(`向量缓存命中 ${a['analysis.vector_cache_hits']} 条 · 本次新生成 ${a['analysis.vector_generated']} 条${Number.isFinite(a['analysis.vector_failed']) ? ` · 补算或写入失败 ${a['analysis.vector_failed']} 条` : ''}`)
       if (a['analysis.vector_counts_complete'] === false) add('向量处理未完成，上述计数仅覆盖已处理的批次')
-      add('缓存来源未区分预热与历史报告')
+      if (['analysis.vector_prewarm_hits', 'analysis.vector_report_hits', 'analysis.vector_unknown_hits'].every(key => Number.isFinite(a[key]))) {
+        add(`发送后预热命中 ${a['analysis.vector_prewarm_hits']} 条 · 历史分析命中 ${a['analysis.vector_report_hits']} 条 · 来源未知 ${a['analysis.vector_unknown_hits']} 条`)
+      } else add('旧记录未区分预热与历史报告来源')
     }
     if (Array.isArray(a['analysis.bucket_sizes'])) add(`各桶反馈数量：${a['analysis.bucket_sizes'].join(' · ')}`)
     if (Array.isArray(a['analysis.bucket_candidates'])) add(`各桶模型候选数：${a['analysis.bucket_candidates'].join(' · ')}`)
@@ -231,6 +233,7 @@ export function semanticKind(n) {
   if (t === 'clarification_check' || name === 'agent.prepare.validate' || name === 'agent.prepare.clarification') return 'clarification'
   if (t === 'preparation_merge' || name === 'agent.prepare.merge') return 'merge'
   if (name === 'feedback.deliver') return 'report_delivery'
+  if (name === 'feedback.materials.deliver') return 'material_join'
   if (t === 'answer_ready' || name === 'agent.deliver') return 'delivery'
   if (t === 'finish' || name === 'finish') return 'finish'
   if (name === 'feedback.work' || name === 'feedback.prepare') return 'work'
@@ -260,6 +263,7 @@ export function cardSummary(n) {
   switch (n.cardKind || semanticKind(n)) {
     case 'delivery': return n.status === 'SUCCEEDED' ? '结果已返回用户' : '查看交付状态'
     case 'report_delivery': return n.status === 'SUCCEEDED' ? '后台报告已就绪并完成交接' : '查看报告交付状态'
+    case 'material_join': return n.status === 'SUCCEEDED' ? '准备结果已就绪，继续生成报告' : '查看准备结果交接状态'
     case 'finish': return ({ SUCCEEDED: '本次运行已成功结束', NEEDS_INPUT: '等待用户补充信息', CANCELLED: '本次运行已取消' }[n.status]) || '查看最终运行状态'
     case 'merge': {
       if(a['request.route']==='CLARIFY')return ({REQUIRED_CONDITIONS:'必要条件仍缺失或存在歧义',UNKNOWN_GOAL:'任务目标尚未明确',UNRESOLVED_TASK:'任务尚不能可靠确定',UNRESOLVED_CONDITIONS:'必要条件尚不能确定',MISSING_FIELDS:'必要字段仍未补齐',AMBIGUOUS_TARGET:'需要确定唯一任务目标',CONTRADICTORY_CONSTRAINTS:'需要解决用户条件冲突',CONFIRMATION_REQUIRED:'需要用户确认后继续',UNSPECIFIED:'模型要求澄清，未提供结构化原因',MODEL_AMBIGUITY:'存在尚未解决的关键歧义',RECOGNITION_UNAVAILABLE:'识别服务暂不可用'}[a['clarification.reason']]) || '调用澄清工具，等待补充'
@@ -615,6 +619,11 @@ export function layoutPresentation(presentation, expanded = new Set()) {
       if(triggerNode && (!raw.attributes?.['run.id'] || !triggerNode.attributes?.['run.id'] || raw.attributes['run.id']===triggerNode.attributes['run.id']))link(visibleByRaw.get(trigger),item,'trigger')
       const refs=raw.attributes?.['analysis.predecessor_span_ids']
       if(Array.isArray(refs))for(const ref of refs){const predecessor=presentation.rawById.get(ref);if(!predecessor)continue;const a=raw.attributes || {},b=predecessor.attributes || {};if(a['run.id'] && b['run.id'] && a['run.id']!==b['run.id'])continue;if(a['analysis.job_id'] && b['analysis.job_id'] && a['analysis.job_id']!==b['analysis.job_id'])continue;link(visibleByRaw.get(ref),item,'dependency')}
+      const group=raw.attributes?.['tool.join_group_id'], batch=raw.attributes?.['tool.join_batch_id'], run=raw.attributes?.['run.id']
+      if(group && batch && run)for(const predecessor of presentation.rawById.values()){
+        const a=predecessor.attributes || {}
+        if(predecessor.name==='agent.tool' && a['run.id']===run && a['tool.batch_id']===batch && a['tool.native_group_id']===group)link(visibleByRaw.get(predecessor.id),item,'dependency')
+      }
     }
   }
   return { nodes, edges }

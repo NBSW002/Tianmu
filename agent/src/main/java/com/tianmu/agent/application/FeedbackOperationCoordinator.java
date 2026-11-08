@@ -79,11 +79,12 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
             }
             // A crash or cancellation between job creation and run suspension must not leave paid work orphaned.
             for(var job:service.active())if(submitted.stream().noneMatch(key->key.startsWith(job.id()+":"))){
-                try{var run=runs.owned(job.runId(),job.owner());if(AgentTypes.terminal(run.snapshot().status()))service.cancel(job.id());}
-                catch(AgentException e){if(Set.of("RUN_NOT_FOUND","SESSION_NOT_FOUND","FORBIDDEN").contains(e.code()))service.cancel(job.id());}
+                try{var run=runs.owned(job.runId(),job.owner());if(AgentTypes.terminal(run.snapshot().status()))cancelOrphan(job.id());}
+                catch(AgentException e){if(Set.of("RUN_NOT_FOUND","SESSION_NOT_FOUND","FORBIDDEN").contains(e.code()))cancelOrphan(job.id());}
             }
         }catch(RuntimeException unavailable){org.slf4j.LoggerFactory.getLogger(getClass()).warn("feedback_scheduler_unavailable type={} location={}",unavailable.getClass().getSimpleName(),java.util.Arrays.stream(unavailable.getStackTrace()).filter(f->f.getClassName().startsWith("com.tianmu.")).limit(5).toList());}
     }
+    private void cancelOrphan(UUID job){service.cancel(job);if(preparation!=null)preparation.settle(job);}
     private void deliver(RunState run,PendingOperation op,FeedbackJobStore.Job job){
         run.checkpoint();
         var request=op.kind().equals("representative-report")?FeedbackTaskPolicy.compressedRequest(run.task().specification()):op.kind().equals("feedback-report")?FeedbackTaskPolicy.pipelineRequest(run.task().specification()):FeedbackTaskPolicy.request(run.task().specification());

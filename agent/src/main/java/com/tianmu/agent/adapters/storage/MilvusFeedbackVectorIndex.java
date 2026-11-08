@@ -19,9 +19,14 @@ public final class MilvusFeedbackVectorIndex implements FeedbackVectorIndex {
     private final Duration timeout;
     private final ObjectMapper json;
     private final OkHttpClient http;
+    private final boolean provenanceEnabled;
 
     public MilvusFeedbackVectorIndex(String endpoint,String token,String database,String collection,
                                     int dimension,Duration timeout,ObjectMapper json) {
+        this(endpoint,token,database,collection,dimension,timeout,json,false);
+    }
+    public MilvusFeedbackVectorIndex(String endpoint,String token,String database,String collection,
+                                    int dimension,Duration timeout,ObjectMapper json,boolean provenanceEnabled) {
         URI uri;
         try{uri=URI.create(endpoint);}catch(RuntimeException e){throw new IllegalArgumentException("Invalid Milvus endpoint");}
         if(!Set.of("http","https").contains(Objects.toString(uri.getScheme(),"")) || uri.getHost()==null
@@ -36,7 +41,8 @@ public final class MilvusFeedbackVectorIndex implements FeedbackVectorIndex {
         if(token==null || token.length()>8192 || token.chars().anyMatch(c->c<32 || c>126))
             throw new IllegalArgumentException("Invalid Milvus token");
         this.endpoint=endpoint.replaceAll("/+$","");this.token=token;this.database=database;
-        this.collection=collection;this.dimension=dimension;this.timeout=timeout;this.json=json.copy();
+        this.collection=collection;this.dimension=dimension;this.timeout=timeout;this.json=json.copy().findAndRegisterModules();
+        this.provenanceEnabled=provenanceEnabled;
         http=new OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
                 .retryOnConnectionFailure(false).connectTimeout(Math.min(2000,timeout.toMillis()),TimeUnit.MILLISECONDS)
                 .readTimeout(timeout.toMillis(),TimeUnit.MILLISECONDS).build();
@@ -49,8 +55,14 @@ public final class MilvusFeedbackVectorIndex implements FeedbackVectorIndex {
             entry.reference().requireSource(ns.source());validate(entry.vector());
             String id=entry.reference().key(ns);
             if(!ids.add(id))throw new IllegalArgumentException("Duplicate vector version in batch");
-            data.add(Map.of("id",id,"scope_key",ns.key(),"record_id",entry.reference().recordId(),
+            var row=new LinkedHashMap<String,Object>(Map.of("id",id,"scope_key",ns.key(),"record_id",entry.reference().recordId(),
                     "content_version",entry.reference().contentVersion(),"vector",entry.vector()));
+            if(provenanceEnabled){
+                var p=entry.provenance();
+                if(p.origin()!=Origin.UNKNOWN && !ns.embeddingVersion().equals(p.embeddingVersion()))throw new IllegalArgumentException("Vector provenance version mismatch");
+                try{row.put("provenance",json.writeValueAsString(p));}catch(com.fasterxml.jackson.core.JsonProcessingException invalid){throw protocol();}
+            }
+            data.add(row);
         }
         var body=base();body.put("data",data);
         var result=post("upsert",body,control);
@@ -84,17 +96,27 @@ public final class MilvusFeedbackVectorIndex implements FeedbackVectorIndex {
         return List.copyOf(hits);
     }
     @Override public Map<Reference,List<Float>> fetch(Namespace ns,List<Reference> refs,CallControl control){
+        var vectors=new HashMap<Reference,List<Float>>();fetchEntries(ns,refs,control).forEach((ref,entry)->vectors.put(ref,entry.vector()));return Map.copyOf(vectors);
+    }
+    @Override public Map<Reference,Entry> fetchEntries(Namespace ns,List<Reference> refs,CallControl control){
         check(control);batch(refs.size());var expected=new HashMap<String,Reference>();
         for(var ref:refs){ref.requireSource(ns.source());if(expected.put(ref.key(ns),ref)!=null)throw new IllegalArgumentException("Duplicate requested version");}
-        var body=base();body.put("consistencyLevel","Strong");body.put("id",expected.keySet().stream().sorted().toList());body.put("outputFields",List.of("id","scope_key","record_id","content_version","vector"));
+        var fields=new ArrayList<>(List.of("id","scope_key","record_id","content_version","vector"));if(provenanceEnabled)fields.add("provenance");
+        var body=base();body.put("consistencyLevel","Strong");body.put("id",expected.keySet().stream().sorted().toList());body.put("outputFields",fields);
         var data=post("get",body,control);if(!data.isArray() || data.size()>refs.size())throw protocol();
-        var found=new HashMap<Reference,List<Float>>();
+        var found=new HashMap<Reference,Entry>();
         for(var row:data){
             var ref=expected.get(row.path("id").asText());
             if(ref==null || !ns.key().equals(row.path("scope_key").asText()) || !ref.recordId().equals(row.path("record_id").asText()) || !ref.contentVersion().equals(row.path("content_version").asText()) || !row.path("vector").isArray())throw protocol();
             var vector=new ArrayList<Float>();for(var n:row.path("vector")){if(!n.isNumber())throw protocol();vector.add(n.floatValue());}
             try{validate(vector);}catch(IllegalArgumentException invalid){throw protocol();}
-            if(found.put(ref,List.copyOf(vector))!=null)throw protocol();
+            Provenance provenance=Provenance.unknown();
+            if(provenanceEnabled && row.hasNonNull("provenance")){
+                try{provenance=json.readValue(row.get("provenance").asText(),Provenance.class);
+                    if(provenance==null || provenance.origin()!=Origin.UNKNOWN && !ns.embeddingVersion().equals(provenance.embeddingVersion()))throw protocol();
+                }catch(com.fasterxml.jackson.core.JsonProcessingException invalid){throw protocol();}
+            }
+            if(found.put(ref,new Entry(ref,vector,provenance))!=null)throw protocol();
         }
         return Map.copyOf(found);
     }

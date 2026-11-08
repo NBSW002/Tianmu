@@ -98,6 +98,8 @@ public class RunService {
         }));
     }
     public List<RunState> waiting(){return runs.values().stream().filter(r->r.snapshot().status()==Status.WAITING_OPERATION).toList();}
+    /** Live in-process executions only; never replay a persisted RUNNING run after a crash. */
+    public List<RunState> running(){return runs.values().stream().filter(r->r.snapshot().status()==Status.RUNNING).toList();}
     public void resumeOperation(RunState run,com.tianmu.agent.core.PendingOperation expected,ToolResult result){
         resumeOperations(run,expected,java.util.List.of(result));
     }

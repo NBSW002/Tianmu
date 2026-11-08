@@ -14,8 +14,31 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void provenanceSurvivesPrewarmingAndReportWritesWhileLegacyStaysUnknown(){
+        var stored=new HashMap<String,FeedbackVectorIndex.Entry>();
+        FeedbackVectorIndex vectors=new FeedbackVectorIndex(){
+            public int dimension(){return 3;}
+            public void upsert(Namespace ns,List<Entry> entries,CallControl c){for(var e:entries)stored.put(e.reference().key(ns),e);}
+            public Map<Reference,Entry> fetchEntries(Namespace ns,List<Reference> refs,CallControl c){var found=new HashMap<Reference,Entry>();for(var ref:refs){var e=stored.get(ref.key(ns));if(e!=null)found.put(ref,e);}return found;}
+            public List<Candidate> search(Namespace ns,List<Float> v,int limit,CallControl c){return List.of();}
+            public void delete(Namespace ns,List<Reference> refs,CallControl c){}
+        };
+        var embedding=mock(FeedbackEmbedding.class);when(embedding.dimension()).thenReturn(3);when(embedding.version()).thenReturn("fixture");
+        when(embedding.embed(anyList(),any())).thenAnswer(inv->inv.<List<String>>getArgument(0).stream().map(t->List.of(1f,0f,0f)).toList());
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        var rows=List.of(unit(1,Source.COMMENT,"画面细节看得很清楚",0L),unit(2,Source.COMMENT,"背景音乐盖住了说话声",0L),unit(3,Source.COMMENT,"视频节奏安排得挺合适",0L));
+        var ns=new FeedbackVectorIndex.Namespace(owner.tenantId(),owner.userId(),request.query().videoId(),Source.COMMENT,"fixture:representatives-text-v1");
+        compression.warm(owner,request.query().videoId(),List.of(rows.get(0)),control(),()->{});
+        var legacy=FeedbackVectorIndex.Reference.from(rows.get(1));stored.put(legacy.key(ns),new FeedbackVectorIndex.Entry(legacy,List.of(1f,0f,0f)));
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        compression.compress(UUID.randomUUID(),owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),new Counts(3,0,0,0,3),List.of(compression.prepare(Source.COMMENT,rows,control())),control(),()->{});
+        assertEquals(FeedbackVectorIndex.Origin.PREWARM,stored.get(FeedbackVectorIndex.Reference.from(rows.get(0)).key(ns)).provenance().origin());
+        assertEquals(FeedbackVectorIndex.Origin.UNKNOWN,stored.get(legacy.key(ns)).provenance().origin());
+        var generated=stored.get(FeedbackVectorIndex.Reference.from(rows.get(2)).key(ns)).provenance();assertEquals(FeedbackVectorIndex.Origin.REPORT_ANALYSIS,generated.origin());assertNotNull(generated.generatedAt());assertEquals(ns.embeddingVersion(),generated.embeddingVersion());
+        verify(embedding,times(2)).embed(anyList(),any());
+    }
     @Test void traceRecordsOnlyActuallyCachedAndGeneratedVectors(){
-        var vectors=mock(FeedbackVectorIndex.class);when(vectors.dimension()).thenReturn(3);
+        var vectors=mock(FeedbackVectorIndex.class,CALLS_REAL_METHODS);when(vectors.dimension()).thenReturn(3);
         when(vectors.fetch(any(),anyList(),any())).thenAnswer(call->{var refs=call.<List<FeedbackVectorIndex.Reference>>getArgument(1);return Map.of(refs.get(0),List.of(1f,0f,0f));});
         var embedding=mock(FeedbackEmbedding.class);when(embedding.dimension()).thenReturn(3);when(embedding.version()).thenReturn("fixture");when(embedding.embed(anyList(),any())).thenReturn(List.of(List.of(1f,0f,0f)));
         var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);var recorded=new ArrayList<io.opentelemetry.sdk.trace.data.SpanData>();
@@ -27,7 +50,7 @@ class FeedbackCompressionTest {
         var attrs=com.tianmu.agent.harness.trace.TraceAttributes.from(recorded.get(0).getAttributes());assertEquals(1L,attrs.get("analysis.vector_cache_hits"));assertEquals(1L,attrs.get("analysis.vector_generated"));assertEquals(0L,attrs.get("analysis.vector_failed"));assertEquals(true,attrs.get("analysis.vector_counts_complete"));
     }
     @Test void warmedRecordsUseExactlyTheReportCacheKeys(){
-        var cache=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();var vectors=mock(FeedbackVectorIndex.class);
+        var cache=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();var vectors=mock(FeedbackVectorIndex.class,CALLS_REAL_METHODS);
         when(vectors.dimension()).thenReturn(3);
         when(vectors.fetch(any(),anyList(),any())).thenAnswer(call->{var found=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();for(var ref:call.<List<FeedbackVectorIndex.Reference>>getArgument(1))if(cache.containsKey(ref))found.put(ref,cache.get(ref));return found;});
         doAnswer(call->{for(var entry:call.<List<FeedbackVectorIndex.Entry>>getArgument(1))cache.put(entry.reference(),entry.vector());return null;}).when(vectors).upsert(any(),anyList(),any());

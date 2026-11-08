@@ -62,8 +62,9 @@ public final class TraceDetails {
         try {
             var protectedMemory=Context.current().get(MEMORY);
             boolean sourceProtected=protectedMemory!=null && protectedMemory.get();
-            TraceAttributes.apply(span,Map.of(prefix+"_access",sourceProtected?"SOURCE_PROTECTED":"AVAILABLE"));
-            if(sourceProtected && !"reasoning".equals(direction))value=Map.of("memoryProtected",true,"runId",binding.runId().toString(),"details","Read authorized memory references from the run memory endpoint");
+            // Retain the redacted body privately. Reading it requires current source authorization;
+            // replacing it here destroyed diagnostics even for the authorized owner.
+            TraceAttributes.apply(span,Map.of(prefix+"_access",sourceProtected?"SOURCE_GUARDED":"AVAILABLE"));
             boolean[] redacted = {false};
             JsonNode clean = clean(mapper.valueToTree(value), redacted);
             byte[] content = mapper.writeValueAsBytes(clean);
@@ -71,7 +72,7 @@ public final class TraceDetails {
             String state = content.length > maxBytes - 1024 ? "TRUNCATED" : "COMPLETE";
             ObjectNode envelope = mapper.createObjectNode();
             envelope.put("schemaVersion", "1.0"); envelope.put("kind", kind); envelope.put("state", state);
-            if("reasoning".equals(direction))envelope.put("requiresSourceGuard",sourceProtected);
+            envelope.put("requiresSourceGuard",sourceProtected);
             envelope.put("redacted", redacted[0]); envelope.put("originalBytes", originalBytes);
             if (state.equals("TRUNCATED")) {
                 // A JSON string preview is explicitly incomplete; never present a cut JSON object as complete.

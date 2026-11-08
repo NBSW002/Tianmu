@@ -79,7 +79,7 @@ public final class FeedbackCompression {
         Comparator<Unit> ranking=Comparator.<Unit,Boolean>comparing(u->u.likeCount()==null).thenComparing(u->u.likeCount()==null?0L:u.likeCount(),Comparator.reverseOrder()).thenComparing(Unit::id);
         for(var members:exact.values()){members.sort(ranking);expressions.add(new Expression(members.get(0),List.copyOf(members)));}
         if((long)expressions.size()*embedding.dimension()*Float.BYTES*3>policy.vectorBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Task vector memory quota exceeded");
-        var encoded=encode(owner,request,expressions,control,reserveEmbedding);
+        var encoded=encode(owner,request,expressions,control,reserveEmbedding,FeedbackVectorIndex.Origin.REPORT_ANALYSIS);
         if(FIVE_VERSION.equals(request.rulesVersion()))return fiveBuckets(manifest,raw,excluded,rows,expressions,encoded,control,mergeStats(partitions));
         var assigned=new BitSet(expressions.size());var clusters=new ArrayList<Cluster>();var inputs=new ArrayList<FeedbackModels.Input>();
         var allGroups=new ArrayList<FeedbackModels.Group>();int reps=0,bytes=0;
@@ -225,11 +225,12 @@ public final class FeedbackCompression {
         for(var source:Source.values())accepted.addAll(prepare(source,rows.stream().filter(u->u.source()==source).toList(),control).eligible());
         var query=new com.tianmu.agent.core.DanmakuTypes.Query(video,com.tianmu.agent.core.DanmakuTypes.ALL_TIME_START,java.time.LocalDateTime.of(2100,1,1,0,0));
         var request=new Request(query,EnumSet.allOf(Source.class),Grounding.FEEDBACK_ONLY,null,null,FIVE_VERSION);
-        encode(owner,request,accepted.stream().map(u->new Expression(u,List.of(u))).toList(),control,reserve);
+        encode(owner,request,accepted.stream().map(u->new Expression(u,List.of(u))).toList(),control,reserve,FeedbackVectorIndex.Origin.PREWARM);
     }
-    private List<float[]> encode(AccessScope owner,Request request,List<Expression> expressions,CallControl control,Runnable reserve){
+    private List<float[]> encode(AccessScope owner,Request request,List<Expression> expressions,CallControl control,Runnable reserve,FeedbackVectorIndex.Origin origin){
         var out=new ArrayList<float[]>(Collections.nCopies(expressions.size(),null));
-        int cacheHits=0,generated=0,failed=0;boolean complete=false;
+        var provenanceRecords=new ArrayList<Map<String,Object>>();
+        int cacheHits=0,generated=0,failed=0,prewarmHits=0,reportHits=0,unknownHits=0;boolean complete=false;
         try {
         for(var source:Source.values()){
             var positions=new ArrayList<Integer>();for(int i=0;i<expressions.size();i++)if(expressions.get(i).exemplar().source()==source)positions.add(i);
@@ -239,17 +240,24 @@ public final class FeedbackCompression {
                     if(size>60000)throw new AgentException("EMBEDDING_INPUT_TOO_LARGE","One expression exceeds embedding input quota");
                     if(requestBytes+size>60000)break;requestBytes+=size;end++;}
                 var part=positions.subList(offset,end);offset=end;var refs=part.stream().map(i->FeedbackVectorIndex.Reference.from(expressions.get(i).exemplar())).toList();
-                var cached=new HashMap<>(vectors.fetch(ns,refs,control));var missing=new ArrayList<Integer>();for(int i=0;i<refs.size();i++)if(!cached.containsKey(refs.get(i)))missing.add(i);
+                var found=vectors.fetchEntries(ns,refs,control);var cached=new HashMap<FeedbackVectorIndex.Reference,List<Float>>();
+                for(var ref:refs){var entry=found.get(ref);if(entry==null)continue;cached.put(ref,entry.vector());provenanceRecords.add(Map.of("reference",ref,"provenance",entry.provenance(),"outcome","CACHE_HIT"));switch(entry.provenance().origin()){case PREWARM->prewarmHits++;case REPORT_ANALYSIS->reportHits++;case UNKNOWN->unknownHits++;}}
+                var missing=new ArrayList<Integer>();for(int i=0;i<refs.size();i++)if(!cached.containsKey(refs.get(i)))missing.add(i);
                 cacheHits+=refs.size()-missing.size();
                 if(!missing.isEmpty())try{reserve.run();var computed=embedding.embed(missing.stream().map(i->expressions.get(part.get(i)).exemplar().text()).toList(),control);if(computed.size()!=missing.size())throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Embedding member count mismatch");
-                    var entries=new ArrayList<FeedbackVectorIndex.Entry>();for(int i=0;i<missing.size();i++){var ref=refs.get(missing.get(i));cached.put(ref,computed.get(i));entries.add(new FeedbackVectorIndex.Entry(ref,computed.get(i)));}vectors.upsert(ns,entries,control);generated+=missing.size();}catch(RuntimeException failure){failed+=missing.size();throw failure;}
+                    var provenance=new FeedbackVectorIndex.Provenance(origin,java.time.Instant.now(),ns.embeddingVersion());
+                    var entries=new ArrayList<FeedbackVectorIndex.Entry>();for(int i=0;i<missing.size();i++){var ref=refs.get(missing.get(i));cached.put(ref,computed.get(i));entries.add(new FeedbackVectorIndex.Entry(ref,computed.get(i),provenance));}vectors.upsert(ns,entries,control);generated+=missing.size();
+                    for(var entry:entries)provenanceRecords.add(Map.of("reference",entry.reference(),"provenance",entry.provenance(),"outcome","GENERATED"));
+                }catch(RuntimeException failure){failed+=missing.size();throw failure;}
                 for(int i=0;i<part.size();i++){var v=cached.get(refs.get(i));if(v==null || v.size()!=embedding.dimension())throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Embedding dimensions mismatch");float[] f=new float[v.size()];for(int n=0;n<f.length;n++){f[n]=v.get(n);if(!Float.isFinite(f[n]))throw new AgentException("EMBEDDING_PROTOCOL_ERROR","Invalid embedding value");}normalize(f);out.set(part.get(i),f);}
             }
         }
         complete=true;return out;
         } finally {
             var observed=new HashMap<String,Object>();observed.put("analysis.vector_cache_hits",cacheHits);observed.put("analysis.vector_generated",generated);observed.put("analysis.vector_counts_complete",complete);if(complete || failed>0)observed.put("analysis.vector_failed",failed);
+            observed.put("analysis.vector_prewarm_hits",prewarmHits);observed.put("analysis.vector_report_hits",reportHits);observed.put("analysis.vector_unknown_hits",unknownHits);observed.put("analysis.vector_generation_origin",origin.name());
             com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),observed);
+            com.tianmu.agent.harness.trace.TraceDetails.capture("input",Map.of("vector_records",provenanceRecords,"counts_complete",complete),"VECTOR_PROVENANCE");
         }
     }
     private String representativeText(List<Representative> rows){return write(rows.stream().map(r->{

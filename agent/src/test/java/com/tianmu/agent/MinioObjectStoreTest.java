@@ -25,6 +25,11 @@ class MinioObjectStoreTest {
     final AtomicInteger requests = new AtomicInteger();
     volatile boolean bucketExists, unavailable;
     volatile int readStatus;
+    volatile int failWrites;
+    volatile boolean writeBeforeFailure;
+    volatile int failWriteNumber,writeNumber;
+    volatile long putDelay;
+    final java.util.concurrent.CountDownLatch putEntered=new java.util.concurrent.CountDownLatch(1);
     volatile boolean truncateRead;
     volatile String authorization;
     final String bucket = "tianmu-agent-artifacts", prefix = "agent-artifacts/";
@@ -56,6 +61,9 @@ class MinioObjectStoreTest {
         }
         String key = path.substring(("/" + bucket + "/").length());
         if (method.equals("PUT")) {
+            putEntered.countDown();writeNumber++;
+            if(putDelay>0)try{Thread.sleep(putDelay);}catch(InterruptedException e){Thread.currentThread().interrupt();}
+            if(failWrites>0 || writeNumber==failWriteNumber){if(failWrites>0)failWrites--;if(writeBeforeFailure && writeNumber==failWriteNumber)objects.put(key,exchange.getRequestBody().readAllBytes());error(exchange,503,"ServiceUnavailable");return;}
             if (objects.containsKey(key) && "*".equals(exchange.getRequestHeaders().getFirst("If-None-Match"))) { error(exchange, 412, "PreconditionFailed"); return; }
             objects.put(key, exchange.getRequestBody().readAllBytes());
             contentTypes.put(key, exchange.getRequestHeaders().getFirst("Content-Type"));
@@ -90,10 +98,34 @@ class MinioObjectStoreTest {
         store.delete("rp_report.html"); store.delete("rp_report.html");
         assertFalse(objects.containsKey(prefix + "rp_report.html"));
     }
+    com.tianmu.agent.runtime.control.CallControl control(){return new com.tianmu.agent.runtime.control.CallControl(java.time.Instant.now().plusSeconds(20),new com.tianmu.agent.runtime.control.CancellationToken());}
+    @Test void controlledWriteVerifiesLostAcknowledgementAndNeverOverwritesDifferentContent(){
+        byte[] body="{}".getBytes(StandardCharsets.UTF_8);writeBeforeFailure=true;failWriteNumber=1;
+        store.put("fb_uncertain.json",body,control());assertEquals(1,writeNumber);assertEquals(1,objects.size());
+        store.put("fb_uncertain.json",body,control());assertEquals(2,writeNumber);
+        assertEquals("ARTIFACT_UNAVAILABLE",assertThrows(AgentException.class,()->store.put("fb_uncertain.json",new byte[]{7},control())).code());
+        assertArrayEquals(body,objects.get(prefix+"fb_uncertain.json"));
+    }
+    @Test void definitiveMissingAllowsOneSameKeyRetryAndItsLostAcknowledgementIsVerified(){
+        failWrites=1;writeBeforeFailure=true;failWriteNumber=2;
+        byte[] body="{}".getBytes(StandardCharsets.UTF_8);store.put("fb_retry.json",body,control());
+        assertEquals(2,writeNumber);assertEquals(Set.of(prefix+"fb_retry.json"),objects.keySet());assertArrayEquals(body,objects.get(prefix+"fb_retry.json"));
+    }
+    @Test void controlledWriteStopsOnCancellationAndShortDeadline()throws Exception{
+        store=MinioObjectStore.connect(endpoint(),"fixture-access","fixture-private-secret",bucket,prefix);putDelay=1500;
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var c=control();
+        try{
+            var future=pool.submit(()->assertThrows(AgentException.class,()->store.put("fb_cancel.json",new byte[]{1},c)).code());
+            assertTrue(putEntered.await(2,java.util.concurrent.TimeUnit.SECONDS));c.cancellation().cancel(com.tianmu.agent.core.StopReason.USER_CANCELLED);
+            assertEquals("CANCELLED",future.get(1,java.util.concurrent.TimeUnit.SECONDS));assertEquals(1,writeNumber);
+        }finally{pool.shutdownNow();}
+        var deadline=new com.tianmu.agent.runtime.control.CallControl(java.time.Instant.now().plusMillis(100),new com.tianmu.agent.runtime.control.CancellationToken());
+        assertEquals("DEADLINE_EXCEEDED",assertThrows(AgentException.class,()->store.put("fb_deadline.json",new byte[]{1},deadline)).code());
+    }
     @Test void existingObjectsCannotBeOverwrittenAndReadsDetectTamperingOrUnexpectedLength() {
         byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
         store.put("ar_immutable.json", body);
-        assertEquals("OBJECT_STORE_UNAVAILABLE", assertThrows(AgentException.class, () -> store.put("ar_immutable.json", new byte[]{9})).code());
+        assertEquals("ARTIFACT_UNAVAILABLE", assertThrows(AgentException.class, () -> store.put("ar_immutable.json", new byte[]{9})).code());
         assertArrayEquals(body, store.get("ar_immutable.json", body.length, FileObjectStore.hash(body)));
         objects.put(prefix + "ar_immutable.json", new byte[]{0, 1});
         assertEquals("ARTIFACT_UNAVAILABLE", assertThrows(AgentException.class, () -> store.get("ar_immutable.json", body.length, FileObjectStore.hash(body))).code());
@@ -126,7 +158,7 @@ class MinioObjectStoreTest {
         assertTrue(bucketExists); store.verifyReady(); assertTrue(objects.isEmpty());
         unavailable = true;
         AgentException failure = assertThrows(AgentException.class, () -> store.put("rp_report.html", new byte[]{1}));
-        assertEquals("OBJECT_STORE_UNAVAILABLE", failure.code());
+        assertEquals("ARTIFACT_UNAVAILABLE", failure.code());
         assertFalse(failure.toString().contains("private-internal-detail"));
         assertNull(failure.getCause());
         assertThrows(AgentException.class, store::verifyReady);

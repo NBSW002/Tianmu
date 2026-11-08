@@ -32,7 +32,8 @@ public final class ToolBatchLedger {
         run.checkpoint();run.verifyMemory();
         var values=db.queryForList("SELECT result_json FROM agent_tool_call WHERE tenant_id=? AND owner_user_id=? AND run_id=? AND batch_id=? AND call_index=? AND state='SUCCEEDED' AND execution_mode='PARALLEL'",String.class,run.owner.tenantId(),run.owner.userId(),run.id.toString(),id(run),index);
         if(values.isEmpty())return null;
-        try{return json.readValue(values.get(0),ToolResult.class);}catch(Exception e){throw new AgentException("STORAGE_CORRUPT","Invalid batch result");}
+        try{var result=json.readValue(values.get(0),ToolResult.class);return result.pending()==null?result:null;}
+        catch(Exception e){throw new AgentException("STORAGE_CORRUPT","Invalid batch result");}
     }
     public void complete(RunState run,int index,ToolResult result,boolean success){
         run.checkpoint();run.verifyMemory();

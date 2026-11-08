@@ -34,7 +34,7 @@ public final class FeedbackPreparationService {
         var claim=store.claim(id,Step.REPORT_JSON,Instant.now(),Duration.ofSeconds(governance.preparationLeaseSeconds()));
         if(claim==null)throw new AgentException("STORAGE_UNAVAILABLE","Report JSON persistence is in progress");
         try{var asset=analysis.asset(id,owner,job.request());var value=analysis.compressedReport(asset,materials(id,owner,control));control.checkpoint();analysis.owned(id,owner);
-            if(!store.complete(claim,objects.put(id,value)))throw new AgentException("STORAGE_UNAVAILABLE","Report JSON acceptance failed");return value;
+            if(!store.complete(claim,objects.put(id,value,control)))throw new AgentException("STORAGE_UNAVAILABLE","Report JSON acceptance failed");return value;
         }catch(RuntimeException failure){store.release(claim);throw failure;}
     }
     public FeedbackReportJson storedReportJson(UUID id,AccessScope owner){var job=analysis.owned(id,owner);if(job.phase()!=Phase.READY || !FeedbackCompression.representativeVersion(job.request().rulesVersion()))throw new AgentException("RESULT_NOT_FOUND","Structured representative report unavailable");var work=store.get(id,Step.REPORT_JSON);if(work==null || !work.state().equals("COMPLETE"))throw new AgentException("RESULT_NOT_FOUND","Report JSON not saved");return objects.get(work.result(),FeedbackReportJson.class);}
@@ -126,7 +126,7 @@ public final class FeedbackPreparationService {
                 var shared=snapshots.resolve(manifest.result(),job.runId(),job.owner(),job.request(),control);
                 FeedbackCompressionProperties settings=compression.policy();
                 var material=boundedMaterial(objects,compression.compress(id,job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls())));
-                result=objects.put(id,material);
+                result=objects.put(id,material,control);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.raw_records",shared.counts().total(),"analysis.filtered_records",material.excluded().size(),"analysis.exact_expressions",material.exactExpressions(),"analysis.clusters",material.clusters().size(),"analysis.representatives",material.representativeCount(),"analysis.representative_bytes",material.modelBytes(),"analysis.unclassified_records",material.unclassified().size()));
             }
             else {

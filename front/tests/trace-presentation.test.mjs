@@ -5,6 +5,28 @@ import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
 import { recordDetails, traceDetailSources } from '../src/trace/trace-presentation.mjs'
 
+test('materials join links only recorded calls in the same native group and run',()=>{
+  const raw=[
+    node('video','agent.tool','TOOL',0,20,{tool:'analyze_video_content',attributes:{'run.id':'r','tool.batch_id':'b2','tool.native_group_id':'g','tool.call_id':'video'}}),
+    node('submit','agent.tool','TOOL',0,1,{tool:'prepare_feedback_materials',attributes:{'run.id':'r','tool.batch_id':'b2','tool.native_group_id':'g','tool.call_id':'materials'}}),
+    node('previous','agent.tool','TOOL',0,1,{tool:'analyze_video_content',attributes:{'run.id':'r','tool.batch_id':'b1','tool.native_group_id':'g','tool.call_id':'video'}}),
+    node('other','agent.tool','TOOL',2,2,{tool:'analyze_video_content',attributes:{'run.id':'other','tool.native_group_id':'g','tool.call_id':'video'}}),
+    node('material','feedback.prepare','STAGE',2,12,{attributes:{'run.id':'r','analysis.job_id':'j','analysis.phase':'MATERIALS'}}),
+    node('join','feedback.materials.deliver','DELIVERY',21,1,{attributes:{'run.id':'r','analysis.job_id':'j','analysis.predecessor_span_ids':['material'],'tool.join_group_id':'g','tool.join_batch_id':'b2'}}),
+  ]
+  const p=buildTracePresentation(raw),graph=layoutPresentation(p)
+  assert.equal(p.allCards.get('join').cardTitle,'准备结果汇合')
+  const incoming=graph.edges.filter(e=>e.target==='join' && e.relation==='dependency').map(e=>e.source).sort()
+  assert.deepEqual(incoming,['material','submit','video'])
+})
+
+test('vector origin counts distinguish known provenance from historical unknown records',()=>{
+  const current=node('material','feedback.prepare','STAGE',0,2,{attributes:{'analysis.phase':'MATERIALS','analysis.vector_cache_hits':5,'analysis.vector_generated':2,'analysis.vector_prewarm_hits':2,'analysis.vector_report_hits':1,'analysis.vector_unknown_hits':2}})
+  const p=buildTracePresentation([current]),facts=executionFacts(p.allCards.get('material'),p).join(' ')
+  assert.match(facts,/发送后预热命中 2 条/);assert.match(facts,/历史分析命中 1 条/);assert.match(facts,/来源未知 2 条/)
+  assert.doesNotMatch(facts,/旧记录未区分/)
+})
+
 test('standard metadata preserves missing history and never describes an assembled prompt as sent',()=>{
   const rows=recordDetails({attributes:{'prompt.id':'feedback.pipeline','prompt.variant':'CORRECTION','model.dispatched':false,'correction.state':'REQUESTED','correction.round_state':'LEGACY_UNKNOWN','code.state':'NOT_APPLICABLE'}})
   assert.equal(rows.find(row=>row.label==='任务 ID').value,'未采集')
