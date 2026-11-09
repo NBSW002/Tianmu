@@ -24,7 +24,7 @@ class CompactionOnlyIntegrationTest extends CompactionIntegrationTest {
         memories.reset(owner,"forget-context");assertFalse(ledger.historyAllowed(owner,previous.id));assertFalse(ledger.historyAllowed(owner,run.id));
     }
     @Test void readHistoryCarriesSummaryDependenciesWithPersonalMemoryDisabled()throws Exception{
-        producer();var run=changedTopic();var result=dispatcher.execute(new ToolCall("read_history",Map.of("query","承接摘要","limit",2)),run);assertFalse(((List<?>)result.data().get("messages")).isEmpty());
+        producer();var run=changedTopic();run.execution().activateSkill("resource-discovery");var result=dispatcher.execute(new ToolCall("read_history",Map.of("query","承接摘要","limit",2)),run);assertFalse(((List<?>)result.data().get("messages")).isEmpty());
         assertFalse(ProjectionChecks.refs(db,json,owner,run.id).isEmpty());run.succeed(new Answer("使用工具读回的回答",List.of()));
         memories.reset(owner,"forget-tool-context");assertFalse(ledger.historyAllowed(owner,run.id));
     }

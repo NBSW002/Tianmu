@@ -84,10 +84,11 @@ class InputValidationRecoveryTest {
     @Test void switchingToolsAndAnInterveningSuccessCannotResetTheRunAllowance() {
         try(var fixture=new HarnessLifecycleTest.Fixture()) {
             var effects=new AtomicInteger();var tools=dispatcher(fixture,effects,this::empty);var run=fixture.run();var count=new AtomicInteger();
+            run.execution().activateSkill("resource-discovery");
             com.tianmu.agent.application.AgentRuntimeFactory.create(context->switch(count.getAndIncrement()) {
                 case 0 -> Decision.tool("read_result",Map.of());
                 case 1 -> Decision.tool("read_history",Map.of("before","not-an-integer"));
-                case 2 -> Decision.tool("list_skills",Map.of());
+                case 2 -> Decision.tool("read_skill",Map.of("name","video-metrics"));
                 default -> Decision.tool("read_result",Map.of());
             },tools,fixture.harness).execute(run);
             assertEquals("TOOL_FAILURE_LIMIT",run.snapshot().errorCode());assertEquals(4,count.get());assertEquals(0,effects.get());

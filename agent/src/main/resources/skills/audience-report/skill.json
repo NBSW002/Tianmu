@@ -1,14 +1,12 @@
 {
   "name": "audience-report",
-  "version": "5.1.0",
-  "description": "按冻结范围并行准备视频与反馈材料，分析有限代表后生成报告。",
+  "version": "5.1.2",
+  "description": "根据用户选定的视频、评论和弹幕来源生成观众反馈报告。",
   "tools": [
+    "read_result",
     "analyze_video_content",
     "analyze_feedback",
     "create_feedback_report",
-    "search_my_videos",
-    "read_report",
-    "search_feedback",
     "analyze_comments",
     "analyze_danmaku",
     "prepare_feedback_materials",

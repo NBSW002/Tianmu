@@ -74,6 +74,21 @@ class HarnessContextBuilderTest {
     ModelContext context(MemoryTypes.View memory,List<ToolResult> results,List<ToolExchange> exchanges) {
         return new ModelContext("就是现在的视频",LocalDate.of(2026,10,29),new AccessScope("t","1",Set.of(1001L)),Set.of(),results,List.of(),6,false,"",null,null,memory,exchanges);
     }
+    @Test void currentProjectionKeepsOnlySkillInstructionsAndReferenceNames() throws Exception {
+        var call=new ToolCall("read_skill",Map.of("name","video-metrics"),"load-skill");
+        var skill=new Skill("video-metrics","1.0.0","directory description","count by creation date",Set.of("internal_tool"));
+        var result=new ToolResult(call.name(),Map.of("skill",skill,"tool_schemas",List.of(Map.of("name","internal_tool")),
+                "resources",List.of(Map.of("name","metric-semantics","sha256","internal hash","total_chars",200))),null);
+        var messages=new HarnessContextBuilder(json,ContextPolicy.defaults()).build("rules",
+                context(MemoryTypes.View.empty(),List.of(result),List.of(new ToolExchange(call,result))),"",
+                ExecutionPolicySnapshot.Context.CURRENT_PROJECTION);
+        var reply=messages.stream().filter(message->"tool".equals(message.get("role"))).findFirst().orElseThrow();
+        var data=json.readTree(reply.get("content").toString()).path("data");
+        assertEquals(json.readTree("{\"name\":\"video-metrics\",\"instructions\":\"count by creation date\"}"),data.path("skill"));
+        assertEquals(json.readTree("[\"metric-semantics\"]"),data.path("resources"));
+        assertFalse(data.has("tool_schemas"));
+        assertEquals(skill,result.data().get("skill"));
+    }
     @Test void nativeRolesKeepRawWordsEnvironmentAndPairedToolResultsWithoutDuplicatedPayload() throws Exception {
         UUID turn=UUID.randomUUID();
         var memory=new MemoryTypes.View(1,"old summary must not be loaded",List.of(m(turn,1,"user","下一个视频给我一点灵感"),m(turn,2,"assistant","可以参考当前视频")),true,

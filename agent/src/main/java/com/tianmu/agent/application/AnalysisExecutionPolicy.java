@@ -10,20 +10,35 @@ import static com.tianmu.agent.core.AnalysisContract.Source.*;
 public final class AnalysisExecutionPolicy {
     private AnalysisExecutionPolicy() {}
     public static boolean permits(String tool, Specification spec) {
-        if(spec!=null && spec.type().equals("resource.lookup"))return Set.of("list_skills","read_skill","read_history","read_result","ask_clarification","search_my_videos","read_report","search_feedback").contains(tool);
+        if(spec!=null && tool.equals("prepare_creator_interactions"))return false;
+        if(spec!=null && spec.type().equals("resource.lookup"))return Set.of("read_skill","read_history","read_result","ask_clarification","search_my_videos","read_report","search_feedback").contains(tool);
+        if(spec!=null && spec.type().equals("video.metric"))
+            return tool.equals("read_skill") || tool.equals("ask_clarification")
+                    || tool.equals("query_video_metrics") && spec.reading().includes(DANMAKU);
+        if(spec!=null && spec.type().equals("creator.draft")) {
+            var draft=(TaskConditions.Interaction)spec.typed();
+            return switch(tool) {
+                case "read_skill", "ask_clarification" -> true;
+                case "analyze_video_content" -> spec.reading().includes(VIDEO);
+                case "prepare_comment_draft" -> draft.kind().equals("COMMENT");
+                case "prepare_danmaku_draft" -> draft.kind().equals("DANMAKU");
+                case "analyze_feedback", "read_result" -> draft.feedback()!=null && !spec.reading().textSources().isEmpty();
+                default -> false;
+            };
+        }
         if (spec == null || spec.analysis() == null) return true;
         var contract = spec.analysis();
         return switch (tool) {
             case "prepare_feedback_materials", "generate_feedback_report" -> contract.reportRequired() && !contract.textSources().isEmpty() && spec.typed() instanceof TaskConditions.Report;
             case "analyze_comments" -> contract.includes(COMMENT) && spec.typed() instanceof TaskConditions.Report && contract.reportRequired();
             case "analyze_danmaku" -> contract.includes(DANMAKU) && spec.typed() instanceof TaskConditions.Report && contract.reportRequired();
-            case "analyze_feedback" -> !contract.textSources().isEmpty() && (spec.typed() instanceof TaskConditions.Report && Set.of("audience.report","danmaku.report","comments.analysis").contains(spec.type()) || spec.typed() instanceof TaskConditions.Interaction draft && draft.feedback()!=null);
+            case "analyze_feedback" -> !contract.textSources().isEmpty() && spec.typed() instanceof TaskConditions.Report
+                    && Set.of("audience.report","danmaku.report","comments.analysis").contains(spec.type());
             case "create_feedback_report" -> contract.reportRequired() && !contract.textSources().isEmpty();
-            case "prepare_comment_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("COMMENT");
-            case "prepare_danmaku_draft" -> spec.typed() instanceof TaskConditions.Interaction draft && draft.kind().equals("DANMAKU");
+            case "prepare_comment_draft", "prepare_danmaku_draft" -> false;
             case "analyze_video_content" -> contract.includes(VIDEO);
             case "query_danmaku" -> contract.includes(DANMAKU) && "danmaku.overview".equals(spec.type());
-            case "query_video_metrics" -> contract.includes(DANMAKU) && "video.metric".equals(spec.type());
+            case "query_video_metrics" -> false;
             case "create_video_report" -> contract.reportRequired() && contract.sources().equals(Set.of(VIDEO));
             default -> true;
         };

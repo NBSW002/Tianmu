@@ -14,7 +14,7 @@ public class ReadResultTool implements AgentTool {
     public boolean batchable(){return true;}
     public boolean parallelSafe(){return true;}
     public int order() { return 30; }
-    public Exposure exposure() { return Exposure.GENERAL; }
+    public Exposure exposure() { return Exposure.SKILL; }
     public ToolResult execute(ToolCall call, ToolContext context) {
         Evidence evidence = context.evidence(ToolArguments.text(call, "result_id"));
         if(evidence.lookup()!=null && evidence.lookup().operation().equals("read_report")){

@@ -115,6 +115,9 @@ class FeedbackHttpWorkflowTest {
         doAnswer(inv->{
             ModelContext c=inv.getArgument(0);String skill=kind.equals("COMMENT")?"smart-comment":"smart-danmaku";
             if(!c.activeSkills().contains(skill))return Decision.tool("read_skill",Map.of("name",skill));
+            var reference=c.observations().stream().filter(r->"feedback-driven".equals(r.data().get("resource"))).findFirst();
+            if(reference.isEmpty())return Decision.tool("read_skill",Map.of("name",skill,"resource","feedback-driven"));
+            assertTrue(((Map<?,?>)reference.get().data().get("page")).get("content").toString().contains("feedback_topic_id"));
             var v=c.observations().stream().filter(r->r.tool().equals("analyze_video_content")).findFirst();if(v.isEmpty())return Decision.tool("analyze_video_content",Map.of("video_id",1001));
             var a=c.observations().stream().filter(r->r.tool().equals("analyze_feedback")).findFirst();if(a.isEmpty())return Decision.tool("analyze_feedback",Map.of("video_evidence_id",v.get().evidenceId()));
             var topics=c.observations().stream().filter(r->r.tool().equals("read_result")).findFirst();if(topics.isEmpty())return Decision.tool("read_result",Map.of("result_id",a.get().evidenceId(),"section","topics"));

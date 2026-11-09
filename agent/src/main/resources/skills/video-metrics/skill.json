@@ -1,10 +1,9 @@
 {
   "name": "video-metrics",
-  "version": "1.4.0",
-  "description": "仅查询当前授权视频或直播间在指定日期收到的弹幕数量；自然简短回答，不读取视频、不自动生成报告。",
+  "version": "1.4.2",
+  "description": "查询指定视频或直播间在某天收到的弹幕数量，适用于“昨天多少条”等计数问题。",
   "tools": [
-    "query_video_metrics",
-    "search_my_videos"
+    "query_video_metrics"
   ],
   "resources": {
     "metric-semantics": "references/metric-semantics.md"

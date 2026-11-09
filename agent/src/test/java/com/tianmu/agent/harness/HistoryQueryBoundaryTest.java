@@ -25,6 +25,7 @@ class HistoryQueryBoundaryTest {
             var memory=MemoryTypes.View.empty().withContext(new RequestContext("1001"),new MemoryTypes.Focus(current.message,current.id,"1001",task.specification()));
             current.memory(memory);
             var tools=HarnessLifecycleTest.dispatcher(new SkillCatalog(),(q,s)->{throw new AssertionError("Unexpected business query");},fixture.harness,repository);
+            current.execution().activateSkill("resource-discovery");
             var result=tools.execute(new ToolCall("read_history",Map.of("limit",10)),current);
             assertEquals(2,((List<?>)result.data().get("messages")).size());
             assertSame(task,current.task());assertSame(memory,current.memory());assertTrue(current.execution().evidence().isEmpty());

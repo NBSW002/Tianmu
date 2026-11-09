@@ -40,6 +40,8 @@ public final class HarnessContextBuilder {
         ObjectNode working=json.createObjectNode();working.set("tools",json.valueToTree(context.availableTools()));
         working.set("results",json.valueToTree(context.observations()));
         int schemas=bounds.deduplicateSchemas(working);
+        if(ExecutionPolicySnapshot.Context.CURRENT_PROJECTION.equals(projection))
+            schemas+=projectSkillResults((ArrayNode)working.get("results"));
         int compacted=new ToolResultProjector(json).compact((ArrayNode)working.get("results"),context.availableTools().stream().anyMatch(t->t.name().equals("read_result")));
         TraceAttributes.apply(Span.current(),Map.of("context.results_compacted",compacted,"context.compaction_segments",memory.compaction().size()));
         NativeContextProjector.Request projected=assemble(instruction,context,history,working,calls,requiredAction,projection);
@@ -55,6 +57,24 @@ public final class HarnessContextBuilder {
         TraceAttributes.apply(Span.current(),Map.of("context.schema_version","1.0","context.projection_version",projection,
                 "context.present_slots",new ArrayList<>(projected.slotBytes().keySet()),"context.slot_bytes",projected.slotBytes().entrySet().stream().map(e->e.getKey()+":"+e.getValue()).toList()));
         return List.copyOf(messages);
+    }
+    private int projectSkillResults(ArrayNode results) {
+        int removedSchemas=0;
+        for(var result:results) {
+            if(!"read_skill".equals(result.path("tool").asText())
+                    || !(result.path("data") instanceof ObjectNode data)
+                    || !(data.path("skill") instanceof ObjectNode skill)) continue;
+            skill.retain("name","instructions");
+            var schemas=data.remove("tool_schemas");
+            if(schemas!=null && schemas.isArray())removedSchemas+=schemas.size();
+            if(data.path("resources") instanceof ArrayNode resources) {
+                var names=json.createArrayNode();
+                for(var resource:resources)
+                    if(resource.path("name").isTextual())names.add(resource.path("name").textValue());
+                data.set("resources",names);
+            }
+        }
+        return removedSchemas;
     }
     private void removeOldestTurn(List<MemoryTypes.Message> history) {
         if(history.isEmpty())return;

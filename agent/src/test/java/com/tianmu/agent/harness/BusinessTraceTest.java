@@ -32,7 +32,7 @@ class BusinessTraceTest {
             RunState run = f.run();
             f.execute(run, context -> {
                 TraceUsage.record("test-model", 100, 20);
-                return context.observations().isEmpty() ? Decision.tool("list_skills", Map.of()) : Decision.clarify("SECRET_RESULT");
+                return context.observations().isEmpty() ? Decision.tool("read_skill", Map.of("name","video-metrics")) : Decision.clarify("SECRET_RESULT");
             });
             assertEquals(Status.NEEDS_INPUT, run.snapshot().status());
             one(f, SpanType.RECEIVE_QUERY); one(f, SpanType.AGENT_START); one(f, SpanType.AGENT_END);
@@ -123,7 +123,7 @@ class BusinessTraceTest {
         }
     }
     @Test void exportPreservesBoundedTypedListsButRejectsArbitraryPayloads() {
-        assertEquals(List.of("list_skills"), TraceAttributes.sanitize(Map.of("agent.available_tools", List.of("list_skills"))).get("agent.available_tools"));
+        assertEquals(List.of("read_skill"), TraceAttributes.sanitize(Map.of("agent.available_tools", List.of("read_skill"))).get("agent.available_tools"));
         assertEquals(List.of("B1:23", "B2:17"), TraceAttributes.sanitize(Map.of("analysis.bucket_sizes", List.of("B1:23", "B2:17"))).get("analysis.bucket_sizes"));
         assertTrue(TraceAttributes.sanitize(Map.of("agent.available_tools", List.of(Map.of("secret", "raw")))).isEmpty());
         assertTrue(TraceAttributes.sanitize(Map.of("llmContent", "secret", "llmThinkingContent", "secret", "userQuery", "secret")).isEmpty());

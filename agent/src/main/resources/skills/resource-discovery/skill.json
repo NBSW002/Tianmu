@@ -1,10 +1,15 @@
 {
   "name": "resource-discovery",
-  "version": "1.0.0",
-  "description": "查找作者自己的视频、读取已有私有报告，并在已授权的反馈快照中定位原话；不扩大任务权限，不自动生成报告或发布内容。",
+  "version": "1.0.2",
+  "description": "查找本人视频、回查本会话旧消息、读取已有报告，或在授权反馈中定位原话。",
   "tools": [
+    "read_result",
+    "read_history",
     "search_my_videos",
     "read_report",
     "search_feedback"
-  ]
+  ],
+  "resources": {
+    "feedback-quotes": "references/feedback-quotes.md"
+  }
 }

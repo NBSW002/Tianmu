@@ -16,30 +16,34 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ProgressiveToolsTest {
-    @Test void harnessReadsOnlyRequestedReferenceAndThenPagesEvidence() {
+    @Test void metricSkillExposesOnlyTheQueryAndLoadsReferenceOnRequest() {
         try (var fixture = new HarnessLifecycleTest.Fixture()) {
             var run = fixture.run();
             fixture.execute(run, context -> {
                 int step = context.observations().size();
+                assertEquals(Set.of("read_skill", "ask_clarification"), context.capabilities().publicTools().stream()
+                        .map(CapabilitySummary::name).collect(java.util.stream.Collectors.toSet()));
                 if (step == 0) {
-                    assertEquals(5, context.availableTools().size());
+                    assertEquals(2, context.availableTools().size());
                     return Decision.tool("read_skill", Map.of("name", "video-metrics"));
                 }
-                assertEquals(7, context.availableTools().size());
+                assertEquals(Set.of("read_skill","ask_clarification","query_video_metrics"),context.availableTools().stream()
+                        .map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
                 if (step == 1) {
                     assertFalse(context.observations().get(0).data().toString().contains("# 弹幕指标口径"));
                     return Decision.tool("read_skill", Map.of("name", "video-metrics", "resource", "metric-semantics", "limit", 32));
                 }
-                if (step == 2) return Decision.tool("query_video_metrics", Map.of("video_id", 1001,
-                        "date", context.businessDate().minusDays(1).toString(), "metric", "bullet_count"));
+                if (step == 2) {
+                    assertEquals(true,((Map<?,?>)context.observations().get(1).data().get("page")).get("has_more"));
+                    return Decision.tool("query_video_metrics", Map.of("video_id", 1001,
+                            "date", context.businessDate().minusDays(1).toString(), "metric", "bullet_count"));
+                }
                 ToolResult metric = context.observations().stream().filter(r -> r.tool().equals("query_video_metrics")).findFirst().orElseThrow();
-                if (step == 3) return Decision.tool("read_result", Map.of("result_id", metric.evidenceId(), "limit", 32));
-                assertEquals(4, step);
-                assertTrue((Boolean) ((Map<?, ?>) context.observations().get(3).data().get("page")).get("has_more"));
+                assertEquals(3, step);
                 return Decision.answer("【模拟数据】弹幕数 128。", List.of(metric.evidenceId()));
             });
             assertEquals(Status.SUCCEEDED, run.snapshot().status());
-            assertEquals(5, run.snapshot().steps());
+            assertEquals(4, run.snapshot().steps());
             assertEquals(1, fixture.queries.get());
         }
     }
@@ -83,10 +87,10 @@ class ProgressiveToolsTest {
     }
     @Test void referenceAccessRequiresRootSkillAndDoesNotAddAnotherTool() {
         SkillCatalog skills = new SkillCatalog();
-        List<AgentTool> handlers = List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.PrepareFeedbackMaterialsTool(), new com.tianmu.agent.tool.builtin.GenerateFeedbackReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.AnalyzeCommentsTool(), new com.tianmu.agent.tool.builtin.AnalyzeDanmakuTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
+        List<AgentTool> handlers = List.of(new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.PrepareFeedbackMaterialsTool(), new com.tianmu.agent.tool.builtin.GenerateFeedbackReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.AnalyzeCommentsTool(), new com.tianmu.agent.tool.builtin.AnalyzeDanmakuTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
                 new QueryVideoMetricsTool((q, s) -> { throw new AssertionError("Unexpected business query"); }));
         ToolRegistry registry = new ToolRegistry(handlers, new ToolCatalog(), skills);
-        assertEquals(21, new ToolCatalog().all().size());
+        assertEquals(20, new ToolCatalog().all().size());
         try (var fixture = new HarnessLifecycleTest.Fixture()) {
             var run = fixture.run(); run.start();
             ToolDispatcher dispatcher = new ToolDispatcher(skills, fixture.harness, registry);
@@ -99,6 +103,7 @@ class ProgressiveToolsTest {
             assertEquals(32, page.get("next_offset"));
             assertEquals("INVALID_ARGUMENTS", assertThrows(AgentException.class, () -> dispatcher.execute(
                     new ToolCall("read_skill", Map.of("name", "video-metrics", "offset", 0)), run)).code());
+            run.execution().activateSkill("video-content");
             assertEquals("INVALID_ARGUMENTS", assertThrows(AgentException.class, () -> dispatcher.execute(
                     new ToolCall("read_result", Map.of("result_id", "x", "limit", 4097)), run)).code());
             run.cancel();
@@ -123,10 +128,11 @@ class ProgressiveToolsTest {
     }
     @Test void evidencePagingUsesOwnedOriginalWithoutChangingLegacyShape() throws Exception {
         var skills = new SkillCatalog();
-        var registry = new ToolRegistry(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.PrepareFeedbackMaterialsTool(), new com.tianmu.agent.tool.builtin.GenerateFeedbackReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.AnalyzeCommentsTool(), new com.tianmu.agent.tool.builtin.AnalyzeDanmakuTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
+        var registry = new ToolRegistry(List.of(new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.PrepareFeedbackMaterialsTool(), new com.tianmu.agent.tool.builtin.GenerateFeedbackReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new com.tianmu.agent.tool.builtin.AnalyzeCommentsTool(), new com.tianmu.agent.tool.builtin.AnalyzeDanmakuTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
                 new QueryVideoMetricsTool((q, s) -> { throw new AssertionError(); })), new ToolCatalog(), skills);
         try (var fixture = new HarnessLifecycleTest.Fixture()) {
             var run = fixture.run(); run.start();
+            run.execution().activateSkill("video-content");
             MetricData metric = new MetricData(1001, run.businessDate.minusDays(1), "bullet_count", 128,
                     "v1", "中文😀".repeat(3000), Instant.now(), "Asia/Shanghai", true, true);
             Evidence original = new Evidence("ev_page", run.id, run.owner, metric);

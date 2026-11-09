@@ -62,16 +62,20 @@ class CatalogArchitectureTest {
         List<Resource> all = new ArrayList<>(Arrays.asList(original)); all.add(item); return all.toArray(Resource[]::new);
     }
     List<AgentTool> builtins() {
-        return new ArrayList<>(List.of(new ListSkillsTool(), new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.PrepareFeedbackMaterialsTool(), new com.tianmu.agent.tool.builtin.GenerateFeedbackReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new AnalyzeCommentsTool(), new AnalyzeDanmakuTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
+        return new ArrayList<>(List.of(new ReadSkillTool(), new ReadResultTool(), new com.tianmu.agent.tool.builtin.ReadHistoryTool(), new com.tianmu.agent.tool.builtin.AskClarificationTool(), new com.tianmu.agent.tool.builtin.SearchMyVideosTool(null), new com.tianmu.agent.tool.builtin.SearchFeedbackTool(), new com.tianmu.agent.tool.builtin.ReadReportTool(), new com.tianmu.agent.tool.builtin.PrepareFeedbackMaterialsTool(), new com.tianmu.agent.tool.builtin.GenerateFeedbackReportTool(), new com.tianmu.agent.tool.builtin.AnalyzeFeedbackTool(), new AnalyzeCommentsTool(), new AnalyzeDanmakuTool(), new com.tianmu.agent.tool.builtin.CreateFeedbackReportTool(null), new com.tianmu.agent.tool.builtin.PrepareCommentDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new com.tianmu.agent.tool.builtin.PrepareDanmakuDraftTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new PrepareCreatorInteractionsTool(new com.tianmu.agent.interaction.MemoryCreatorDraftStore()), new AnalyzeVideoContentTool(null, new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()), new QueryDanmakuTool((q, s, c) -> { throw new AssertionError("Unexpected live query"); }), new com.tianmu.agent.tool.builtin.CreateVideoReportTool(),
                 new QueryVideoMetricsTool((q, s) -> { fail("Query must not run"); return null; })));
     }
     @Test void generalToolsAreAlwaysVisibleAndBusinessToolsRequireTheirOwnSkill() {
         var catalog = new ToolCatalog(); var skills = new SkillCatalog();
         var registry = new ToolRegistry(builtins(),catalog,skills);
         var snapshot = registry.names();
-        assertEquals(Set.of("list_skills","read_skill","read_result","read_history","ask_clarification"),registry.definitions(Set.of(),snapshot).stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(Set.of("read_skill","ask_clarification"),registry.definitions(Set.of(),snapshot).stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
         assertEquals("SKILL_REQUIRED",assertThrows(AgentException.class,()->registry.admit("query_video_metrics",Set.of("video-content"),snapshot)).code());
-        assertNotNull(registry.admit("read_result",Set.of(),snapshot));
+        assertEquals("TOOL_NOT_FOUND",assertThrows(AgentException.class,()->registry.get("list_skills")).code());
+        assertEquals("SKILL_REQUIRED",assertThrows(AgentException.class,()->registry.admit("read_result",Set.of(),snapshot)).code());
+        assertEquals("SKILL_REQUIRED",assertThrows(AgentException.class,()->registry.admit("read_history",Set.of("video-content"),snapshot)).code());
+        assertNotNull(registry.admit("read_history",Set.of("resource-discovery"),snapshot));
+        assertNotNull(registry.admit("read_result",Set.of("video-content"),snapshot));
         var video = registry.definitions(Set.of("video-content"),snapshot).stream().map(ToolDefinition::name).toList();
         assertTrue(video.contains("analyze_video_content")); assertFalse(video.contains("query_video_metrics"));
         assertFalse(video.contains("prepare_creator_interactions"));
@@ -107,11 +111,26 @@ class CatalogArchitectureTest {
             run.cancel();
         }
     }
+    @Test void aSharedEvidenceReaderAloneDoesNotMakeASkillAvailable() {
+        SkillCatalog skills = new SkillCatalog(append(ResourceFiles.discover("classpath*:skills/*/skill.json"),
+                skill("only-evidence", "read_result")));
+        var registry = new ToolRegistry(builtins(), new ToolCatalog(), skills);
+        try (var fixture = new HarnessLifecycleTest.Fixture()) {
+            var dispatcher = new ToolDispatcher(skills, fixture.harness, registry);
+            var run = fixture.run();
+            run.start();
+            assertTrue(dispatcher.capabilities(run, dispatcher.definitions(run)).skills().stream()
+                    .noneMatch(entry -> entry.name().equals("only-evidence")));
+            assertEquals("SKILL_REQUIRED", assertThrows(AgentException.class, () -> dispatcher.execute(
+                    new ToolCall("read_skill", Map.of("name", "only-evidence")), run)).code());
+            run.cancel();
+        }
+    }
     @Test void missingOrDuplicateHandlersAndUnknownSkillReferencesFailAtStartup() {
         ToolCatalog catalog = new ToolCatalog(); SkillCatalog skills = new SkillCatalog();
         List<AgentTool> handlers = builtins(); handlers.remove(0);
         assertThrows(IllegalStateException.class, () -> new ToolRegistry(handlers, catalog, skills));
-        List<AgentTool> duplicate = builtins(); duplicate.add(new ListSkillsTool());
+        List<AgentTool> duplicate = builtins(); duplicate.add(new ReadSkillTool());
         assertThrows(IllegalStateException.class, () -> new ToolRegistry(duplicate, catalog, skills));
         SkillCatalog unknown = new SkillCatalog(append(ResourceFiles.discover("classpath*:skills/*/skill.json"), skill("unknown", "missing_tool")));
         assertThrows(IllegalStateException.class, () -> new ToolRegistry(builtins(), catalog, unknown));

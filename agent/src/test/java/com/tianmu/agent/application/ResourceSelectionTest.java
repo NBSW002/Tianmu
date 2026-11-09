@@ -32,9 +32,10 @@ class ResourceSelectionTest {
         return new ModelContext(text,LocalDate.now(),scope,Set.of(),results,tools.stream().map(t->new ToolDefinition(t,"",Map.of())).toList(),6,false,"",prep,task);
     }
     @Test void reportDiscoveryProgressesFromActivationToReferenceToReadWithoutHistorySearchLoops(){
-        var general=List.of("read_skill","read_history","ask_clarification");
+        var general=List.of("read_skill","ask_clarification");
         var active=List.of("read_skill","read_history","ask_clarification","read_report");
         assertEquals("read_skill",ResourceSelection.requiredTool(context(general,List.of())));
+        assertEquals("read_skill",ResourceSelection.requiredTool(context(List.of("read_skill","ask_clarification","read_report"),List.of())));
         assertEquals("read_history",ResourceSelection.requiredTool(context(active,List.of())));
         var found=new ToolResult("read_history",Map.of("more_available",false,"messages",List.of(Map.of("text","/api/agent/runs/11111111-1111-1111-1111-111111111111/reports/rp_22222222-2222-2222-2222-222222222222"))),null);
         assertEquals("read_report",ResourceSelection.requiredTool(context(active,List.of(found))));

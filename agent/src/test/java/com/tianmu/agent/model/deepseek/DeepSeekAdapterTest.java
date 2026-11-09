@@ -85,6 +85,8 @@ class DeepSeekAdapterTest {
         assertEquals(List.of("video-content","comment-analysis"),result.related());
         var messages=requests.get(0).path("messages");var payload=mapper.readTree(messages.get(messages.size()-1).path("content").asText());
         assertEquals(12,payload.path("intentCandidates").size());
+        assertTrue(java.util.stream.StreamSupport.stream(payload.path("intentCandidates").spliterator(),false)
+                .noneMatch(candidate->candidate.has("tools")));
         assertEquals("视频1001昨天的弹幕数",payload.path("query").asText());
     }
     @Test void capabilityIntentRejectsUnregisteredPrimaryAndInventedRelatedGoals() {

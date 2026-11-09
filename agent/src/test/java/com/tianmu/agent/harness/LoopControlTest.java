@@ -65,7 +65,7 @@ class LoopControlTest {
                     assertFalse(c.systemDirective().isBlank());
                     return Decision.answer("128", List.of(run.execution().evidence().snapshot().keySet().iterator().next()));
                 }
-                return c.observations().isEmpty() ? query() : Decision.tool("list_skills", Map.of());
+                return c.observations().isEmpty() ? query() : Decision.tool("read_skill", Map.of("name","video-metrics"));
             });
             assertEquals(Status.SUCCEEDED, run.snapshot().status());
             assertEquals(StopReason.FINALIZED_ANSWER, run.snapshot().stopReason());
@@ -74,7 +74,7 @@ class LoopControlTest {
     }
     @Test void finalizerCannotExecuteAnotherToolAndFallsBackToEvidence() {
         try (Fixture f = new Fixture(policy(1))) {
-            RunState run = f.run(); f.execute(run, c -> c.finalizing() ? Decision.tool("list_skills", Map.of()) : query());
+            RunState run = f.run(); f.execute(run, c -> c.finalizing() ? Decision.tool("read_skill", Map.of("name","video-metrics")) : query());
             assertEquals(Status.SUCCEEDED, run.snapshot().status());
             assertEquals(1, run.execution().observations().size());
             assertTrue(run.snapshot().answer().text().contains("128"));
@@ -83,7 +83,7 @@ class LoopControlTest {
     }
     @Test void noEvidenceDoesNotTriggerFinalization() {
         try (Fixture f = new Fixture(policy(1))) {
-            RunState run = f.run(); f.execute(run, c -> Decision.tool("list_skills", Map.of()));
+            RunState run = f.run(); f.execute(run, c -> Decision.tool("read_skill", Map.of("name","video-metrics")));
             assertEquals("STEP_LIMIT", run.snapshot().errorCode()); assertEquals(1, run.snapshot().modelCalls());
         }
     }

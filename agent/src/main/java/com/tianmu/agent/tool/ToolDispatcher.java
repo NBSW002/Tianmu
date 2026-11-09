@@ -68,8 +68,13 @@ public class ToolDispatcher {
         return new CapabilityDirectory(publicTools, skillEntries);
     }
     private List<Map<String, String>> visibleSkills(RunState run) {
-        return skills.list().stream().filter(item -> skills.read(item.get("name")).tools().stream()
-                .anyMatch(name -> snapshotTools(run).contains(name) && permitted(name,run))).toList();
+        return skills.list().stream().filter(item -> skillAvailable(skills.read(item.get("name")),run)).toList();
+    }
+    private boolean skillAvailable(Skill skill, RunState run) {
+        var allowed = snapshotTools(run);
+        return skill.tools().stream()
+                .filter(name -> !name.equals("read_result") && !name.equals("read_history"))
+                .anyMatch(name -> allowed.contains(name) && permitted(name,run));
     }
     private boolean permitted(String name, RunState run) {
         boolean compressed=run.task()!=null && run.task().resourceVersions().containsKey(com.tianmu.agent.application.TaskAssembler.COMPRESSION_RESOURCE)
@@ -146,7 +151,6 @@ public class ToolDispatcher {
             context=new ToolContext(){
                 public UUID runId(){return run.id;}public AccessScope scope(){return owner;}public LocalDate businessDate(){return date;}
                 public void checkpoint(){run.checkpoint();}
-                public List<Map<String,String>> listSkills(){return List.of();}
                 public Skill activateSkill(String name){throw new AgentException("TOOL_CAPABILITY_DENIED","Parallel reads cannot activate skills");}
                 public List<ToolDefinition> definitionsForSkill(String name){return List.of();}
                 public Evidence evidence(String id){var e=evidence.get(id);if(e==null || !e.runId().equals(run.id) || !e.owner().equals(owner))throw new AgentException("RESULT_NOT_FOUND","Evidence outside snapshot");return e;}
@@ -238,12 +242,11 @@ public class ToolDispatcher {
             return history.read(before,limit,query);
         }
         public com.tianmu.agent.core.AnalysisContract analysisContract(){return run.task()==null?null:run.task().specification().analysis();}
-        public List<Map<String, String>> listSkills() { return visibleSkills(run); }
         public Skill activateSkill(String name) {
             if (!tool.canActivateSkills()) throw new AgentException("TOOL_CAPABILITY_DENIED", "Tool cannot activate skills");
             checkSkillRevision(name);
             Skill skill = skills.read(name);
-            if(skill.tools().stream().noneMatch(toolName -> permitted(toolName,run)))throw new AgentException("SKILL_REQUIRED","Skill is unavailable for this request");
+            if(!skillAvailable(skill,run))throw new AgentException("SKILL_REQUIRED","Skill is unavailable for this request");
             return harness.stage(run, "agent.skill", HookPoint.PRE_SKILL, HookPoint.POST_SKILL,
                     Map.of("skill.name", name, "skill.version", skill.version()), () -> {
                         TraceDetails.input(Map.of("name", name, "version", skill.version()));

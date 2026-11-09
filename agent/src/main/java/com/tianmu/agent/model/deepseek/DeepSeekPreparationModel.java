@@ -5,10 +5,18 @@ import com.tianmu.agent.preparation.PreparationModelPort;
 import com.tianmu.agent.prompt.PromptCatalog;
 import com.tianmu.agent.runtime.control.CallControl;
 import com.fasterxml.jackson.databind.*;
+import java.util.List;
 import java.util.Map;
 import static com.tianmu.agent.model.deepseek.StructuredModelOutput.*;
 
 final class DeepSeekPreparationModel implements PreparationModelPort {
+    private record CandidateView(String id,String label,String description,String boundary,String skill,
+                                 List<String> requiredConditions,Intent category) {
+        CandidateView(IntentCandidate candidate) {
+            this(candidate.id(),candidate.label(),candidate.description(),candidate.boundary(),candidate.skill(),
+                    candidate.requiredConditions(),candidate.category());
+        }
+    }
     private final DeepSeekClient client;
     private final DeepSeekProperties config;
     private final ObjectMapper mapper;
@@ -25,7 +33,8 @@ final class DeepSeekPreparationModel implements PreparationModelPort {
         Map<String, Object> payload = new java.util.LinkedHashMap<>();
         payload.put("memory", input.memory()); payload.put("query", input.query()); payload.put("businessDate", input.businessDate().toString());
         payload.put("requestedAt",input.requestedAt().toString());
-        if(prompt.equals(intentPrompt) && !input.intentCandidates().isEmpty())payload.put("intentCandidates",input.intentCandidates());
+        if(prompt.equals(intentPrompt) && !input.intentCandidates().isEmpty())
+            payload.put("intentCandidates",input.intentCandidates().stream().map(CandidateView::new).toList());
         try {
             payload.put("serverTaskCandidate",com.tianmu.agent.preparation.TaskMeaning.defaults()
                     .resolve(input.query(),input.businessDate(),input.requestedAt(),input.memory()));

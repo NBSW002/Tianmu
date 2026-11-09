@@ -23,7 +23,7 @@ class ClarificationToolTest {
     @Test void clarificationCannotShareAReadBatch(){
         try(var f=new HarnessLifecycleTest.Fixture()){
             var run=f.run();f.execute(run,c->new Decision(Kind.TOOL,new ToolCall("ask_clarification",Map.of("question","哪一个？")),null,null,
-                    List.of(new ToolCall("list_skills",Map.of()))));
+                    List.of(new ToolCall("read_skill",Map.of("name","video-metrics")))));
             assertEquals(Status.FAILED,run.snapshot().status());assertEquals("INVALID_DECISION",run.snapshot().errorCode());
             assertNull(run.snapshot().clarification());assertTrue(run.execution().exchanges().isEmpty());
         }
