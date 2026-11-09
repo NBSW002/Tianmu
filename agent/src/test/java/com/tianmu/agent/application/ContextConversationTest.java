@@ -70,6 +70,8 @@ class ContextConversationTest {
         when(model.decide(any(),any())).thenAnswer(call->{
             ModelContext c=call.getArgument(0);
             if(c.message().equals("分页查看之前的对话")) {
+                if(!c.activeSkills().contains("resource-discovery"))
+                    return Decision.tool("read_skill",Map.of("name","resource-discovery"));
                 var results=c.observations().stream().filter(r->r.tool().equals("read_history")).toList();
                 if(!results.isEmpty()) {
                     var last=results.get(results.size()-1);
@@ -86,12 +88,16 @@ class ContextConversationTest {
         send("分页查看之前的对话",first.sessionId());
         assertEquals(java.util.stream.LongStream.rangeClosed(1,8).boxed().toList(),sequences.stream().sorted().toList());
     }
-    @Test void olderHistoryCanBeReadOnDemandThroughTheGeneralTool() throws Exception {
+    @Test void olderHistoryCanBeReadAfterActivatingResourceDiscovery() throws Exception {
         when(pages.page(eq(1001L),any())).thenReturn(new VideoPagePort.Page("1001","动物 · 鸭子",32000));
         when(model.decide(any(),any())).thenAnswer(call->{
             ModelContext c=call.getArgument(0);
             if(c.message().equals("找回更早的灵感")) {
                 assertFalse(c.memory().recent().stream().anyMatch(m->m.text().equals("最初的灵感问题")));
+                if(!c.activeSkills().contains("resource-discovery")){
+                    assertTrue(c.availableTools().stream().noneMatch(t->t.name().equals("read_history")));
+                    return Decision.tool("read_skill",Map.of("name","resource-discovery"));
+                }
                 var history=c.observations().stream().filter(r->r.tool().equals("read_history")).findFirst();
                 if(history.isEmpty())return Decision.tool("read_history",Map.of("query","最初的灵感","limit",4));
                 var messages=(List<?>)history.get().data().get("messages");
@@ -102,6 +108,6 @@ class ContextConversationTest {
         var first=send("最初的灵感问题",null);
         send("聊聊拍摄角度",first.sessionId());send("再聊光线",first.sessionId());
         var recalled=send("找回更早的灵感",first.sessionId());
-        assertEquals(2,recalled.modelCalls());assertEquals(3,recalled.preparationCalls());
+        assertEquals(3,recalled.modelCalls());assertEquals(3,recalled.preparationCalls());
     }
 }

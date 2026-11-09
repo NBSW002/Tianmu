@@ -56,12 +56,18 @@ def summarize(spans, prices):
         worker = next((s for s in lineage if s["name"] == "feedback.work"), None)
         stage = "feedback" if worker else "preparation" if any(s["name"].startswith("agent.prepare.") for s in lineage) else "loop_or_tool"
         cost = estimate(attrs, prices)
+        projection = next((s["attributes"]["context.projection_version"] for s in lineage
+                           if "context.projection_version" in s.get("attributes", {})), None)
+        first_token_state = attrs.get("model.first_token_state", "NOT_REPORTED")
         row = {"run_id": run, "trace_id": span["traceId"], "span_id": span["spanId"], "stage": stage,
                "model": attrs.get("model.name"), "http_status": attrs.get("model.http_status"),
                "usage_state": attrs.get("model.usage_state", "NOT_REPORTED"),
                "input_tokens": token(attrs.get("model.input_tokens")), "output_tokens": token(attrs.get("model.output_tokens")),
                "cache_hit_tokens": token(attrs.get("model.cache_hit_tokens")), "cache_miss_tokens": token(attrs.get("model.cache_miss_tokens")),
                "response_ms": attrs.get("model.response_ms"), "cost_range": [str(x) for x in cost] if cost else None,
+               "first_token_state": first_token_state,
+               "ttft_ms": token(attrs.get("model.first_token_ms")) if first_token_state == "RECEIVED" else None,
+               "context_projection": projection, "message_roles_in_order": attrs.get("message.ordered_roles"),
                "context": {k: v for k, v in attrs.items() if k.startswith("context.") and k.endswith("_bytes")}}
         if worker:
             row["batch"] = {k: v for k, v in worker.get("attributes", {}).items()
@@ -92,6 +98,7 @@ def summarize(spans, prices):
             "notes": ["Token counts are provider-reported; missing usage is unknown, never free.",
                       "Cost ranges cover configured tariff bounds and unknown cache splits; unpriced calls are excluded, not zero-cost.",
                       "Timing sums can overlap and are not additive wall time. Network response time includes provider waiting; server inference time is unavailable.",
+                      "TTFT measures the first visible text chunk for streaming calls. Tool-only, non-streaming and missing samples are unknown.",
                       "Database metrics cover instrumented feedback ledger operations, not all business SQL. Missing timing is unmeasured.",
                       "Aggregated root usage is never summed with request spans. Only exported model.request spans marked dispatched are counted.",
                       "Usage completeness applies to observed calls only; compare against run/job call counters to detect missing exports."],

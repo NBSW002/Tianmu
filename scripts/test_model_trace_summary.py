@@ -36,6 +36,16 @@ class TraceSummaryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             summarize([call, self.span("a")], self.prices)
 
+    def test_ttft_requires_visible_text_and_layout_comes_from_the_request(self):
+        model = {**self.span("root"), "name": "agent.model",
+                 "attributes": {"run.id": "run", "context.projection_version": "chat_native_v2"}}
+        roles = ["system", "user", "assistant", "tool", "system"]
+        calls = summarize([model, self.span("a", **{"model.first_token_state": "RECEIVED", "model.first_token_ms": 400,
+                                                  "message.ordered_roles": roles}),
+                           self.span("b", **{"model.first_token_state": "PENDING", "model.first_token_ms": 0})], self.prices)["calls"]
+        self.assertEqual(("chat_native_v2", roles, 400), (calls[0]["context_projection"], calls[0]["message_roles_in_order"], calls[0]["ttft_ms"]))
+        self.assertIsNone(calls[1]["ttft_ms"])
+
 
 if __name__ == "__main__":
     unittest.main()

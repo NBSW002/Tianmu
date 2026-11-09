@@ -21,6 +21,7 @@ public final class DeepSeekClient {
     private final HttpClient http;
     private final com.tianmu.agent.model.ModelContextBuilder contexts;
     private final com.tianmu.agent.model.HarnessContextBuilder harnessContexts;
+    private final boolean tailProjectionEnabled;
     private final io.opentelemetry.api.trace.Tracer tracer;
     private volatile long quotaBlockedUntil;
     private static final long QUOTA_COOLDOWN_NANOS=Duration.ofMinutes(5).toNanos();
@@ -32,6 +33,7 @@ public final class DeepSeekClient {
     }
     public DeepSeekClient(DeepSeekProperties config,ObjectMapper mapper,com.tianmu.agent.model.ContextPolicy contextPolicy,io.opentelemetry.api.trace.Tracer tracer){
         this.tracer=tracer;
+        tailProjectionEnabled=contextPolicy.tailProjectionEnabled();
         contexts = new com.tianmu.agent.model.ModelContextBuilder(mapper, contextPolicy);
         harnessContexts = new com.tianmu.agent.model.HarnessContextBuilder(mapper,contextPolicy);
         this.config = config; this.mapper = mapper.copy()
@@ -46,7 +48,19 @@ public final class DeepSeekClient {
     public List<Map<String,String>> messages(String instruction,Map<String,?> input,CallControl control){return contexts(control).build(instruction,input);}
     public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context) { return harnessContexts.build(instruction,context); }
     public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context,CallControl control) {
-        return control.frozenContext()==null?harnessContexts.build(instruction,context):new com.tianmu.agent.model.HarnessContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext())).build(instruction,context);
+        return harnessMessages(instruction,context,control,"");
+    }
+    public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context,CallControl control,String requiredAction) {
+        var builder=control.frozenContext()==null?harnessContexts:new com.tianmu.agent.model.HarnessContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext()));
+        return builder.build(instruction,context,requiredAction,harnessProjection(control));
+    }
+    boolean legacyHarnessProjection(CallControl control) {
+        return com.tianmu.agent.core.ExecutionPolicySnapshot.Context.LEGACY_PROJECTION.equals(harnessProjection(control));
+    }
+    private String harnessProjection(CallControl control) {
+        if(control.frozenContext()!=null)return control.frozenContext().projectionVersion();
+        return tailProjectionEnabled ? com.tianmu.agent.core.ExecutionPolicySnapshot.Context.CURRENT_PROJECTION
+                : com.tianmu.agent.core.ExecutionPolicySnapshot.Context.LEGACY_PROJECTION;
     }
     public JsonNode complete(String model, List<? extends Map<String, ?>> messages, int maxTokens, CallControl control) {
         return complete(model,messages,maxTokens,control,false);
@@ -104,10 +118,11 @@ public final class DeepSeekClient {
         try {
             Map<String,Object> requestBody=new LinkedHashMap<>();
             boolean supportsThinking=config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek");
-            boolean thinking=supportsThinking && config.thinkingEnabled() && (nativeTools!=null || external);
+            // DeepSeek rejects named or required tool_choice in thinking mode.
+            boolean thinking=supportsThinking && config.thinkingEnabled() && requiredTool==null && (nativeTools!=null || external);
             TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state",thinking?"ENABLED":"DISABLED"));
             if(thinking){String effort=external?config.analysisThinkingEffort():config.thinkingEffort();requestBody.put("reasoning_effort",effort);TraceAttributes.apply(Span.current(),Map.of("model.reasoning_effort",effort));}
-            if(nativeTools!=null && thinking) {
+            if(nativeTools!=null && supportsThinking && config.thinkingEnabled()) {
                 var replay=new ArrayList<Map<String,Object>>();
                 for(var message:messages){var copy=new LinkedHashMap<String,Object>(message);if("assistant".equals(copy.get("role")))copy.putIfAbsent("reasoning_content","");replay.add(copy);}
                 messages=replay;

@@ -100,19 +100,20 @@ class AgentRuntimeTest {
     }
     @Test void repeatedCallsStopLoop() {
         RunState run = run("x");
-        with(ctx -> new Decision(Kind.TOOL,new ToolCall("list_skills",Map.of(),java.util.UUID.randomUUID().toString()),null,null)).execute(run);
+        with(ctx -> new Decision(Kind.TOOL,new ToolCall("read_skill",Map.of("name","video-metrics"),java.util.UUID.randomUUID().toString()),null,null)).execute(run);
         assertEquals("NO_PROGRESS", run.snapshot().errorCode());
     }
     @Test void unsafeNativeBatchIsRejectedBeforeActivatingAnySkill() {
         RunState run=run("x");
         with(ctx->new Decision(Kind.TOOL,new ToolCall("read_skill",Map.of("name","video-content"),"p1","g"),null,null,
-                List.of(new ToolCall("list_skills",Map.of(),"p2","g")))).execute(run);
+                List.of(new ToolCall("read_skill",Map.of("name","video-metrics"),"p2","g")))).execute(run);
         assertEquals("INVALID_DECISION",run.snapshot().errorCode());assertTrue(run.execution().activeSkills().isEmpty());assertTrue(run.execution().observations().isEmpty());
     }
     @Test void independentNativeBatchExecutesBothReadsBeforeAnotherModelCall() {
         var dispatcher=org.mockito.Mockito.mock(ToolDispatcher.class);var seen=new ArrayList<String>();
         org.mockito.Mockito.when(dispatcher.clarificationCall(org.mockito.ArgumentMatchers.anyString())).thenAnswer(invocation->new ToolCall("ask_clarification",Map.of("question",invocation.getArgument(0,String.class))));
         org.mockito.Mockito.when(dispatcher.definitions(org.mockito.ArgumentMatchers.any(RunState.class))).thenReturn(List.of(new ToolDefinition("read_a","",Map.of()),new ToolDefinition("read_b","",Map.of()),new ToolDefinition("ask_clarification","",Map.of())));
+        org.mockito.Mockito.when(dispatcher.capabilities(org.mockito.ArgumentMatchers.any(RunState.class),org.mockito.ArgumentMatchers.anyList())).thenReturn(CapabilityDirectory.empty());
         org.mockito.Mockito.when(dispatcher.execute(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->{ToolCall call=invocation.getArgument(0);if(call.name().equals("ask_clarification"))return new ToolResult(call.name(),Map.of(),null,null,null,call.arguments().get("question").toString());seen.add(call.name());return new ToolResult(call.name(),Map.of(),null);});
         org.mockito.Mockito.when(dispatcher.dispatch(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(invocation->new ToolDispatcher.Completed(dispatcher.execute(invocation.getArgument(0),invocation.getArgument(1))));
         var a=new ToolCall("read_a",Map.of(),"p1","g");var b=new ToolCall("read_b",Map.of(),"p2","g");RunState run=run("x");
@@ -134,7 +135,7 @@ class AgentRuntimeTest {
     }
     @Test void unrecognizedArgumentsCannotInjectScope() {
         RunState run = run("x");
-        with(ctx -> Decision.tool("list_skills", Map.of("tenant_id", "other"))).execute(run);
+        with(ctx -> Decision.tool("read_skill", Map.of("name","video-metrics","tenant_id","other"))).execute(run);
         assertEquals("TOOL_FAILURE_LIMIT", run.snapshot().errorCode());
         assertEquals(2,run.execution().observations().size());
         assertTrue(run.execution().observations().stream().allMatch(r->r.data().get("error_code").equals("INVALID_ARGUMENTS")));
@@ -146,6 +147,7 @@ class AgentRuntimeTest {
         runtime.execute(first);
         String evidenceId = first.snapshot().answer().evidenceIds().get(0);
         RunState second = run("x");
+        second.execution().activateSkill("video-content");
         with(ctx -> Decision.tool("read_result", Map.of("result_id", evidenceId))).execute(second);
         assertEquals("RESULT_NOT_FOUND", second.snapshot().errorCode());
     }

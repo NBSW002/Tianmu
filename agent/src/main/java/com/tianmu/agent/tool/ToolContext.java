@@ -16,7 +16,6 @@ public interface ToolContext {
     void checkpoint();
     default Map<String,Object> history(long before,int limit,String query) { throw new com.tianmu.agent.core.AgentException("HISTORY_UNAVAILABLE","History unavailable"); }
     default void checkCreatorDraft(long videoId, String kind) { throw new com.tianmu.agent.core.AgentException("TOOL_CAPABILITY_DENIED", "Creator draft unavailable"); }
-    List<Map<String, String>> listSkills();
     Skill activateSkill(String name);
     default List<Map<String, Object>> skillResources(String name) { return List.of(); }
     default Map<String, Object> skillResource(String name, String resource, int offset, int limit) {

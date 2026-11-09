@@ -19,11 +19,20 @@ public final class TracePrompt {
     private static void attributes(Metadata m){TraceAttributes.apply(Span.current(),Map.of("prompt.id",m.id(),"prompt.version",m.version(),"prompt.variant",m.variant(),"prompt.hash",hash(m.instruction()),"prompt.components",m.components()));}
     public static void capture(List<? extends Map<String,?>> messages){
         var metadata=Context.current().get(KEY);
-        var instructions=messages.stream().filter(m->Set.of("system","developer").contains(Objects.toString(m.get("role"),""))).map(m->Map.of("role",m.get("role"),"content",Objects.toString(m.get("content"),""))).toList();
+        var instructions=new ArrayList<Map<String,Object>>();
+        for(int index=0;index<messages.size();index++){
+            var message=messages.get(index);
+            String role=Objects.toString(message.get("role"),"");
+            if(Set.of("system","developer").contains(role))
+                instructions.add(Map.of("index",index,"role",role,"content",Objects.toString(message.get("content"),"")));
+        }
         var canonical=new StringBuilder();for(var instruction:instructions){String role=instruction.get("role").toString(),content=instruction.get("content").toString();canonical.append(role.length()).append(':').append(role).append(content.length()).append(':').append(content);}
         if(metadata==null)metadata=new Metadata("inline.unregistered","content-addressed","UNREGISTERED",canonical.toString(),List.of());
         attributes(metadata);
-        TraceAttributes.apply(Span.current(),Map.of("prompt.effective_hash",hash(canonical.toString()),"message.roles",messages.stream().map(m->Objects.toString(m.get("role"),"unknown")).distinct().limit(32).toList()));
+        var roles=messages.stream().map(m->Objects.toString(m.get("role"),"unknown")).toList();
+        TraceAttributes.apply(Span.current(),Map.of("prompt.effective_hash",hash(canonical.toString()),
+                "message.roles",roles.stream().distinct().limit(32).toList(),
+                "message.ordered_roles",roles.stream().limit(32).toList()));
         TraceDetails.capture("prompt",Map.of("id",metadata.id(),"version",metadata.version(),"variant",metadata.variant(),"instruction",metadata.instruction(),"requestInstructions",instructions,"components",metadata.components()),"PROMPT_SNAPSHOT");
     }
     public static void inline(String id,String version,String variant,String instruction){var metadata=new Metadata(id,version,variant,instruction,List.of());attributes(metadata);TraceAttributes.apply(Span.current(),Map.of("prompt.effective_hash",hash(instruction)));TraceDetails.capture("prompt",Map.of("id",id,"version",version,"variant",variant,"instruction",instruction),"PROMPT_SNAPSHOT");}

@@ -7,7 +7,7 @@
       "name": {
         "type": "string",
         "minLength": 1,
-        "description": "Exact Skill name from list_skills or the available name enum. Without resource, loads the Skill instructions and activates its allowed tools; activation does not expand task or data permissions."
+        "description": "Exact Skill name from the available Skills directory or name enum. Without resource, loads the Skill instructions and activates its allowed tools; activation does not expand task or data permissions."
       },
       "resource": {
         "type": "string",

@@ -24,10 +24,15 @@ public final class NativeContextProjector {
     }
     private Map<String,Object> message(String role,String text){return Map.of("role",role,"content",text);}
     public Request project(ContextEnvelope envelope){
-        return project(envelope,true);
+        return project(envelope,true,-1);
     }
-    Request project(ContextEnvelope envelope,boolean enforceBudget){
+    // A non-negative index marks the current user message in the Harness conversation.
+    Request project(ContextEnvelope envelope,boolean enforceBudget,int currentUserIndex){
+        boolean orderedHarness=currentUserIndex>=0;
         var controls=new ArrayList<Map<String,Object>>();var references=new ArrayList<Map<String,Object>>();var conversation=new ArrayList<Map<String,Object>>();
+        var task=new ArrayList<Map<String,Object>>();var tail=new ArrayList<Map<String,Object>>();
+        Map<String,Object> summaryMessage=null;
+        Map<String,Object> dynamicToolsMessage=null;
         var tools=new ArrayList<ToolDefinition>();var sizes=new LinkedHashMap<String,Integer>();
         for(var part:envelope.parts()){
             sizes.put(part.slot().key(),bytes(part.payload()));
@@ -36,10 +41,17 @@ public final class NativeContextProjector {
                     Object text=part.payload().get("text");if(!(text instanceof String s) || s.isBlank())throw invalid();
                     controls.add(message("system",s));
                 }
-                case TOOL_CATALOG -> tools.addAll(json.convertValue(part.payload().get("tools"),new TypeReference<List<ToolDefinition>>(){}));
+                case TOOL_CATALOG -> {
+                    tools.addAll(json.convertValue(part.payload().get("tools"),new TypeReference<List<ToolDefinition>>(){}));
+                    if(orderedHarness && part.payload().containsKey("disclosed"))
+                        dynamicToolsMessage=message("system",section("disclosed_tools",part.payload().get("disclosed")));
+                }
                 case CURRENT_CONTEXT -> {
                     Object summary=part.payload().get("compaction");
-                    if(summary!=null)references.add(message("user",section("compaction",summary)));
+                    if(summary!=null) {
+                        summaryMessage=message("user",section("compaction",summary));
+                        if(!orderedHarness)references.add(summaryMessage);
+                    }
                     Object sequence=part.payload().get("messages");if(!(sequence instanceof List<?> list))throw invalid();
                     Set<String> pending=new HashSet<>(),seen=new HashSet<>();
                     for(Object entry:list){
@@ -60,11 +72,26 @@ public final class NativeContextProjector {
                 }
                 default -> {
                     boolean reference=part.trust()==Trust.REFERENCE || part.slot()==Slot.FOCUS;
-                    (reference?references:controls).add(message(reference?"user":"system",section(part.slot().key(),part.payload())));
+                    var entry=message(reference?"user":"system",section(part.slot().key(),part.payload()));
+                    if(!orderedHarness)(reference?references:controls).add(entry);
+                    else if(part.slot()==Slot.RUNTIME_STATE || part.slot()==Slot.OUTPUT_CONTRACT)tail.add(entry);
+                    else task.add(entry);
                 }
             }
         }
-        var messages=new ArrayList<Map<String,Object>>(controls);messages.addAll(references);messages.addAll(conversation);
+        var messages=new ArrayList<Map<String,Object>>(controls);
+        if(orderedHarness) {
+            if(currentUserIndex>=conversation.size() || !"user".equals(conversation.get(currentUserIndex).get("role")))throw invalid();
+            if(summaryMessage!=null)messages.add(summaryMessage);
+            messages.addAll(conversation.subList(0,currentUserIndex));
+            messages.addAll(task);
+            messages.addAll(conversation.subList(currentUserIndex,conversation.size()));
+            messages.addAll(tail);
+            if(dynamicToolsMessage!=null)messages.add(dynamicToolsMessage);
+        } else {
+            messages.addAll(references);
+            messages.addAll(conversation);
+        }
         var payload=new LinkedHashMap<String,Object>();payload.put("messages",messages);
         if(!tools.isEmpty())payload.put("tools",tools.stream().map(t->Map.of("type","function","function",Map.of("name",t.name(),"description",t.description(),"parameters",t.inputSchema()))).toList());
         int size=bytes(payload);

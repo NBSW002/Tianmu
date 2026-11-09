@@ -39,10 +39,13 @@ class CreatorInteractionTest {
             String kind = (String)context.task().specification().conditions().get("kind");
             String skill = kind.equals("COMMENT") ? "smart-comment" : "smart-danmaku";
             if (!context.activeSkills().contains(skill)) return Decision.tool("read_skill",Map.of("name",skill));
+            String draft = kind.equals("COMMENT") ? "prepare_comment_draft" : "prepare_danmaku_draft";
+            assertEquals(Set.of("read_skill","ask_clarification","analyze_video_content",draft),
+                    context.availableTools().stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
             var observed = context.observations().stream().filter(r -> r.tool().equals("analyze_video_content")).findFirst();
             if (observed.isEmpty()) return Decision.tool("analyze_video_content",Map.of("video_id",1001));
             Map<String,Object> item = kind.equals("COMMENT") ? Map.of("text","你们最喜欢哪个片段？") : Map.of("text","这里的鸭子出场啦", "playback_ms",1000);
-            return Decision.tool("prepare_creator_interactions",Map.of("video_id",1001,"kind",kind,"video_evidence_id",observed.get().evidenceId(),"items",List.of(item)));
+            return Decision.tool(draft,Map.of("video_id",1001,"video_evidence_id",observed.get().evidenceId(),"items",List.of(item)));
         });
     }
     @Test void bothKindsRunInsideHarnessAndNeverPublishUntilHumanConfirmation() throws Exception {

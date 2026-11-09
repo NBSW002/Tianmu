@@ -69,8 +69,10 @@ class InputValidationRecoveryTest {
                 }
             };
             fixture.execute(run,model);assertEquals(Status.SUCCEEDED,run.snapshot().status(),()->"error="+run.snapshot().errorCode());assertEquals(1,fixture.queries.get());assertEquals(3,requests.size());
-            var messages=requests.get(1).path("messages");var reply=messages.get(messages.size()-1);
-            assertEquals("bad-call",reply.path("tool_call_id").asText());assertEquals("bad-call",messages.get(messages.size()-2).path("tool_calls").get(0).path("id").asText());
+            var messages=requests.get(1).path("messages");
+            var call=java.util.stream.StreamSupport.stream(messages.spliterator(),false).filter(m->m.has("tool_calls")).findFirst().orElseThrow();
+            var reply=java.util.stream.StreamSupport.stream(messages.spliterator(),false).filter(m->m.has("tool_call_id")).findFirst().orElseThrow();
+            assertEquals("bad-call",reply.path("tool_call_id").asText());assertEquals("bad-call",call.path("tool_calls").get(0).path("id").asText());
             assertEquals("BEFORE_HANDLER",json.readTree(reply.path("content").asText()).path("data").path("input_validation").path("phase").asText());
             var spans=fixture.recording.spans.stream().filter(s->s.getName().equals("agent.tool")).toList();assertEquals(2,spans.size());
             assertEquals(false,spans.get(0).getAttributes().get(AttributeKey.booleanKey("tool.handler_executed")));
@@ -82,10 +84,11 @@ class InputValidationRecoveryTest {
     @Test void switchingToolsAndAnInterveningSuccessCannotResetTheRunAllowance() {
         try(var fixture=new HarnessLifecycleTest.Fixture()) {
             var effects=new AtomicInteger();var tools=dispatcher(fixture,effects,this::empty);var run=fixture.run();var count=new AtomicInteger();
+            run.execution().activateSkill("resource-discovery");
             com.tianmu.agent.application.AgentRuntimeFactory.create(context->switch(count.getAndIncrement()) {
                 case 0 -> Decision.tool("read_result",Map.of());
                 case 1 -> Decision.tool("read_history",Map.of("before","not-an-integer"));
-                case 2 -> Decision.tool("list_skills",Map.of());
+                case 2 -> Decision.tool("read_skill",Map.of("name","video-metrics"));
                 default -> Decision.tool("read_result",Map.of());
             },tools,fixture.harness).execute(run);
             assertEquals("TOOL_FAILURE_LIMIT",run.snapshot().errorCode());assertEquals(4,count.get());assertEquals(0,effects.get());

@@ -41,11 +41,11 @@ class NativeToolBatchTest {
                 var json=new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
                 var client=new com.tianmu.agent.model.deepseek.DeepSeekClient(new com.tianmu.agent.model.deepseek.DeepSeekProperties(java.net.URI.create("http://localhost"),"test","fixture","fixture",Duration.ofSeconds(2),384,1536),json);
                 var messages=json.valueToTree(client.harnessMessages("rules",context));
-                var assistant=messages.get(messages.size()-3);
+                var assistant=java.util.stream.StreamSupport.stream(messages.spliterator(),false).filter(m->m.has("tool_calls")).findFirst().orElseThrow();
+                var results=java.util.stream.StreamSupport.stream(messages.spliterator(),false).filter(m->m.has("tool_call_id")).toList();
                 assertEquals("assistant",assistant.path("role").asText());assertEquals("reasoning",assistant.path("reasoning_content").asText());
                 assertEquals(2,assistant.path("tool_calls").size());
-                assertEquals("video-1",messages.get(messages.size()-2).path("tool_call_id").asText());
-                assertEquals("comments-1",messages.get(messages.size()-1).path("tool_call_id").asText());
+                assertEquals(List.of("video-1","comments-1"),results.stream().map(m->m.path("tool_call_id").asText()).toList());
                 return Decision.clarify("请补充重点");
             });
             assertEquals(Status.NEEDS_INPUT,run.snapshot().status(),()->String.valueOf(run.snapshot().errorCode()));

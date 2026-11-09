@@ -23,7 +23,9 @@ public final class ResourceSelection {
                 +"\n"+context.observations().stream().map(r->r.data().toString()).collect(java.util.stream.Collectors.joining("\n"));
         if(java.util.regex.Pattern.compile("/api/agent/runs/[0-9a-f-]{36}/reports/rp_[0-9a-f-]{36}").matcher(references).find())return "read_report";
         boolean exhausted=context.observations().stream().anyMatch(r->"read_history".equals(r.tool()) && Boolean.FALSE.equals(r.data().get("more_available")));
-        return exhausted && names.contains("ask_clarification")?"ask_clarification":"read_history";
+        if(!exhausted && names.contains("read_history"))return "read_history";
+        if(!exhausted && names.contains("read_skill") && !context.activeSkills().contains("resource-discovery"))return "read_skill";
+        return names.contains("ask_clarification")?"ask_clarification":"required";
     }
     public static Optional<String> question(Specification task,List<ToolResult> observations){
         if(task==null || !"resource.lookup".equals(task.type()) || !Boolean.TRUE.equals(task.conditions().get("selection_required")))return Optional.empty();

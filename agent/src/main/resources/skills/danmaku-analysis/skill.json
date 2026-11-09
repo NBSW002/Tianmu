@@ -1,15 +1,13 @@
 {
   "name": "danmaku-analysis",
-  "version": "5.0.0",
-  "description": "查询弹幕概览或分析播放语境中的反馈；需要报告时组织所选来源证据并保存。",
+  "version": "5.0.2",
+  "description": "查询区间弹幕概览，或分析弹幕表达与视频播放语境。",
   "tools": [
+    "read_result",
     "query_danmaku",
     "analyze_video_content",
     "analyze_feedback",
     "create_feedback_report",
-    "search_my_videos",
-    "read_report",
-    "search_feedback",
     "analyze_comments",
     "analyze_danmaku",
     "prepare_feedback_materials",

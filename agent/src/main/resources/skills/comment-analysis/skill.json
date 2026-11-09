@@ -1,13 +1,11 @@
 {
   "name": "comment-analysis",
-  "version": "5.0.0",
-  "description": "分析评论正文与回复语境，区分作者和观众；需要报告时组织所选来源证据并保存。",
+  "version": "5.0.2",
+  "description": "分析观众评论的观点与回复语境，区分作者和观众的表达。",
   "tools": [
+    "read_result",
     "analyze_video_content",
     "analyze_feedback",
-    "search_my_videos",
-    "read_report",
-    "search_feedback",
     "analyze_comments",
     "analyze_danmaku",
     "create_feedback_report",

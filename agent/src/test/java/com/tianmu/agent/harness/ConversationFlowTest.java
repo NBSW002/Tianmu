@@ -34,7 +34,7 @@ class ConversationFlowTest {
             var run = new RunState(new AccessScope("demo", "alice", Set.of()), question);
             var runtime = com.tianmu.agent.application.AgentRuntimeFactory.create(context -> {
                 assertEquals("conversation", context.task().specification().type());
-                assertEquals(Set.of("list_skills","read_skill","read_result","read_history","ask_clarification"), context.availableTools().stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
+                assertEquals(Set.of("read_skill","ask_clarification"), context.availableTools().stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet()));
                 return Decision.answer("欢迎来到直播间，今天一起发现一些实用的小惊喜。", List.of());
             }, fixture.tools, fixture.harness);
             new RequestOrchestrator(prep, runtime, fixture.harness).execute(run);

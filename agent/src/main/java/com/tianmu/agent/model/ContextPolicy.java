@@ -8,7 +8,11 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record ContextPolicy(@DefaultValue("98304") int maxInputBytes,
                             @DefaultValue("16384") int maxHistoryBytes,
                             @DefaultValue("4") int recentMaxMessages,
-                            @DefaultValue("8192") int recentMaxBytes) {
+                            @DefaultValue("8192") int recentMaxBytes,
+                            @DefaultValue("true") boolean tailProjectionEnabled) {
+    public ContextPolicy(int maxInputBytes, int maxHistoryBytes, int recentMaxMessages, int recentMaxBytes) {
+        this(maxInputBytes,maxHistoryBytes,recentMaxMessages,recentMaxBytes,true);
+    }
     public ContextPolicy(int maxInputBytes, int maxHistoryBytes) {
         this(maxInputBytes, maxHistoryBytes, 4, 8192);
     }

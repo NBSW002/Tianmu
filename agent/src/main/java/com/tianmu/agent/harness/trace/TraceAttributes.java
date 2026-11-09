@@ -38,7 +38,7 @@ public final class TraceAttributes {
             "analysis.job_id", "analysis.phase", "analysis.work_id", "analysis.work_kind", "analysis.batch_ordinal", "budget.scope", "run.background_model_calls", "usage.external_model_calls", "usage.total_tokens", "usage.cache_hit_tokens", "usage.reasoning_tokens", "usage.state",
             "context.history_removed", "context.schemas_removed", "context.byte_limit", "context.input_bytes", "context.output_bytes", "context.changed",
             "context.format", "context.history_messages", "context.classified_batches_released", "context.report_inputs_released", "context.projection_bytes_saved",
-            "context.schema_version", "context.projection_version", "context.present_slots", "context.slot_bytes",
+            "context.schema_version", "context.projection_version", "context.present_slots", "context.slot_bytes", "message.ordered_roles",
             "memory.candidate_count", "memory.selected_count", "memory.context_bytes", "memory.snapshot_seq",
             "memory.reused", "memory.restore_reason", "memory.added_count", "memory.updated_count", "memory.duplicate_count", "memory.conflict_count", "memory.source_messages", "memory.policy_version", "memory.core_count", "memory.related_count", "memory.trigger_reason", "memory.processed_count", "memory.dream_changes",
             "tool.replay", "tool.error_code", "tool.batch_id", "tool.batch_count", "tool.batch_index", "tool.execution_mode",
