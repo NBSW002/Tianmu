@@ -52,11 +52,15 @@ public final class DeepSeekClient {
     }
     public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context,CallControl control,String requiredAction) {
         var builder=control.frozenContext()==null?harnessContexts:new com.tianmu.agent.model.HarnessContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext()));
-        return builder.build(instruction,context,requiredAction,legacyHarnessProjection(control));
+        return builder.build(instruction,context,requiredAction,harnessProjection(control));
     }
     boolean legacyHarnessProjection(CallControl control) {
-        return control.frozenContext()==null ? !tailProjectionEnabled
-                : com.tianmu.agent.core.ExecutionPolicySnapshot.Context.LEGACY_PROJECTION.equals(control.frozenContext().projectionVersion());
+        return com.tianmu.agent.core.ExecutionPolicySnapshot.Context.LEGACY_PROJECTION.equals(harnessProjection(control));
+    }
+    private String harnessProjection(CallControl control) {
+        if(control.frozenContext()!=null)return control.frozenContext().projectionVersion();
+        return tailProjectionEnabled ? com.tianmu.agent.core.ExecutionPolicySnapshot.Context.CURRENT_PROJECTION
+                : com.tianmu.agent.core.ExecutionPolicySnapshot.Context.LEGACY_PROJECTION;
     }
     public JsonNode complete(String model, List<? extends Map<String, ?>> messages, int maxTokens, CallControl control) {
         return complete(model,messages,maxTokens,control,false);

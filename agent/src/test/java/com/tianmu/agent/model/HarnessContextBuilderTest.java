@@ -98,7 +98,10 @@ class HarnessContextBuilderTest {
         UUID turn=UUID.randomUUID();var memory=new MemoryTypes.View(1,"",List.of(m(turn,1,"user","x"),m(turn,2,"assistant","y")),false);
         var builder=new HarnessContextBuilder(json,new ContextPolicy(2048,0));
         var messages=builder.build("rules",context(memory,List.of(),List.of()));
-        assertEquals(List.of("system","system","user","system"),messages.stream().map(m->m.get("role")).toList());
+        assertEquals(List.of("system","user","system"),messages.stream().map(m->m.get("role")).toList());
+        assertTrue(messages.get(2).get("content").toString().contains("\"business_date\":\"2026-10-29\""));
+        var previous=builder.build("rules",context(memory,List.of(),List.of()),"",ExecutionPolicySnapshot.Context.PREVIOUS_PROJECTION);
+        assertTrue(previous.get(1).get("content").toString().startsWith("<execution_context>"));
         var huge=new ToolResult("query_video_comments",Map.of("all_comments","原文".repeat(3000)),"ev_1");
         var error=assertThrows(AgentException.class,()->builder.build("rules",context(memory,List.of(huge),List.of())));
         assertEquals("MODEL_CONTEXT_TOO_LARGE",error.code());

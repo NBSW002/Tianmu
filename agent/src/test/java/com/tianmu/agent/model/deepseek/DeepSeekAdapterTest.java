@@ -193,6 +193,9 @@ class DeepSeekAdapterTest {
         assertEquals("skill-1",newNext.get(userIndex+1).path("tool_calls").get(0).path("id").asText());
         assertEquals("skill-1",newNext.get(userIndex+2).path("tool_call_id").asText());
         assertTrue(newNext.get(userIndex+3).path("content").asText().contains("required_action"));
+        assertTrue(newNext.get(userIndex+3).path("content").asText().contains("\"business_date\":\"2026-10-21\""));
+        assertTrue(newNext.get(userIndex+3).path("content").asText().contains("\"timezone\":\"Asia/Shanghai\""));
+        assertFalse(newNext.toString().contains("<execution_context>"));
         assertTrue(newNext.get(userIndex+4).path("content").asText().startsWith("<disclosed_tools>"));
         assertEquals("read_report",requests.get(3).path("tool_choice").path("function").path("name").asText());
         assertEquals("read_skill",requests.get(3).path("tools").get(0).path("function").path("name").asText());
@@ -398,7 +401,7 @@ class DeepSeekAdapterTest {
             assertEquals(15L, attributes.get(io.opentelemetry.api.common.AttributeKey.longKey("model.total_tokens")));
             assertEquals("stop", attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("model.finish_reason")));
             assertEquals("NOT_APPLICABLE", attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("model.first_token_state")));
-            assertEquals(List.of("system","system","user","system"),attributes.get(io.opentelemetry.api.common.AttributeKey.stringArrayKey("message.ordered_roles")));
+            assertEquals(List.of("system","user","system"),attributes.get(io.opentelemetry.api.common.AttributeKey.stringArrayKey("message.ordered_roles")));
             assertEquals("harness.system",attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.id")));assertEquals(new PromptCatalog().get("harness.system").version(),attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.version")));assertNotNull(attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.hash")));
             for (String direction : List.of("input", "provider_output", "prompt")) {
                 String[] ref = attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("detail." + direction + "_ref")).split("/");

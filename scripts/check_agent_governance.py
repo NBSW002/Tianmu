@@ -34,7 +34,7 @@ def catalog():
              "", "## agent.policy-snapshot", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
              "| `agent.policy-snapshot.enabled` | false | PolicySnapshotProperties → ExecutionPolicyFactory；YAML显式环境别名 `AGENT_POLICY_SNAPSHOT_ENABLED`。仅新Run创建时捕获，旧记录永不补造；关闭写者仍兼容读取已保存v1。先部署兼容reader再启用writer。 |", ""]
     lines += ["## agent.context 投影顺序", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
-              "| `agent.context.tail-projection-enabled` | true | ContextPolicy → ExecutionPolicyFactory、DeepSeekClient；YAML别名 `AGENT_CONTEXT_TAIL_PROJECTION_ENABLED`。启动绑定。新Run使用v2，关闭后新Run使用v1；已保存快照继续使用其原投影。保留v2快照期间使用兼容二进制回退。 |", ""]
+              "| `agent.context.tail-projection-enabled` | true | ContextPolicy → ExecutionPolicyFactory、DeepSeekClient；YAML别名 `AGENT_CONTEXT_TAIL_PROJECTION_ENABLED`。启动绑定。新Run使用v3，关闭后新Run使用v1；已保存快照继续使用其原投影。保留新版快照期间使用兼容二进制回退。 |", ""]
     lines += ["## agent.feedback.compression协议", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.feedback.compression.enabled` | false | FeedbackCompressionProperties → TaskAssembler在受理时冻结feedback:compression资源标记，ToolDispatcher按任务标记选择三Tool；只影响新任务，旧任务不自动升级。显式别名FEEDBACK_COMPRESSION_ENABLED。启动生效，启用须有Embedding/Milvus；缺失不得EXACT_ONLY回退。 |",
               "| `agent.feedback.compression.min-similarity` | 0.90 | FeedbackCompression任务内星形聚类的余弦下限，finite且(0,1]；FEEDBACK_CLUSTER_MIN_SIMILARITY。进入材料/后台policyHash，重启生效，已封存assignment不重算。 |",

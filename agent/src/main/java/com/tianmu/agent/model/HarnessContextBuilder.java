@@ -27,9 +27,10 @@ public final class HarnessContextBuilder {
     }
     private Map<String,Object> message(String role,String content) { return Map.of("role",role,"content",content); }
     public List<Map<String,Object>> build(String instruction,ModelContext context) {
-        return build(instruction,context,"",!policy.tailProjectionEnabled());
+        return build(instruction,context,"",policy.tailProjectionEnabled()
+                ? ExecutionPolicySnapshot.Context.CURRENT_PROJECTION : ExecutionPolicySnapshot.Context.LEGACY_PROJECTION);
     }
-    public List<Map<String,Object>> build(String instruction,ModelContext context,String requiredAction,boolean legacy) {
+    public List<Map<String,Object>> build(String instruction,ModelContext context,String requiredAction,String projection) {
         List<ToolCall> calls = calls(context);
         var memory=context.memory();
         List<MemoryTypes.Message> history=new ArrayList<>(memory.recent());
@@ -41,9 +42,9 @@ public final class HarnessContextBuilder {
         int schemas=bounds.deduplicateSchemas(working);
         int compacted=new ToolResultProjector(json).compact((ArrayNode)working.get("results"),context.availableTools().stream().anyMatch(t->t.name().equals("read_result")));
         TraceAttributes.apply(Span.current(),Map.of("context.results_compacted",compacted,"context.compaction_segments",memory.compaction().size()));
-        NativeContextProjector.Request projected=assemble(instruction,context,history,working,calls,requiredAction,legacy);
+        NativeContextProjector.Request projected=assemble(instruction,context,history,working,calls,requiredAction,projection);
         while(projected.payloadBytes()>policy.maxInputBytes() && !history.isEmpty()) {
-            removeOldestTurn(history);projected=assemble(instruction,context,history,working,calls,requiredAction,legacy);
+            removeOldestTurn(history);projected=assemble(instruction,context,history,working,calls,requiredAction,projection);
         }
         if(projected.payloadBytes()>policy.maxInputBytes())throw new AgentException("MODEL_CONTEXT_TOO_LARGE","Required context and tool schemas exceed the input budget");
         List<Map<String,Object>> messages=projected.messages();
@@ -51,7 +52,6 @@ public final class HarnessContextBuilder {
         TraceAttributes.apply(Span.current(),Map.of("context.format","context_envelope_v1","context.output_bytes",bytes(messages),"context.history_bytes",bytes(history),
                 "context.history_messages",history.size(),"context.schemas_removed",schemas,
                 "context.byte_limit",policy.maxInputBytes()));
-        String projection=legacy?ExecutionPolicySnapshot.Context.LEGACY_PROJECTION:ExecutionPolicySnapshot.Context.CURRENT_PROJECTION;
         TraceAttributes.apply(Span.current(),Map.of("context.schema_version","1.0","context.projection_version",projection,
                 "context.present_slots",new ArrayList<>(projected.slotBytes().keySet()),"context.slot_bytes",projected.slotBytes().entrySet().stream().map(e->e.getKey()+":"+e.getValue()).toList()));
         return List.copyOf(messages);
@@ -62,7 +62,9 @@ public final class HarnessContextBuilder {
         do { history.remove(0); } while(!history.isEmpty() && Objects.equals(first,history.get(0).runId()));
     }
     private NativeContextProjector.Request assemble(String instruction,ModelContext context,List<MemoryTypes.Message> history,
-            ObjectNode working,List<ToolCall> recordedCalls,String requiredAction,boolean legacy) {
+            ObjectNode working,List<ToolCall> recordedCalls,String requiredAction,String projection) {
+        boolean legacy=ExecutionPolicySnapshot.Context.LEGACY_PROJECTION.equals(projection);
+        boolean dateAtTail=ExecutionPolicySnapshot.Context.CURRENT_PROJECTION.equals(projection);
         List<Map<String,Object>> out=new ArrayList<>();
         for(var prior:history) if(Set.of("user","assistant").contains(prior.role())) out.add(message(prior.role(),prior.text()));
         var parts=new ArrayList<ContextEnvelope.Part>();
@@ -86,7 +88,8 @@ public final class HarnessContextBuilder {
             for(String name:context.activeSkills())index.putIfAbsent(name,Map.of("name",name,"active",true));
             if(!index.isEmpty())parts.add(part(ContextEnvelope.Slot.SKILL_CATALOG,Map.of("skills",new ArrayList<>(index.values()))));
         }
-        parts.add(part(ContextEnvelope.Slot.EXECUTION_CONTEXT,Map.of("business_date",context.businessDate().toString(),"timezone","Asia/Shanghai")));
+        if(!dateAtTail)
+            parts.add(part(ContextEnvelope.Slot.EXECUTION_CONTEXT,Map.of("business_date",context.businessDate().toString(),"timezone","Asia/Shanghai")));
         Map<String,Object> focus=new LinkedHashMap<>();
         var previous=context.memory().focus();
         String current=context.task()!=null ? context.task().originalQuery()
@@ -115,6 +118,10 @@ public final class HarnessContextBuilder {
         if(!history.isEmpty())runtime.put("historyBefore",history.get(0).sequence());
         if(context.reportState()!=null)runtime.put("task_state",data(context.reportState()));
         if(!legacy && !requiredAction.isBlank())runtime.put("required_action",requiredAction);
+        if(dateAtTail) {
+            runtime.put("business_date",context.businessDate().toString());
+            runtime.put("timezone","Asia/Shanghai");
+        }
         parts.add(part(ContextEnvelope.Slot.RUNTIME_STATE,runtime));
         if(context.finalizing())parts.add(part(ContextEnvelope.Slot.OUTPUT_CONTRACT,Map.of("mode","finalization","instruction",context.systemDirective())));
         int currentUserIndex=out.size();
