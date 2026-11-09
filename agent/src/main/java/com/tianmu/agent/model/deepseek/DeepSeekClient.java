@@ -114,7 +114,8 @@ public final class DeepSeekClient {
         try {
             Map<String,Object> requestBody=new LinkedHashMap<>();
             boolean supportsThinking=config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek");
-            boolean thinking=supportsThinking && config.thinkingEnabled() && (nativeTools!=null || external);
+            // DeepSeek rejects named or required tool_choice in thinking mode.
+            boolean thinking=supportsThinking && config.thinkingEnabled() && requiredTool==null && (nativeTools!=null || external);
             TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state",thinking?"ENABLED":"DISABLED"));
             if(thinking){String effort=external?config.analysisThinkingEffort():config.thinkingEffort();requestBody.put("reasoning_effort",effort);TraceAttributes.apply(Span.current(),Map.of("model.reasoning_effort",effort));}
             if(nativeTools!=null && thinking) {
