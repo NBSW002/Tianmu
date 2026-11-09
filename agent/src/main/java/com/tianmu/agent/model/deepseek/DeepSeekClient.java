@@ -118,7 +118,7 @@ public final class DeepSeekClient {
             boolean thinking=supportsThinking && config.thinkingEnabled() && requiredTool==null && (nativeTools!=null || external);
             TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state",thinking?"ENABLED":"DISABLED"));
             if(thinking){String effort=external?config.analysisThinkingEffort():config.thinkingEffort();requestBody.put("reasoning_effort",effort);TraceAttributes.apply(Span.current(),Map.of("model.reasoning_effort",effort));}
-            if(nativeTools!=null && thinking) {
+            if(nativeTools!=null && supportsThinking && config.thinkingEnabled()) {
                 var replay=new ArrayList<Map<String,Object>>();
                 for(var message:messages){var copy=new LinkedHashMap<String,Object>(message);if("assistant".equals(copy.get("role")))copy.putIfAbsent("reasoning_content","");replay.add(copy);}
                 messages=replay;
