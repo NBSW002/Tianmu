@@ -34,7 +34,8 @@ public final class ExecutionPolicyFactory {
             new ExecutionPolicySnapshot.Foreground(loop.maxModelCalls(),loop.maxTokens(),loop.tokenReservation(),loop.maxTurns(),loop.maxTurns(),loop.consecutiveToolFailures(),loop.finalizeEnabled(),"analysis-turns-v1"),
             new ExecutionPolicySnapshot.Timeouts(loop.modelTimeout().toMillis(),loop.toolTimeout().toMillis(),loop.finalizeTimeout().toMillis(),120000,
                 preparation.faqTimeout().toMillis(),preparation.understandingTimeout().toMillis(),preparation.emotionTimeout().toMillis(),preparation.intentTimeout().toMillis(),preparation.deterministicRouting(),preparation.emotionEnabled()),
-            new ExecutionPolicySnapshot.Context(context.maxInputBytes(),context.maxHistoryBytes(),context.recentMaxMessages(),context.recentMaxBytes(),"1.0","chat_native_v1","slots-v1"),
+            new ExecutionPolicySnapshot.Context(context.maxInputBytes(),context.maxHistoryBytes(),context.recentMaxMessages(),context.recentMaxBytes(),"1.0",
+                    context.tailProjectionEnabled()?ExecutionPolicySnapshot.Context.CURRENT_PROJECTION:ExecutionPolicySnapshot.Context.LEGACY_PROJECTION,"slots-v1"),
             new ExecutionPolicySnapshot.Business(feedback.timeout().toMillis(),"conditions-v1","completion-v1",tasks==null?Map.of():tasks.resourceVersions()),
             model==null?new ExecutionPolicySnapshot.Model("host-default","host-default","host-v1","chat-native-v1",models==null?"preparation-v1":models.revision()):
                 new ExecutionPolicySnapshot.Model(model.id(),model.model(),model.revision(),"chat-native-v1",models==null?"preparation-v1":models.revision())).signed();

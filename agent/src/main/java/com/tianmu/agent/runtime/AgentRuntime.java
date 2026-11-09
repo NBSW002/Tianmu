@@ -133,11 +133,15 @@ public class AgentRuntime {
     private com.tianmu.agent.runtime.spi.TaskExecutionPolicy.Input policyInput(RunState run){return new com.tianmu.agent.runtime.spi.TaskExecutionPolicy.Input(run.task(),run.modelCallLimit(),run.execution().evidence().snapshot(),run.execution().artifactEvidence());}
     private ModelContext context(RunState run, String message, int remaining, boolean finalizing) {
         return harness.stage(run, "agent.context", null, null, Map.of("context.observation_count", run.execution().observations().size()),
-                () -> harness.transform(run, TransformPoint.CONTEXT, new ModelContext(message,
-                        run.businessDate, run.owner, run.execution().activeSkills(), run.execution().observations(),
-                        finalizing ? List.of() : tools.definitions(run), remaining, finalizing,
-                        finalizing ? finalizeDirective : "", run.preparedRequest(), run.task(), run.memory(),run.execution().exchanges(),
-                        taskPolicy.project(policyInput(run)))));
+                () -> {
+                    var available = tools.definitions(run);
+                    var context = harness.transform(run, TransformPoint.CONTEXT, new ModelContext(message,
+                            run.businessDate, run.owner, run.execution().activeSkills(), run.execution().observations(),
+                            finalizing ? List.of() : available, remaining, finalizing,
+                            finalizing ? finalizeDirective : "", run.preparedRequest(), run.task(), run.memory(),run.execution().exchanges(),
+                            taskPolicy.project(policyInput(run))));
+                    return context.withCapabilities(tools.capabilities(run,finalizing ? available : context.availableTools()));
+                });
     }
     private Decision decide(RunState run, ModelContext context) {
         if(contextAuthority!=null)contextAuthority.verify(run);

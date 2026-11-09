@@ -130,6 +130,7 @@ agent:
     recent-max-bytes: ${AGENT_CONTEXT_RECENT_MAX_BYTES:8192}
     max-input-bytes: ${AGENT_CONTEXT_MAX_INPUT_BYTES:98304}
     max-history-bytes: ${AGENT_CONTEXT_MAX_HISTORY_BYTES:16384}
+    tail-projection-enabled: ${AGENT_CONTEXT_TAIL_PROJECTION_ENABLED:true}
   preparation:
     deterministic-routing: ${AGENT_PREPARATION_RULE_ONLY:false}
     emotion-enabled: ${AGENT_PREPARATION_EMOTION_ENABLED:true}

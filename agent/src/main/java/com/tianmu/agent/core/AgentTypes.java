@@ -55,10 +55,24 @@ public final class AgentTypes {
             return new Decision(Kind.CLARIFY, null, null, text);
         }
     }
+    public record CapabilitySummary(String name, String description) {}
+    public record CapabilityDirectory(List<CapabilitySummary> publicTools, List<CapabilitySummary> skills) {
+        public CapabilityDirectory {
+            publicTools = List.copyOf(publicTools);
+            skills = List.copyOf(skills);
+        }
+        public static CapabilityDirectory empty() { return new CapabilityDirectory(List.of(), List.of()); }
+    }
     public record ModelContext(String message, LocalDate businessDate, AccessScope scope,
                                Set<String> activeSkills, List<ToolResult> observations,
                                List<ToolDefinition> availableTools, int remainingSteps,
-                               boolean finalizing, String systemDirective, PreparedRequest preparation, PreparedTask task, MemoryTypes.View memory, List<ToolExchange> exchanges, ReportTaskState reportState) {
+                               boolean finalizing, String systemDirective, PreparedRequest preparation, PreparedTask task, MemoryTypes.View memory, List<ToolExchange> exchanges, ReportTaskState reportState,
+                               CapabilityDirectory capabilities) {
+        public ModelContext(String message, LocalDate date, AccessScope scope, Set<String> skills, List<ToolResult> results,
+                            List<ToolDefinition> tools, int remaining, boolean finalizing, String directive,
+                            PreparedRequest preparation, PreparedTask task, MemoryTypes.View memory, List<ToolExchange> exchanges, ReportTaskState reportState) {
+            this(message,date,scope,skills,results,tools,remaining,finalizing,directive,preparation,task,memory,exchanges,reportState,CapabilityDirectory.empty());
+        }
         public ModelContext(String message,LocalDate date,AccessScope scope,Set<String> skills,List<ToolResult> results,
                             List<ToolDefinition> tools,int remaining,boolean finalizing,String directive,PreparedRequest preparation,PreparedTask task,MemoryTypes.View memory,List<ToolExchange> exchanges) {
             this(message,date,scope,skills,results,tools,remaining,finalizing,directive,preparation,task,memory,exchanges,null);
@@ -88,6 +102,11 @@ public final class AgentTypes {
             observations = List.copyOf(observations);
             availableTools = List.copyOf(availableTools);
             exchanges = List.copyOf(exchanges);
+            capabilities = Objects.requireNonNull(capabilities);
+        }
+        public ModelContext withCapabilities(CapabilityDirectory directory) {
+            return new ModelContext(message,businessDate,scope,activeSkills,observations,availableTools,remainingSteps,
+                    finalizing,systemDirective,preparation,task,memory,exchanges,reportState,directory);
         }
     }
     public record ToolExchange(ToolCall call,ToolResult result) {}

@@ -27,6 +27,9 @@ public final class HarnessContextBuilder {
     }
     private Map<String,Object> message(String role,String content) { return Map.of("role",role,"content",content); }
     public List<Map<String,Object>> build(String instruction,ModelContext context) {
+        return build(instruction,context,"",!policy.tailProjectionEnabled());
+    }
+    public List<Map<String,Object>> build(String instruction,ModelContext context,String requiredAction,boolean legacy) {
         List<ToolCall> calls = calls(context);
         var memory=context.memory();
         List<MemoryTypes.Message> history=new ArrayList<>(memory.recent());
@@ -38,9 +41,9 @@ public final class HarnessContextBuilder {
         int schemas=bounds.deduplicateSchemas(working);
         int compacted=new ToolResultProjector(json).compact((ArrayNode)working.get("results"),context.availableTools().stream().anyMatch(t->t.name().equals("read_result")));
         TraceAttributes.apply(Span.current(),Map.of("context.results_compacted",compacted,"context.compaction_segments",memory.compaction().size()));
-        NativeContextProjector.Request projected=assemble(instruction,context,history,working,calls);
+        NativeContextProjector.Request projected=assemble(instruction,context,history,working,calls,requiredAction,legacy);
         while(projected.payloadBytes()>policy.maxInputBytes() && !history.isEmpty()) {
-            removeOldestTurn(history);projected=assemble(instruction,context,history,working,calls);
+            removeOldestTurn(history);projected=assemble(instruction,context,history,working,calls,requiredAction,legacy);
         }
         if(projected.payloadBytes()>policy.maxInputBytes())throw new AgentException("MODEL_CONTEXT_TOO_LARGE","Required context and tool schemas exceed the input budget");
         List<Map<String,Object>> messages=projected.messages();
@@ -48,7 +51,8 @@ public final class HarnessContextBuilder {
         TraceAttributes.apply(Span.current(),Map.of("context.format","context_envelope_v1","context.output_bytes",bytes(messages),"context.history_bytes",bytes(history),
                 "context.history_messages",history.size(),"context.schemas_removed",schemas,
                 "context.byte_limit",policy.maxInputBytes()));
-        TraceAttributes.apply(Span.current(),Map.of("context.schema_version","1.0","context.projection_version","chat_native_v1",
+        String projection=legacy?ExecutionPolicySnapshot.Context.LEGACY_PROJECTION:ExecutionPolicySnapshot.Context.CURRENT_PROJECTION;
+        TraceAttributes.apply(Span.current(),Map.of("context.schema_version","1.0","context.projection_version",projection,
                 "context.present_slots",new ArrayList<>(projected.slotBytes().keySet()),"context.slot_bytes",projected.slotBytes().entrySet().stream().map(e->e.getKey()+":"+e.getValue()).toList()));
         return List.copyOf(messages);
     }
@@ -57,18 +61,31 @@ public final class HarnessContextBuilder {
         UUID first=history.get(0).runId();
         do { history.remove(0); } while(!history.isEmpty() && Objects.equals(first,history.get(0).runId()));
     }
-    private NativeContextProjector.Request assemble(String instruction,ModelContext context,List<MemoryTypes.Message> history,ObjectNode working,List<ToolCall> recordedCalls) {
+    private NativeContextProjector.Request assemble(String instruction,ModelContext context,List<MemoryTypes.Message> history,
+            ObjectNode working,List<ToolCall> recordedCalls,String requiredAction,boolean legacy) {
         List<Map<String,Object>> out=new ArrayList<>();
         for(var prior:history) if(Set.of("user","assistant").contains(prior.role())) out.add(message(prior.role(),prior.text()));
         var parts=new ArrayList<ContextEnvelope.Part>();
-        parts.add(part(ContextEnvelope.Slot.SYSTEM_PROMPT,Map.of("text",instruction)));
-        if(!context.availableTools().isEmpty())parts.add(part(ContextEnvelope.Slot.TOOL_CATALOG,Map.of("tools",data(context.availableTools()))));
-        var index=new TreeMap<String,Map<String,Object>>();
-        if(context.preparation()!=null && context.preparation().recognition()!=null)
-            for(var candidate:context.preparation().recognition().candidates())if(candidate.skill()!=null)
-                index.put(candidate.skill(),Map.of("name",candidate.skill(),"description",candidate.description(),"active",context.activeSkills().contains(candidate.skill())));
-        for(String name:context.activeSkills())index.putIfAbsent(name,Map.of("name",name,"active",true));
-        if(!index.isEmpty())parts.add(part(ContextEnvelope.Slot.SKILL_CATALOG,Map.of("skills",new ArrayList<>(index.values()))));
+        parts.add(part(ContextEnvelope.Slot.SYSTEM_PROMPT,Map.of("text",legacy?instruction:stablePrompt(instruction,context))));
+        if(!context.availableTools().isEmpty()) {
+            var tools=new LinkedHashMap<String,Object>();
+            tools.put("tools",data(context.availableTools()));
+            if(!legacy && !context.finalizing()) {
+                var publicNames=context.capabilities().publicTools().stream().map(CapabilitySummary::name).collect(java.util.stream.Collectors.toSet());
+                var disclosed=context.availableTools().stream().filter(tool->!publicNames.contains(tool.name()))
+                        .map(tool->new CapabilitySummary(tool.name(),tool.description())).toList();
+                if(!disclosed.isEmpty())tools.put("disclosed",data(directoryEntries(disclosed)));
+            }
+            parts.add(part(ContextEnvelope.Slot.TOOL_CATALOG,tools));
+        }
+        if(legacy) {
+            var index=new TreeMap<String,Map<String,Object>>();
+            if(context.preparation()!=null && context.preparation().recognition()!=null)
+                for(var candidate:context.preparation().recognition().candidates())if(candidate.skill()!=null)
+                    index.put(candidate.skill(),Map.of("name",candidate.skill(),"description",candidate.description(),"active",context.activeSkills().contains(candidate.skill())));
+            for(String name:context.activeSkills())index.putIfAbsent(name,Map.of("name",name,"active",true));
+            if(!index.isEmpty())parts.add(part(ContextEnvelope.Slot.SKILL_CATALOG,Map.of("skills",new ArrayList<>(index.values()))));
+        }
         parts.add(part(ContextEnvelope.Slot.EXECUTION_CONTEXT,Map.of("business_date",context.businessDate().toString(),"timezone","Asia/Shanghai")));
         Map<String,Object> focus=new LinkedHashMap<>();
         var previous=context.memory().focus();
@@ -90,13 +107,17 @@ public final class HarnessContextBuilder {
             if(page.playbackMs()!=null)environment.put("playbackMs",page.playbackMs());
             parts.add(part(ContextEnvelope.Slot.ENVIRONMENT_CONTEXT,environment));
         }
-        Map<String,Object> runtime=new LinkedHashMap<>();runtime.put("businessDate",context.businessDate().toString());runtime.put("remainingSteps",context.remainingSteps());
-        if(!context.activeSkills().isEmpty())runtime.put("activeSkills",new ArrayList<>(context.activeSkills()));
+        Map<String,Object> runtime=new LinkedHashMap<>();
+        if(legacy)runtime.put("businessDate",context.businessDate().toString());
+        runtime.put("remainingSteps",context.remainingSteps());
+        if(!context.activeSkills().isEmpty())runtime.put("activeSkills",legacy?new ArrayList<>(context.activeSkills()):context.activeSkills().stream().sorted().toList());
         if(context.memory().truncated() || history.size()<context.memory().recent().size())runtime.put("olderHistoryAvailable",true);
         if(!history.isEmpty())runtime.put("historyBefore",history.get(0).sequence());
         if(context.reportState()!=null)runtime.put("task_state",data(context.reportState()));
+        if(!legacy && !requiredAction.isBlank())runtime.put("required_action",requiredAction);
         parts.add(part(ContextEnvelope.Slot.RUNTIME_STATE,runtime));
         if(context.finalizing())parts.add(part(ContextEnvelope.Slot.OUTPUT_CONTRACT,Map.of("mode","finalization","instruction",context.systemDirective())));
+        int currentUserIndex=out.size();
         out.add(message("user",current));
         ArrayNode results=(ArrayNode)working.get("results");
         for(int i=0;i<results.size();) {
@@ -118,7 +139,19 @@ public final class HarnessContextBuilder {
         if(!context.memory().compaction().isEmpty() && !ConversationTopics.switchesTopic(context.message()))conversation.put("compaction",Map.of("segments",data(context.memory().compaction()),"completeness","PARTIAL_READBACK_AVAILABLE"));
         parts.add(part(ContextEnvelope.Slot.CURRENT_CONTEXT,conversation));
         var envelope=new ContextEnvelope("1.0",context.finalizing()?ContextEnvelope.Phase.FINALIZATION:ContextEnvelope.Phase.LOOP,"context-v1",parts);
-        return new NativeContextProjector(json,policy).project(envelope,false);
+        return new NativeContextProjector(json,policy).project(envelope,false,legacy?-1:currentUserIndex);
+    }
+    private String stablePrompt(String instruction,ModelContext context) {
+        var prompt=new StringBuilder(instruction);
+        var available=context.availableTools().stream().map(ToolDefinition::name).collect(java.util.stream.Collectors.toSet());
+        var publicTools=context.capabilities().publicTools().stream()
+                .filter(tool->context.finalizing() || available.contains(tool.name())).toList();
+        if(!publicTools.isEmpty())prompt.append("\n\n").append(section("public_tools",directoryEntries(publicTools)));
+        if(!context.capabilities().skills().isEmpty())prompt.append("\n\n").append(section("available_skills",directoryEntries(context.capabilities().skills())));
+        return prompt.toString();
+    }
+    private List<CapabilitySummary> directoryEntries(List<CapabilitySummary> entries) {
+        return entries.stream().sorted(Comparator.comparing(CapabilitySummary::name)).toList();
     }
     private Object data(Object value){return json.convertValue(value,Object.class);}
     private ContextEnvelope.Part part(ContextEnvelope.Slot slot,Map<String,Object> payload){return new ContextEnvelope.Part(slot,"runtime-v1",payload);}

@@ -12,7 +12,10 @@ public record ExecutionPolicySnapshot(String schemaVersion,String semanticsVersi
     public record Timeouts(long modelMillis,long toolMillis,long finalizeMillis,long videoToolMillis,long faqMillis,
             long understandingMillis,long emotionMillis,long intentMillis,boolean deterministicRouting,boolean emotionEnabled) {}
     public record Context(int maxInputBytes,int maxHistoryBytes,int recentMessages,int recentBytes,
-            String envelopeVersion,String projectionVersion,String slotPolicyVersion) {}
+            String envelopeVersion,String projectionVersion,String slotPolicyVersion) {
+        public static final String LEGACY_PROJECTION = "chat_native_v1";
+        public static final String CURRENT_PROJECTION = "chat_native_v2";
+    }
     public record Business(long reportWindowMillis,String conditionsVersion,String completionVersion,Map<String,String> resources) {
         public Business { resources=Map.copyOf(resources); }
     }
@@ -36,7 +39,8 @@ public record ExecutionPolicySnapshot(String schemaVersion,String semanticsVersi
     public void verify() {
         if(!"1".equals(schemaVersion) || !"agent-execution-v1".equals(semanticsVersion)
                 || !"analysis-turns-v1".equals(foreground.turnRuleVersion()) || !"1.0".equals(context.envelopeVersion())
-                || !"chat_native_v1".equals(context.projectionVersion()) || !"slots-v1".equals(context.slotPolicyVersion())
+                || !(Context.LEGACY_PROJECTION.equals(context.projectionVersion()) || Context.CURRENT_PROJECTION.equals(context.projectionVersion()))
+                || !"slots-v1".equals(context.slotPolicyVersion())
                 || !"conditions-v1".equals(business.conditionsVersion()) || !"completion-v1".equals(business.completionVersion())
                 || !"chat-native-v1".equals(model.adapterVersion()))throw new AgentException("POLICY_VERSION_UNAVAILABLE","Execution policy version is unavailable");
         if(!Objects.equals(contentHash,calculatedHash()) || !initialDeadline.isAfter(acceptedAt) || !effectiveDeadline.isAfter(acceptedAt)

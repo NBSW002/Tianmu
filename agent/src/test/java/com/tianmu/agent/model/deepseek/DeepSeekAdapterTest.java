@@ -4,6 +4,9 @@ import com.tianmu.agent.core.StopReason;
 
 import com.tianmu.agent.core.AgentException;
 import com.tianmu.agent.core.AgentTypes.*;
+import com.tianmu.agent.core.ExecutionPolicySnapshot;
+import com.tianmu.agent.core.MemoryTypes;
+import com.tianmu.agent.core.TaskTypes.*;
 import com.tianmu.agent.core.PreparationTypes.*;
 import com.tianmu.agent.runtime.control.*;
 import com.tianmu.agent.prompt.PromptCatalog;
@@ -108,9 +111,9 @@ class DeepSeekAdapterTest {
         var finalDecision=model.decide(nativeContext(List.of(result),List.of(new ToolExchange(decision.call(),result))),control());
         assertEquals("已读取，这是基于画面的建议。",finalDecision.answer().text());assertEquals(List.of("ev_1"),finalDecision.answer().evidenceIds());
         var messages=requests.get(1).path("messages");
-        assertEquals("provider-call-731",messages.get(messages.size()-2).path("tool_calls").get(0).path("id").asText());
-        assertEquals("provider-call-731",messages.get(messages.size()-1).path("tool_call_id").asText());
-        assertTrue(messages.get(messages.size()-2).path("content").asText().isEmpty());assertEquals("先核对视频来源。",messages.get(messages.size()-2).path("reasoning_content").asText());
+        assertEquals("provider-call-731",messages.get(messages.size()-4).path("tool_calls").get(0).path("id").asText());
+        assertEquals("provider-call-731",messages.get(messages.size()-3).path("tool_call_id").asText());
+        assertTrue(messages.get(messages.size()-4).path("content").asText().isEmpty());assertEquals("先核对视频来源。",messages.get(messages.size()-4).path("reasoning_content").asText());
         assertNotEquals(new ToolCall("x",Map.of("a",1),"first"),new ToolCall("x",Map.of("a",1),"second"));
     }
     @Test void parameterDescriptionsAndDynamicNamesReachTheActualNativeRequestUnchanged() {
@@ -124,6 +127,81 @@ class DeepSeekAdapterTest {
         var name=functions.get("read_skill").path("parameters").path("properties").path("name");
         assertFalse(name.path("description").asText().isBlank());assertEquals(mapper.valueToTree(skills.names().stream().sorted().toList()),name.path("enum"));
         assertFalse(functions.get("prepare_creator_interactions").path("parameters").path("properties").path("items").path("items").path("properties").path("playback_ms").path("description").asText().isBlank());
+    }
+    @Test void sameReportQueryKeepsTheStablePrefixAcrossSkillDisclosureInTheActualRequest() {
+        var date = input().businessDate();
+        var scope = input().scope();
+        var query = "上次报告里观众主要在吐槽什么？";
+        var prior = UUID.randomUUID();
+        var link = "/api/agent/runs/00000000-0000-4000-8000-000000000001/reports/rp_00000000-0000-4000-8000-000000000002";
+        var history = new MemoryTypes.View(1, "", List.of(
+                new MemoryTypes.Message(UUID.randomUUID(),prior,2,"user","上次的报告是哪份？",Instant.EPOCH),
+                new MemoryTypes.Message(UUID.randomUUID(),prior,3,"assistant",link,Instant.EPOCH)),false)
+                .withCompaction(List.of(new MemoryTypes.Compaction(UUID.randomUUID(),1,1,1,1,Map.of("summary","旧会话摘要"))))
+                .withPersistent(List.of(new MemoryTypes.Persistent(UUID.randomUUID(),1,"USER","test","PREFERENCE","先给结论")));
+        var publicTool = new ToolDefinition("read_skill","读取技能",Map.of("type","object"));
+        var reportTool = new ToolDefinition("read_report","读取已有报告",Map.of("type","object"));
+        var directory = new CapabilityDirectory(List.of(new CapabilitySummary(publicTool.name(),publicTool.description())),
+                List.of(new CapabilitySummary("resource-discovery","查找历史产物")));
+        var prep = new PreparedRequest(query,query,Emotion.NEUTRAL,Set.of(),Set.of(),Intent.OTHER);
+        var task = new PreparedTask(UUID.randomUUID(),query,query,date,"Asia/Shanghai",scope,prep,
+                new Specification("resource.lookup",Map.of("report_reference_required",true),Map.of()),Map.of(),
+                Set.of(publicTool.name(),reportTool.name()),Instant.now().plusSeconds(30),6);
+        var skillCall = new ToolCall("read_skill",Map.of("name","resource-discovery"),"skill-1");
+        var skillResult = new ToolResult("read_skill",Map.of("instructions","读取报告主题"),null);
+        var first = new ModelContext(query,date,scope,Set.of(),List.of(),List.of(publicTool),4,false,"",
+                null,task,history,List.of(),null,directory);
+        var next = new ModelContext(query,date,scope,Set.of("resource-discovery"),List.of(skillResult),List.of(reportTool,publicTool),3,false,"",
+                null,task,history,List.of(new ToolExchange(skillCall,skillResult)),null,directory);
+        var finish = new ModelContext(query,date,scope,Set.of("resource-discovery"),List.of(skillResult),List.of(),0,true,"use evidence",
+                null,task,history,List.of(new ToolExchange(skillCall,skillResult)),null,directory);
+        var report = new ToolResult("read_report",Map.of("topics",List.of("字幕延迟")),"ev_report");
+        var reportCall = new ToolCall("read_report",Map.of("section","topics"),"report-1");
+        var afterReport = new ModelContext(query,date,scope,Set.of("resource-discovery"),List.of(skillResult,report),next.availableTools(),2,false,"",
+                null,task,history,List.of(new ToolExchange(skillCall,skillResult),new ToolExchange(reportCall,report)),null,directory);
+        var model = new DeepSeekHarnessModel(client,properties,mapper,new PromptCatalog());
+        for (String projection : List.of(ExecutionPolicySnapshot.Context.LEGACY_PROJECTION,ExecutionPolicySnapshot.Context.CURRENT_PROJECTION)) {
+            var policy = new ExecutionPolicySnapshot.Context(98304,16384,4,8192,"1.0",projection,"slots-v1");
+            nativeAnswer = request -> {
+                var name=request.path("tool_choice").path("function").path("name").asText();
+                return Map.of("tool_calls",List.of(Map.of("id","provider-1","type","function","function",Map.of("name",name,"arguments","{}"))));
+            };
+            model.decide(first,control().withContextPolicy(policy));
+            model.decide(next,control().withContextPolicy(policy));
+        }
+        nativeAnswer=null;
+        model.decide(afterReport,control());
+        model.decide(finish,control());
+        var oldFirst=requests.get(0).path("messages");
+        var oldNext=requests.get(1).path("messages");
+        var newFirst=requests.get(2).path("messages");
+        var newNext=requests.get(3).path("messages");
+        var thirdRequest=requests.get(4);
+        var finalRequest=requests.get(5);
+        assertNotEquals(oldFirst.get(0),oldNext.get(0));
+        assertTrue(oldFirst.get(0).path("content").asText().contains("本轮先读取"));
+        assertTrue(newFirst.get(0).path("content").asText().contains("<public_tools>"));
+        assertTrue(newFirst.get(0).path("content").asText().contains("<available_skills>"));
+        assertFalse(newFirst.get(0).path("content").asText().contains("本轮先读取"));
+        assertTrue(newFirst.get(1).path("content").asText().startsWith("<compaction>"));
+        assertEquals("上次的报告是哪份？",newFirst.get(2).path("content").asText());
+        assertEquals(link,newFirst.get(3).path("content").asText());
+        int userIndex=newFirst.size()-2;
+        assertEquals(query,newFirst.get(userIndex).path("content").asText());
+        assertTrue(newFirst.get(userIndex-1).path("content").asText().startsWith("<memory_context>"));
+        for(int i=0;i<=userIndex;i++)assertEquals(newFirst.get(i),newNext.get(i),"shared prefix at "+i);
+        assertEquals("skill-1",newNext.get(userIndex+1).path("tool_calls").get(0).path("id").asText());
+        assertEquals("skill-1",newNext.get(userIndex+2).path("tool_call_id").asText());
+        assertTrue(newNext.get(userIndex+3).path("content").asText().contains("required_action"));
+        assertTrue(newNext.get(userIndex+4).path("content").asText().startsWith("<disclosed_tools>"));
+        assertEquals("read_report",requests.get(3).path("tool_choice").path("function").path("name").asText());
+        assertEquals("read_skill",requests.get(3).path("tools").get(0).path("function").path("name").asText());
+        assertEquals("read_report",requests.get(3).path("tools").get(1).path("function").path("name").asText());
+        assertEquals(requests.get(3).path("tools"),thirdRequest.path("tools"));
+        for(int i=0;i<=userIndex+2;i++)assertEquals(newNext.get(i),thirdRequest.path("messages").get(i),"shared prefix including skill result at "+i);
+        assertFalse(finalRequest.has("tools"));
+        assertEquals(newFirst.get(0),finalRequest.path("messages").get(0));
+        assertTrue(finalRequest.path("messages").get(finalRequest.path("messages").size()-1).path("content").asText().startsWith("<output_contract>"));
     }
     @Test void independentFeedbackSourcesEnableNativeParallelCallsOnlyWhenBothAreAvailable(){
         var tools=List.of(new ToolDefinition("analyze_comments","comments",Map.of("type","object")),
@@ -176,8 +254,8 @@ class DeepSeekAdapterTest {
         nativeAnswer=null;answer=request->"结合画面的建议。";
         var reply=model.decide(nativeContext(List.of(first,second),List.of(new ToolExchange(d.call(),first),new ToolExchange(d.additionalCalls().get(0),second))),control());
         assertEquals(List.of("ev_a","ev_v"),reply.answer().evidenceIds());
-        var m=requests.get(1).path("messages");assertEquals(2,m.get(m.size()-3).path("tool_calls").size());
-        assertEquals("p1",m.get(m.size()-2).path("tool_call_id").asText());assertEquals("p2",m.get(m.size()-1).path("tool_call_id").asText());
+        var m=requests.get(1).path("messages");assertEquals(2,m.get(m.size()-5).path("tool_calls").size());
+        assertEquals("p1",m.get(m.size()-4).path("tool_call_id").asText());assertEquals("p2",m.get(m.size()-3).path("tool_call_id").asText());
     }
     @Test void equalNativeResultsKeepBothOriginalGroupsAndIdsInTheActualHttpRequest() {
         var shared=new ToolResult("query_audience",Map.of("count",0),null);
@@ -294,8 +372,8 @@ class DeepSeekAdapterTest {
         assertTrue(payload.path("memory").path("truncated").asBoolean());
         assertEquals("",payload.path("memory").path("olderSummary").asText());
         var nativeMessages=requests.get(1).path("messages");
-        assertEquals("user",nativeMessages.get(nativeMessages.size()-1).path("role").asText());
-        assertEquals(input().query(),nativeMessages.get(nativeMessages.size()-1).path("content").asText());
+        assertEquals("user",nativeMessages.get(nativeMessages.size()-2).path("role").asText());
+        assertEquals(input().query(),nativeMessages.get(nativeMessages.size()-2).path("content").asText());
         assertFalse(nativeMessages.toString().contains("oldoldold"));
         assertFalse(memory.truncated()); assertEquals(6000, memory.olderSummary().length());
     }
@@ -317,6 +395,7 @@ class DeepSeekAdapterTest {
             assertEquals(15L, attributes.get(io.opentelemetry.api.common.AttributeKey.longKey("model.total_tokens")));
             assertEquals("stop", attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("model.finish_reason")));
             assertEquals("NOT_APPLICABLE", attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("model.first_token_state")));
+            assertEquals(List.of("system","system","user","system"),attributes.get(io.opentelemetry.api.common.AttributeKey.stringArrayKey("message.ordered_roles")));
             assertEquals("harness.system",attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.id")));assertEquals(new PromptCatalog().get("harness.system").version(),attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.version")));assertNotNull(attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("prompt.hash")));
             for (String direction : List.of("input", "provider_output", "prompt")) {
                 String[] ref = attributes.get(io.opentelemetry.api.common.AttributeKey.stringKey("detail." + direction + "_ref")).split("/");

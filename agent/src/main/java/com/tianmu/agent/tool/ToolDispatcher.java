@@ -59,6 +59,18 @@ public class ToolDispatcher {
                         || run.execution().exchanges().stream().anyMatch(e->e.call().name().equals("analyze_feedback")))
                 .filter(t -> permitted(t.name(), run)).toList();
     }
+    public CapabilityDirectory capabilities(RunState run, List<ToolDefinition> available) {
+        var publicTools = available.stream()
+                .filter(tool -> registry.get(tool.name()).exposure() == AgentTool.Exposure.GENERAL)
+                .map(tool -> new CapabilitySummary(tool.name(), tool.description())).toList();
+        var skillEntries = visibleSkills(run).stream()
+                .map(skill -> new CapabilitySummary(skill.get("name"), skill.get("description"))).toList();
+        return new CapabilityDirectory(publicTools, skillEntries);
+    }
+    private List<Map<String, String>> visibleSkills(RunState run) {
+        return skills.list().stream().filter(item -> skills.read(item.get("name")).tools().stream()
+                .anyMatch(name -> snapshotTools(run).contains(name) && permitted(name,run))).toList();
+    }
     private boolean permitted(String name, RunState run) {
         boolean compressed=run.task()!=null && run.task().resourceVersions().containsKey(com.tianmu.agent.application.TaskAssembler.COMPRESSION_RESOURCE)
                 && run.task().specification().reading()!=null && run.task().specification().reading().reportRequired();
@@ -226,7 +238,7 @@ public class ToolDispatcher {
             return history.read(before,limit,query);
         }
         public com.tianmu.agent.core.AnalysisContract analysisContract(){return run.task()==null?null:run.task().specification().analysis();}
-        public List<Map<String, String>> listSkills() { return skills.list().stream().filter(item -> skills.read(item.get("name")).tools().stream().anyMatch(name -> permitted(name,run))).toList(); }
+        public List<Map<String, String>> listSkills() { return visibleSkills(run); }
         public Skill activateSkill(String name) {
             if (!tool.canActivateSkills()) throw new AgentException("TOOL_CAPABILITY_DENIED", "Tool cannot activate skills");
             checkSkillRevision(name);

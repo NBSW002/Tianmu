@@ -21,6 +21,7 @@ public final class DeepSeekClient {
     private final HttpClient http;
     private final com.tianmu.agent.model.ModelContextBuilder contexts;
     private final com.tianmu.agent.model.HarnessContextBuilder harnessContexts;
+    private final boolean tailProjectionEnabled;
     private final io.opentelemetry.api.trace.Tracer tracer;
     private volatile long quotaBlockedUntil;
     private static final long QUOTA_COOLDOWN_NANOS=Duration.ofMinutes(5).toNanos();
@@ -32,6 +33,7 @@ public final class DeepSeekClient {
     }
     public DeepSeekClient(DeepSeekProperties config,ObjectMapper mapper,com.tianmu.agent.model.ContextPolicy contextPolicy,io.opentelemetry.api.trace.Tracer tracer){
         this.tracer=tracer;
+        tailProjectionEnabled=contextPolicy.tailProjectionEnabled();
         contexts = new com.tianmu.agent.model.ModelContextBuilder(mapper, contextPolicy);
         harnessContexts = new com.tianmu.agent.model.HarnessContextBuilder(mapper,contextPolicy);
         this.config = config; this.mapper = mapper.copy()
@@ -46,7 +48,15 @@ public final class DeepSeekClient {
     public List<Map<String,String>> messages(String instruction,Map<String,?> input,CallControl control){return contexts(control).build(instruction,input);}
     public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context) { return harnessContexts.build(instruction,context); }
     public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context,CallControl control) {
-        return control.frozenContext()==null?harnessContexts.build(instruction,context):new com.tianmu.agent.model.HarnessContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext())).build(instruction,context);
+        return harnessMessages(instruction,context,control,"");
+    }
+    public List<Map<String,Object>> harnessMessages(String instruction,com.tianmu.agent.core.AgentTypes.ModelContext context,CallControl control,String requiredAction) {
+        var builder=control.frozenContext()==null?harnessContexts:new com.tianmu.agent.model.HarnessContextBuilder(mapper,com.tianmu.agent.runtime.control.RunPolicies.context(control.frozenContext()));
+        return builder.build(instruction,context,requiredAction,legacyHarnessProjection(control));
+    }
+    boolean legacyHarnessProjection(CallControl control) {
+        return control.frozenContext()==null ? !tailProjectionEnabled
+                : com.tianmu.agent.core.ExecutionPolicySnapshot.Context.LEGACY_PROJECTION.equals(control.frozenContext().projectionVersion());
     }
     public JsonNode complete(String model, List<? extends Map<String, ?>> messages, int maxTokens, CallControl control) {
         return complete(model,messages,maxTokens,control,false);
