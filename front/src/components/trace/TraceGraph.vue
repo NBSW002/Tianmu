@@ -7,18 +7,18 @@ import { formatDuration, statusLabel, nodeDisplayName } from '@/trace/trace-data
 import { cardTitle, cardHighlight, visibleTraceEdges } from '@/trace/trace-presentation.mjs'
 import TraceIcon from './TraceIcon.vue'
 
-const props = defineProps({ trace: { type: Object, required: true }, graph: { type: Object, required: true }, expanded: { type: Set, required: true }, selectedId: String, mode: String })
+const props = defineProps({ trace: { type: Object, required: true }, graph: { type: Object, required: true }, expanded: { type: Set, required: true }, selectedId: String, mode: String, graphView: { type: String, default: 'sequence' } })
 const emit = defineEmits(['select', 'toggle'])
 const instance = shallowRef(null)
 const panel = shallowRef(null)
 const nodes = computed(() => props.graph.nodes.map((node) => ({ ...node,
   selected: node.id === props.selectedId || node.data.memberIds?.includes(props.selectedId) })))
-const edges = computed(() => visibleTraceEdges(props.graph).map((edge) => ({ ...edge,
+const edges = computed(() => (props.graphView === 'ancestry' ? visibleTraceEdges(props.graph) : props.graph.sequenceEdges || []).map((edge) => ({ ...edge,
   type: 'orthogonal', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--workbench-connector)', width: 14, height: 14 },
   style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: edge.relation === 'dependency' ? '5 4' : edge.relation === 'trigger' ? '2 4' : edge.relation === 'ancestor' ? '8 3 2 3' : undefined },
 })))
 function edgePath({ source, sourceX, sourceY, targetX, targetY }) {
-  if (nodes.value.find(node => node.id === source)?.data.cardKind === 'run' && targetX > sourceX + 32) {
+  if (props.graphView === 'ancestry' && nodes.value.find(node => node.id === source)?.data.cardKind === 'run' && targetX > sourceX + 32) {
     const railY = Math.min(...nodes.value.map(node => node.position.y)) - 24
     return `M ${sourceX} ${sourceY} H ${sourceX + 16} V ${railY} H ${targetX - 16} V ${targetY} H ${targetX}`
   }

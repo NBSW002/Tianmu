@@ -83,6 +83,8 @@ test('the real run parent connects sibling spans without inventing edges between
   assert.ok(graph.nodes.some(n=>n.id==='run'))
   assert.ok(graph.edges.some(e=>e.source==='run' && e.target==='snapshot' && e.relation==='parent'))
   assert.ok(graph.edges.some(e=>e.source==='run' && e.target==='comment' && e.relation==='parent'))
+  assert.ok(graph.sequenceEdges.some(e=>e.source==='snapshot' && e.target==='comment' && e.relation==='order'))
+  assert.ok(!graph.edges.some(e=>e.source==='snapshot' && e.target==='comment' && ['parent','ancestor'].includes(e.relation)))
   assert.ok(!graph.edges.some(e=>e.source==='snapshot' && e.target==='comment'))
 })
 

@@ -615,6 +615,9 @@ export function layoutPresentation(presentation, expanded = new Set()) {
     group.sort((a,b)=>a.data.attributes['analysis.phase'].localeCompare(b.data.attributes['analysis.phase']))
       .forEach((n,index)=>{n.position.y=centre+(index-.5)*76})
   }
+  // Preserve the time-ordered layout links separately from recorded ancestry.
+  // They describe a visual reading order, never parentage or causality.
+  const sequenceEdges = edges.map(edge => ({ ...edge }))
   edges.length=0
   const visibleByRaw=new Map()
   for (const item of nodes) for (const id of [item.data.sourceId,...(item.data.memberIds || [])].filter(Boolean)) if (!visibleByRaw.has(id)) visibleByRaw.set(id,item)
@@ -638,5 +641,5 @@ export function layoutPresentation(presentation, expanded = new Set()) {
       }
     }
   }
-  return { nodes, edges }
+  return { nodes, edges, sequenceEdges }
 }

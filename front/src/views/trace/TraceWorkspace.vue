@@ -20,6 +20,7 @@ const traces = ref(examples)
 const activeId = ref(examples[0].id)
 const selectedId = ref(examples[0].nodes.find((node) => node.type === 'llm_inference').id)
 const mode = ref('graph')
+const graphView = ref('sequence')
 const viewTabs = ref(null)
 function positionTabIndicator() {
   const active = viewTabs.value?.querySelector('button.active')
@@ -244,11 +245,12 @@ function downloadExample() {
             <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">执行图</button>
             <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
             <div class="view-meta">
-              <div v-if="mode === 'graph'" class="trace-legend" aria-label="节点与连线图例"><span><i class="legend-model" />模型</span><span><i class="legend-tool" />工具</span><span><i class="legend-stage" />判断 / 任务</span><span title="直接父子 Span">─ 父子</span><span title="中间 Span 未显示，连接到最近的可见祖先">┄ 祖先</span></div>
+              <div v-if="mode === 'graph'" class="graph-view-switch" role="group" aria-label="连线视图"><button type="button" :aria-pressed="graphView === 'sequence'" title="按记录时间推算的阅读顺序，不表示父子或因果关系" @click="graphView = 'sequence'">执行顺序 · 时间</button><button type="button" :aria-pressed="graphView === 'ancestry'" title="展示 Span 的直接父子与省略中间节点后的祖先关系" @click="graphView = 'ancestry'">Span 父子</button></div>
+              <div v-if="mode === 'graph' && graphView === 'ancestry'" class="trace-legend" aria-label="连线图例"><span title="直接父子 Span">─ 父子</span><span title="中间 Span 未显示，连接到最近的可见祖先">┄ 祖先</span></div>
               <span class="view-count" title="卡片是合并后的可视步骤；Span 是日志中的原始记录">{{ graph.nodes.length }} 卡片 / {{ trace.nodes.length }} Span</span>
             </div>
           </div>
-          <TraceGraph :trace="trace" :graph="graph" :expanded="expanded" :selected-id="selectedId" :mode="mode" @select="selectNode" @toggle="toggleGroup" />
+          <TraceGraph :trace="trace" :graph="graph" :expanded="expanded" :selected-id="selectedId" :mode="mode" :graph-view="graphView" @select="selectNode" @toggle="toggleGroup" />
           <p v-if="mode === 'graph' && usefulNotices.length" class="projection-notice">{{ usefulNotices.join(' · ') }}</p>
           <section class="timing-panel" aria-label="执行时间线">
             <div class="timing-header">
@@ -611,6 +613,9 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .trace-legend .legend-model {background:var(--workbench-accent);}
 .trace-legend .legend-tool {background:var(--workbench-success);}
 .view-count {color:var(--workbench-tertiary);}
+.graph-view-switch {display:flex;gap:2px;padding:3px;border-radius:7px;background:var(--workbench-paper);}
+.view-tabs .graph-view-switch button {height:26px;padding:0 8px;border:0;border-radius:5px;color:var(--workbench-muted);font-size:12px;}
+.view-tabs .graph-view-switch button[aria-pressed="true"] {background:var(--workbench-raised);color:var(--workbench-ink);box-shadow:0 0 0 1px var(--workbench-border);}
 .timing-heading h2,.inspector-heading {font-size:13px;font-weight:500;}
 .timing-row {min-height:30px;}
 .node-overview {background:var(--workbench-paper);border-color:var(--workbench-ring);padding:14px;}
@@ -646,5 +651,5 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .timing-row.active {border-left-color:var(--workbench-accent);font-weight:500;}
 .timing-axis,.timing-value,.run-metrics {letter-spacing:0;font-variant-numeric:tabular-nums;}
 @media(max-width:1200px){.trace-legend{display:none;}}
-@media(max-width:700px){.view-tabs{padding:0 14px;gap:16px;}.view-meta{font-size:10px;}}
+@media(max-width:700px){.view-tabs{padding:0 10px;gap:10px;}.view-meta{gap:4px;font-size:10px;}.view-count{display:none;}.view-tabs .graph-view-switch button{padding:0 6px;font-size:11px;}}
 </style>
