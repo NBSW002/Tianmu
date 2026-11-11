@@ -73,6 +73,15 @@ class DeepSeekAdapterTest {
         var error=assertThrows(AgentException.class,()->{if(streaming)client.completeHarness("deepseek-flash",messages,List.of(),128,rejected.withTextOutput(text->{}));else client.complete("deepseek-flash",messages,128,rejected);});
         assertEquals("MEMORY_CONTEXT_INVALIDATED",error.code());assertTrue(requests.isEmpty());
     }
+    @Test void rerankedConfirmationAcceptsFiveKilobytesButKeepsABound() {
+        var normal=List.of(Map.of("role","user","content","a".repeat(5000)));
+        assertDoesNotThrow(() -> client.completeFeedbackOnce(properties.analysisModel(),normal,control()));
+        assertEquals(1,requests.size());
+        var excessive=List.of(Map.of("role","user","content","a".repeat(17000)));
+        var error=assertThrows(AgentException.class,() -> client.completeFeedbackOnce(properties.analysisModel(),excessive,control()));
+        assertEquals("MODEL_CONTEXT_TOO_LARGE",error.code());
+        assertEquals(1,requests.size());
+    }
     Input candidateInput() {
         var old=input();var catalog=new com.tianmu.agent.preparation.IntentCandidateCatalog(new com.tianmu.agent.skill.SkillCatalog(),new com.tianmu.agent.tool.ToolCatalog());
         return new Input(old.query(),old.businessDate(),old.scope(),old.memory(),old.requestedAt(),catalog.candidates(old.scope()));

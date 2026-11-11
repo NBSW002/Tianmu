@@ -92,7 +92,7 @@ public final class DeepSeekClient {
         return complete(model,messages,maxTokens,control,external,nativeTools,requiredTool,false);
     }
     public JsonNode completeFeedbackOnce(String model,List<? extends Map<String,?>> messages,CallControl control) {
-        return complete(model,messages,1024,control,true,null,null,true);
+        return complete(model,messages,1024,control,true,null,null,true,16384);
     }
     public JsonNode completeFeedbackDirect(String model,List<? extends Map<String,?>> messages,CallControl control) {
         return complete(model,messages,2048,control,true,null,null,true,65536);
