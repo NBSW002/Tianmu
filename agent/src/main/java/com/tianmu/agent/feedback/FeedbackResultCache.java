@@ -56,6 +56,7 @@ public final class FeedbackResultCache {
     public String key(FeedbackJobStore.Job job,Input input){
         if(!enabled())return null;
         var content=new LinkedHashMap<String,Object>();content.put("version","accepted-proposals-v1");content.put("tenant",job.owner().tenantId());content.put("user",job.owner().userId());content.put("video_id",job.request().query().videoId());content.put("sources",job.request().sources().stream().map(Enum::name).sorted().toList());content.put("grounding",job.request().grounding());content.put("model",job.model());content.put("policy",job.policyHash());content.put("kind",input.kind());content.put("rules",job.request().rulesVersion());
+        if(FeedbackCompression.RERANK_VERSION.equals(job.request().rulesVersion()))content.put("query",job.request().query());
         if(input.kind()==WorkKind.CLASSIFY){content.put("groups",input.groups());content.put("directory",input.knownTopics());}
         else {content.put("material",FeedbackSynthesis.material(input.children()).payload());if(!input.groups().isEmpty()){content.put("review_groups",input.groups());content.put("review_bindings",input.children().stream().map(Topic::members).toList());}}
         if(input.video()!=null){var v=input.video();content.put("video",List.of(v.sourceVersion(),v.startMs(),v.endMs(),v.summary(),v.moments(),v.coverage(),v.sampledAtMs(),v.transcript(),v.model()));}

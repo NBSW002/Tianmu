@@ -108,6 +108,16 @@ VIDEO_MODEL=minimax-vlm-service
 
 弹幕抽样 occurrences.playbackMs 为原始播放位置（毫秒，可空），bucket 仍是发送墙钟时间分箱，不能混用。报告可传入同一视频的 video_evidence_id 添加服务端生成的视频内容模块。Trace 包含 `video.source`、`video.extract`、`video.model.vision`；模型未报告 token 时标为未报告，整体用量标为部分统计，不估算成实际值。
 
+### 上传会话升级（2026-11-04）
+
+发布新版上传功能前，对业务库执行 `migrations/20261104_upload_sessions.sql`；新库初始化已包含该表。此迁移只新增表，可以保留表回滚应用，但旧版上传接口缺少用户隔离，不建议恢复对外使用。后端与前端应在同一次维护窗口切换；旧分片上传不能自动认领，新版需重新选择文件。既有已发布视频不变。
+
+新版使用 `/api/file/uploads` 创建用户绑定会话，进度、签名与合并均使用服务端 uploadId。会话有效期一天，每用户最多三个未完成会话；最大3GiB、5MiB分片、签名窗口32、POST Policy签名15分钟且通过content-length-range绑定文件大小。存储桶须预先存在，并允许浏览器跨域POST/GET/HEAD；签名地址的主机必须可由浏览器访问。浏览器不向对象存储发送站点登录Token。
+
+合并不持有数据库事务；租约与fence拒绝并发提交，最终对象按尝试编号隔离。数据库确认完成后才能投稿，过期清理保留已完成对象，失败清理下次重试。会话及文件记录作为归属凭证保留；容量运维仍需监控这些元数据的增长。内容MD5仅用于同用户同条件会话续接，不是内容真实性证明或跨用户秒传授权。
+
+Loop 默认 `HARNESS_MODEL=deepseek-flash`（官方当前对应 V4.1 Flash）；后台分类默认也使用 `ANALYSIS_MODEL=deepseek-flash`，仍可独立配置。已有私有 env 中的显式 HARNESS_MODEL / ANALYSIS_MODEL 不会被源码默认值覆盖，部署时须核对后更新；本地修改不代表线上已切换。
+网站部署将 TIANMU_MINIO_UPLOAD_URL 设置为 /upload-storage，Nginx 只代理业务桶根路径的 POST Policy 上传，避免向浏览器暴露内部 minio 主机名；最终媒体继续通过现有鉴权/发布检查的媒体接口读取。旧私有 business.env 也须增加该变量。
 
 ### Agent 模型与后台 Trace 发布
 

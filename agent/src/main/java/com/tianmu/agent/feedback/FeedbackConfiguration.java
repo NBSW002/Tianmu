@@ -10,15 +10,32 @@ import org.springframework.context.annotation.*;
 import java.nio.file.Path;
 
 @Configuration(proxyBeanMethods=false)
-@EnableConfigurationProperties({FeedbackPolicy.class,FeedbackReusePolicy.class,FeedbackRuntimeProperties.class,FeedbackCompressionProperties.class,FeedbackBucketProperties.class})
+@EnableConfigurationProperties({FeedbackPolicy.class,FeedbackReusePolicy.class,FeedbackRuntimeProperties.class,FeedbackCompressionProperties.class,FeedbackBucketProperties.class,FeedbackRerankProperties.class,FeedbackTieredProperties.class})
 public class FeedbackConfiguration {
     @Bean @ConditionalOnProperty(name="agent.storage.mode",havingValue="mysql")
     FeedbackPreparationStore mysqlFeedbackPreparation(com.zaxxer.hikari.HikariDataSource source,org.flywaydb.core.Flyway migrations,ObjectMapper json,com.tianmu.agent.runtime.store.RunRepository runs,FeedbackRuntimeProperties governance){return new com.tianmu.agent.adapters.storage.MysqlFeedbackPreparationStore(source,json,runs::verifyReady,governance);}
     @Bean @ConditionalOnMissingBean(FeedbackPreparationStore.class)
     FeedbackPreparationStore memoryFeedbackPreparation(){return new MemoryFeedbackPreparationStore();}
     @Bean FeedbackClusters feedbackClusters(ObjectProvider<FeedbackVectorIndex> vectors,ObjectProvider<FeedbackEmbedding> embedding){return new FeedbackClusters(vectors.getIfAvailable(),embedding.getIfAvailable());}
-    @Bean FeedbackCompression feedbackCompression(ObjectProvider<FeedbackEmbedding> embedding,ObjectProvider<FeedbackVectorIndex> vectors,FeedbackCompressionProperties policy,FeedbackBucketProperties buckets,ObjectMapper json){var compression=new FeedbackCompression(embedding.getIfAvailable(),vectors.getIfAvailable(),policy,json);compression.bucketPolicy(buckets);return compression;}
-    @Bean FeedbackPreparationService feedbackPreparationService(FeedbackAnalysisService analysis,FeedbackPreparationStore store,FeedbackObjects objects,FeedbackPolicy policy,FeedbackClusters clusters,FeedbackRuntimeProperties governance,FeedbackCompression compression){return new FeedbackPreparationService(analysis,store,objects,policy,clusters,governance,compression);}
+    @Bean FeedbackCompression feedbackCompression(ObjectProvider<FeedbackEmbedding> embedding,ObjectProvider<FeedbackVectorIndex> vectors,FeedbackCompressionProperties policy,FeedbackBucketProperties buckets,FeedbackTieredProperties tiered,ObjectMapper json){var compression=new FeedbackCompression(embedding.getIfAvailable(),vectors.getIfAvailable(),policy,json);compression.bucketPolicy(buckets);compression.tieredPolicy(tiered);return compression;}
+    @Bean FeedbackPreparationService feedbackPreparationService(FeedbackAnalysisService analysis,FeedbackPreparationStore store,FeedbackObjects objects,FeedbackPolicy policy,FeedbackClusters clusters,FeedbackRuntimeProperties governance,FeedbackCompression compression,FeedbackRerankProperties rerank,FeedbackReusePolicy reuse,ObjectMapper json){
+        String key=rerank.apiKey();
+        if(rerank.apiKeyFile()!=null && !rerank.apiKeyFile().isBlank()){
+            try(var stream=java.nio.file.Files.newInputStream(Path.of(rerank.apiKeyFile()))){
+                var bytes=stream.readNBytes(8193);
+                if(bytes.length>8192)throw new IllegalArgumentException("Rerank key file exceeds limit");
+                key=new String(bytes,java.nio.charset.StandardCharsets.UTF_8).strip();
+            }catch(java.io.IOException unavailable){
+                if(rerank.enabled())throw new IllegalArgumentException("Rerank key file unavailable",unavailable);
+            }
+        }
+        compression.rerankProviderRevision(rerank.model(),rerank.endpoint());
+        var preparation=new FeedbackPreparationService(analysis,store,objects,policy,clusters,governance,compression);
+        var provider=rerank.endpoint()==null || rerank.endpoint().isBlank() || key==null || key.isBlank()?null
+                :new com.tianmu.agent.adapters.embedding.QwenFeedbackReranker(rerank.endpoint(),key,rerank.model(),json);
+        preparation.configureRerank(rerank.enabled(),provider,reuse);
+        return preparation;
+    }
     @Bean @ConditionalOnProperty(name="agent.storage.mode",havingValue="mysql")
     FeedbackJobStore mysqlFeedbackJobs(com.zaxxer.hikari.HikariDataSource source,org.flywaydb.core.Flyway migrations,ObjectMapper json,com.tianmu.agent.runtime.store.RunRepository runs,FeedbackRuntimeProperties governance){return new MysqlFeedbackJobStore(source,json,runs::verifyReady,governance);}
     @Bean @ConditionalOnMissingBean(FeedbackJobStore.class)

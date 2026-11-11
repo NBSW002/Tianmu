@@ -205,6 +205,43 @@ class MysqlStorageIntegrationTest {
         assertFalse(ledger.complete(stale,blob));assertNull(ledger.claim(job.id(),child,Instant.now().plusSeconds(60),Duration.ofSeconds(30)));
         assertEquals("EMBEDDING_BUDGET_EXCEEDED",assertThrows(AgentException.class,()->rebuilt.reserveEmbedding(job.id(),1)).code());
     }
+    @Test void rerankAndConfirmationReservationsSurviveSqlLeaseTakeover(){
+        var run=create("精排接管");
+        var jobs=new MysqlFeedbackJobStore(source,mapper,repository::verifyReady);
+        var now=Instant.now();
+        var request=new FeedbackAnalysis.Request(new DanmakuTypes.Query(1001,LocalDate.now().minusDays(1).atStartOfDay(),LocalDate.now().atStartOfDay()),
+                Set.of(FeedbackAnalysis.Source.COMMENT),FeedbackAnalysis.Grounding.FEEDBACK_ONLY,null,null,
+                com.tianmu.agent.feedback.FeedbackCompression.RERANK_VERSION);
+        var job=jobs.create(new com.tianmu.agent.feedback.FeedbackJobStore.Job(UUID.randomUUID(),run.id,owner,request,FeedbackAnalysis.Phase.QUEUED,
+                now,now.plusSeconds(120),20000,3,0,0,"fixture","hash",null,null,null,null,0,0));
+        var ledger=new MysqlFeedbackPreparationStore(source,mapper,repository::verifyReady);
+        var step=com.tianmu.agent.feedback.FeedbackPreparationStore.Step.MATERIALS;
+        ledger.request(job.id(),step);
+        var old=ledger.claim(job.id(),step,now,Duration.ofSeconds(30));
+        var blob=new FeedbackAnalysis.Blob("fb_"+"1".repeat(32)+".json",2,"0".repeat(64));
+        assertTrue(ledger.reserveRerank(old,"PLAN",blob));
+        assertTrue(ledger.reserveRerank(old,"B1",null));
+        db.update("UPDATE agent_feedback_preparation SET lease_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE job_id=?",
+                job.id().toString());
+        var rebuilt=new MysqlFeedbackPreparationStore(source,mapper,repository::verifyReady);
+        var replacement=rebuilt.claim(job.id(),step,Instant.now(),Duration.ofSeconds(30));
+        assertEquals(blob,rebuilt.rerankSlot(job.id(),"PLAN").result());
+        assertFalse(rebuilt.reserveRerank(replacement,"B1",null));
+        assertThrows(AgentException.class,()->ledger.completeRerank(old,"B1",blob));
+        assertTrue(rebuilt.reserveRerank(replacement,"B2",null));
+        rebuilt.completeRerank(replacement,"B2",blob);
+        assertEquals(blob,ledger.rerankSlot(job.id(),"B2").result());
+        var snapshot=new FeedbackAnalysis.Snapshot("feedback-snapshot-v1",now,new FeedbackAnalysis.Counts(0,0,0,0,0),List.of(),"0".repeat(64));
+        assertTrue(jobs.initialize(job.id(),job.version(),snapshot,null,List.of(blob)));
+        var original=jobs.claim(job.id(),Instant.now(),Duration.ofSeconds(30));
+        jobs.reserve(job.id(),original.id(),original.fence(),8192);
+        db.update("UPDATE agent_feedback_work SET lease_until=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE job_id=?",job.id().toString());
+        var reclaimed=jobs.claim(job.id(),Instant.now(),Duration.ofSeconds(30));
+        assertFalse(jobs.transitionClaim(original,FeedbackAnalysis.Phase.WAITING_AUTH,null));
+        assertEquals("MODEL_DISPATCH_ALREADY_RESERVED",assertThrows(AgentException.class,
+                ()->jobs.reserve(job.id(),reclaimed.id(),reclaimed.fence(),8192)).code());
+        assertEquals(1,jobs.get(job.id()).modelCalls());
+    }
     @Test void lookupAndSavedReportProvenanceSurviveReload(){
         var run=create("historical video report");run.start();
         String id="ev_"+UUID.randomUUID();

@@ -46,6 +46,12 @@ agent:
       retention: ${VIDEO_CACHE_RETENTION:0s}
       max-entries: ${VIDEO_CACHE_MAX_ENTRIES:1024}
   feedback:
+    rerank:
+      enabled: ${FEEDBACK_RERANK_ENABLED:false}
+      endpoint: ${FEEDBACK_RERANK_ENDPOINT:}
+      model: ${FEEDBACK_RERANK_MODEL:qwen3-rerank}
+      api-key: ${FEEDBACK_RERANK_API_KEY:}
+      api-key-file: ${FEEDBACK_RERANK_API_KEY_FILE:}
     compression:
       enabled: ${FEEDBACK_COMPRESSION_ENABLED:false}
       min-effective-chars: ${FEEDBACK_MIN_EFFECTIVE_CHARS:3}
@@ -98,7 +104,6 @@ agent:
       dimension: ${AGENT_FEEDBACK_MILVUS_DIMENSION:0}
       timeout: ${AGENT_FEEDBACK_MILVUS_TIMEOUT:5s}
       provenance-enabled: ${AGENT_FEEDBACK_MILVUS_PROVENANCE_ENABLED:false}
-    max-records: 5000
     max-snapshot-bytes: 67108864
     batch-bytes: 24000
     batch-groups: 80

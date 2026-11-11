@@ -20,7 +20,7 @@ class FeedbackAnalysisTest {
     final ObjectMapper json=new ObjectMapper().findAndRegisterModules();
     final AccessScope owner=new AccessScope("tenant","881",Set.of(1001L),"opaque-ref");
     final Request request=new Request(new DanmakuTypes.Query(1001,LocalDateTime.of(2026,10,20,0,0),LocalDateTime.of(2026,10,21,0,0)),Set.of(Source.COMMENT,Source.DANMAKU),Grounding.FEEDBACK_ONLY,null,null,"feedback-v1");
-    FeedbackPolicy policy(){return new FeedbackPolicy(5000,67108864,24000,40,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
+    FeedbackPolicy policy(){return new FeedbackPolicy(67108864,24000,40,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
     final class Fixture {
         final MemoryFeedbackJobStore store=new MemoryFeedbackJobStore();
         final AtomicInteger reads=new AtomicInteger();
@@ -160,7 +160,7 @@ class FeedbackAnalysisTest {
         }
     }
     @Test void searchCanContinuePastFiveThousandAndEmptyPagesDoNotReadClassificationObjects(){
-        var execution=new FeedbackPolicy(6000,67108864,24000,100,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));
+        var execution=new FeedbackPolicy(67108864,24000,100,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));
         var f=new Fixture(execution);var job=f.start(5021);assertEquals(Phase.READY,f.finish(job.id()).phase());
         var asset=f.service.asset(job.id(),owner,request);var ids=new ArrayList<Object>();
         for(int offset:List.of(5000,5010,5020)){
@@ -404,7 +404,7 @@ class FeedbackAnalysisTest {
             assertEquals("TEXT_LIMIT_EXCEEDED",assertThrows(FeedbackCorrectionException.class,()->planner.validate("work",input,List.of(p))).correction().issue());
     }
     @Test void largerBoundedBatchesPreserveEveryOriginalAndAuthorCount(){
-        var f=new Fixture(new FeedbackPolicy(5000,67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30)));
+        var f=new Fixture(new FeedbackPolicy(67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30)));
         var job=f.start(243);assertEquals(Phase.READY,f.finish(job.id()).phase());assertEquals(4,f.calls.get());
         var asset=f.service.asset(job.id(),owner,request);assertEquals(243,asset.snapshot().counts().total());
         assertEquals(243,f.service.topics(asset).stream().mapToLong(Topic::messages).sum());

@@ -89,7 +89,19 @@ public final class DeepSeekClient {
         return complete(model,messages,maxTokens,control,external,nativeTools,null);
     }
     private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool) {
-        if(tracer==null)return invoke(model,messages,maxTokens,control,external,nativeTools,requiredTool);
+        return complete(model,messages,maxTokens,control,external,nativeTools,requiredTool,false);
+    }
+    public JsonNode completeFeedbackOnce(String model,List<? extends Map<String,?>> messages,CallControl control) {
+        return complete(model,messages,1024,control,true,null,null,true);
+    }
+    public JsonNode completeFeedbackDirect(String model,List<? extends Map<String,?>> messages,CallControl control) {
+        return complete(model,messages,2048,control,true,null,null,true,65536);
+    }
+    private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool,boolean once) {
+        return complete(model,messages,maxTokens,control,external,nativeTools,requiredTool,once,4096);
+    }
+    private JsonNode complete(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool,boolean once,int onceBudget) {
+        if(tracer==null)return invoke(model,messages,maxTokens,control,external,nativeTools,requiredTool,once,onceBudget);
         var span=tracer.spanBuilder("model.request").startSpan();
         com.tianmu.agent.harness.trace.TraceNode.begin(span,"model.request");
         TraceAttributes.apply(span,Map.of("model.dispatched",false,"model.name",model));
@@ -97,12 +109,12 @@ public final class DeepSeekClient {
         String run=io.opentelemetry.context.Context.current().get(com.tianmu.agent.harness.trace.TraceUsage.RUN_ID);
         if(run!=null)TraceAttributes.apply(span,Map.of("run.id",run));
         try(var scope=span.makeCurrent()){
-            var result=invoke(model,messages,maxTokens,control,external,nativeTools,requiredTool);
+            var result=invoke(model,messages,maxTokens,control,external,nativeTools,requiredTool,once,onceBudget);
             com.tianmu.agent.harness.trace.TraceNode.success(span);return result;
         }catch(RuntimeException error){com.tianmu.agent.harness.trace.TraceNode.failure(span,error);span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR);throw error;}
         finally{span.end();}
     }
-    private JsonNode invoke(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool) {
+    private JsonNode invoke(String model,List<? extends Map<String,?>> messages,int maxTokens,CallControl control,boolean external,List<com.tianmu.agent.core.AgentTypes.ToolDefinition> nativeTools,String requiredTool,boolean once,int onceBudget) {
         com.tianmu.agent.harness.trace.TracePrompt.capture(messages);
         TraceAttributes.apply(Span.current(),Map.of("model.version_state","REQUESTED_ONLY"));
         control.checkpoint();
@@ -119,7 +131,7 @@ public final class DeepSeekClient {
             Map<String,Object> requestBody=new LinkedHashMap<>();
             boolean supportsThinking=config.baseUrl().getHost().endsWith("deepseek.com") || model.startsWith("deepseek");
             // DeepSeek rejects named or required tool_choice in thinking mode.
-            boolean thinking=supportsThinking && config.thinkingEnabled() && requiredTool==null && (nativeTools!=null || external);
+            boolean thinking=!once && supportsThinking && config.thinkingEnabled() && requiredTool==null && (nativeTools!=null || external);
             TraceAttributes.apply(Span.current(),Map.of("model.reasoning_state",thinking?"ENABLED":"DISABLED"));
             if(thinking){String effort=external?config.analysisThinkingEffort():config.thinkingEffort();requestBody.put("reasoning_effort",effort);TraceAttributes.apply(Span.current(),Map.of("model.reasoning_effort",effort));}
             if(nativeTools!=null && supportsThinking && config.thinkingEnabled()) {
@@ -143,11 +155,13 @@ public final class DeepSeekClient {
             TraceAttributes.apply(Span.current(),com.tianmu.agent.model.ModelPayloadMetrics.measure(mapper,requestBody));
             contexts(control).check(List.of(Map.of("request",requestBody)));
             TraceDetails.capture("input", requestBody, "MODEL_REQUEST");
+            if(once && mapper.writeValueAsBytes(messages).length>onceBudget)
+                throw new AgentException("MODEL_CONTEXT_TOO_LARGE","Confirmation input exceeds the request budget");
             byte[] payload = mapper.writeValueAsBytes(requestBody);
             String base = config.baseUrl().toString().replaceAll("/+$", "");
             HttpRequest request = HttpRequest.newBuilder(URI.create(base + "/chat/completions"))
                     .timeout(Duration.ofNanos(nanos)).header("Authorization", "Bearer " + config.apiKey())
-                    .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofByteArray(payload)).build();
+                    .header("Content-Type", "application/json").POST(once?oneShot(payload):HttpRequest.BodyPublishers.ofByteArray(payload)).build();
             long reservation=(long)payload.length+maxTokens+1024;
             JsonNode body = com.tianmu.agent.runtime.control.ModelBudget.execute(control, model, external, reservation, () -> {
                 return streaming ? exchangeStream(request,control) : exchange(request, control);
@@ -180,6 +194,17 @@ public final class DeepSeekClient {
             control.checkpoint();throw new AgentException("MODEL_ERROR","Model returned invalid structured JSON");
         }
         catch (Exception e) { control.checkpoint(); throw unavailable(); }
+    }
+    private static HttpRequest.BodyPublisher oneShot(byte[] payload){
+        var delegate=HttpRequest.BodyPublishers.ofByteArray(payload);
+        var sent=new java.util.concurrent.atomic.AtomicBoolean();
+        return new HttpRequest.BodyPublisher(){
+            public long contentLength(){return delegate.contentLength();}
+            public void subscribe(java.util.concurrent.Flow.Subscriber<? super java.nio.ByteBuffer> subscriber){
+                if(!sent.compareAndSet(false,true))throw new IllegalStateException("Confirmation request cannot be replayed");
+                delegate.subscribe(subscriber);
+            }
+        };
     }
     private JsonNode responseObject(String content) throws com.fasterxml.jackson.core.JsonProcessingException {
         try { return mapper.readTree(content); }

@@ -44,6 +44,17 @@ class SharedFeedbackSnapshotTest {
     SharedFeedbackSnapshot service(){return new SharedFeedbackSnapshot(source,objects(),FeedbackPolicy.defaults());}
     String code(Runnable action){return assertThrows(AgentException.class,action::run).code();}
 
+    @Test void exportsAndReadsMoreThanFiveThousandRecordsWithinByteBudget(){
+        rows.clear();
+        for(int id=1;id<=5001;id++)rows.add(unit(Source.DANMAKU,id,"具体反馈","",false,"u1"));
+        receipt=new Counts(0,5001,0,0,1);
+        var snapshot=service();
+        var ref=snapshot.materialize(job,run,owner,request,control());
+        var read=new ArrayList<Unit>();
+        snapshot.read(ref,run,owner,request,Source.DANMAKU,control(),read::addAll);
+        assertEquals(rows,read);
+    }
+
     @Test void oneExportTwoPartitionsSurviveRestartAndConcurrentReads() throws Exception {
         var ref=service().materialize(job,run,owner,request,control());
         // Live data changes after export. Both tools must continue reading the frozen manifest.
@@ -139,8 +150,5 @@ class SharedFeedbackSnapshotTest {
         var objects=new FeedbackObjects(new FileObjectStore(directory),new ObjectMapper(),index);
         new SharedFeedbackSnapshot(source,objects,FeedbackPolicy.defaults()).materialize(job,run,owner,request,control());
         assertFalse(registered.isEmpty());assertTrue(registered.stream().allMatch(job::equals));
-        var p=FeedbackPolicy.defaults();
-        var limited=new FeedbackPolicy(1,p.maxSnapshotBytes(),p.batchBytes(),p.batchGroups(),p.maxModelCalls(),p.maxTokens(),p.timeout(),p.modelTimeout());
-        assertEquals("FULL_ANALYSIS_TOO_LARGE",code(()->new SharedFeedbackSnapshot(source,objects,limited).materialize(job,run,owner,request,control())));
     }
 }

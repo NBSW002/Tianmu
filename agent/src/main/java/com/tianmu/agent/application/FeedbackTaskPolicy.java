@@ -19,9 +19,16 @@ public final class FeedbackTaskPolicy {
         return new Request(query,sources,grounding,grounding==Grounding.VIDEO_GROUNDED?start:null,grounding==Grounding.VIDEO_GROUNDED?end:null,"feedback-analysis-v1",task.reading().forceReanalysis());
     }
     public static Request pipelineRequest(Specification task){var r=request(task);return new Request(r.query(),r.sources(),r.grounding(),r.videoStartMs(),r.videoEndMs(),com.tianmu.agent.feedback.FeedbackPreparationService.VERSION,r.forceReanalysis());}
-    public static Request compressedRequest(Specification task){var r=request(task);return new Request(r.query(),r.sources(),r.grounding(),r.videoStartMs(),r.videoEndMs(),com.tianmu.agent.feedback.FeedbackCompression.FIVE_VERSION,r.forceReanalysis());}
+    public static Request compressedRequest(Specification task){return compressedRequest(task,com.tianmu.agent.feedback.FeedbackCompression.FIVE_VERSION);}
+    public static Request compressedRequest(Specification task,String version){
+        if(!com.tianmu.agent.feedback.FeedbackCompression.representativeVersion(version))
+            throw new AgentException("TASK_CONSTRAINT_VIOLATION","Unsupported representative report protocol");
+        var r=request(task);return new Request(r.query(),r.sources(),r.grounding(),r.videoStartMs(),r.videoEndMs(),version,r.forceReanalysis());
+    }
     public static void require(Specification task,Request supplied){
-        var current=compressedRequest(task);var legacy=new Request(current.query(),current.sources(),current.grounding(),current.videoStartMs(),current.videoEndMs(),com.tianmu.agent.feedback.FeedbackCompression.VERSION,current.forceReanalysis());
-        if(!request(task).equals(supplied) && !pipelineRequest(task).equals(supplied) && !current.equals(supplied) && !legacy.equals(supplied))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Analysis differs from prepared task");
+        if(!request(task).equals(supplied) && !pipelineRequest(task).equals(supplied)
+                && !(com.tianmu.agent.feedback.FeedbackCompression.representativeVersion(supplied.rulesVersion())
+                && compressedRequest(task,supplied.rulesVersion()).equals(supplied)))
+            throw new AgentException("TASK_CONSTRAINT_VIOLATION","Analysis differs from prepared task");
     }
 }

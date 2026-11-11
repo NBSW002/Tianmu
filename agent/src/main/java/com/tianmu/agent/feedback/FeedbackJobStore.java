@@ -34,6 +34,7 @@ public interface FeedbackJobStore {
     void fail(UUID id, String code);
     void cancel(UUID id);
     boolean phase(UUID id, long version, Phase phase);
+    boolean transitionClaim(Work claim,Phase phase,String errorCode);
     boolean reauthorize(UUID id, AccessScope caller);
     long reserve(UUID id, UUID work, long fence, long estimate);
     void settle(UUID id, UUID work, long fence, long prompt, long completion);

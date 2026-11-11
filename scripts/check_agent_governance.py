@@ -13,6 +13,7 @@ DOCS = ROOT / "agent/docs"
 JAVA = ROOT / "agent/src/main/java/com/tianmu/agent"
 POLICIES = (
     "feedback/FeedbackWarmProperties.java",
+    "feedback/FeedbackTieredProperties.java",
     "feedback/FeedbackBucketProperties.java",
     "feedback/FeedbackCompressionProperties.java",
     "memory/MemoryRecallPolicy.java", "memory/MemorySemanticPolicy.java", "memory/CompactionProperties.java", "memory/MemoryRuntimeProperties.java", "memory/MemoryPolicyProperties.java",
@@ -40,6 +41,12 @@ def catalog():
               "| `agent.feedback.compression.min-similarity` | 0.90 | FeedbackCompression任务内星形聚类的余弦下限，finite且(0,1]；FEEDBACK_CLUSTER_MIN_SIMILARITY。进入材料/后台policyHash，重启生效，已封存assignment不重算。 |",
               "| `agent.feedback.compression.min-centrality` | 0.75 | FeedbackCompression代表准入的质心余弦阈值，finite且[-1,1]；FEEDBACK_MIN_CENTRALITY。缺来源代表明确失败，进入材料policyHash。 |",
               "| `agent.feedback.compression.near-duplicate-similarity` | 0.96 | FeedbackCompression可选代表的近重复门槛，finite且[min-similarity,1]；FEEDBACK_NEAR_DUPLICATE_SIMILARITY。来源mandatory优先，进入材料policyHash。 |", ""]
+    lines += ["## agent.feedback.rerank", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
+              "| `agent.feedback.rerank.enabled` | false | FEEDBACK_RERANK_ENABLED。仅决定新代表报告任务的准入，已有任务继续使用持久协议。开启还需现有压缩链路和 Qwen 端点。 |",
+              "| `agent.feedback.rerank.endpoint` | 空 | FEEDBACK_RERANK_ENDPOINT。兼容 HTTPS /reranks 或 DashScope 原生重排完整地址，启动绑定并进入冻结指纹。关闭准入时保留原端点供在途任务完成。 |",
+              "| `agent.feedback.rerank.model` | qwen3-rerank | FEEDBACK_RERANK_MODEL。可选 qwen3.7-text-rerank，启动绑定并进入冻结指纹。 |",
+              "| `agent.feedback.rerank.api-key` | 空 | FEEDBACK_RERANK_API_KEY。仅用于供应商请求鉴权。 |",
+              "| `agent.feedback.rerank.api-key-file` | 空 | FEEDBACK_RERANK_API_KEY_FILE。配置后优先读取私有文件，最多 8192 字节，内容不进入 Trace、产物或指纹。 |", ""]
     lines += ["## agent.feedback.buckets相似度", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",
               "| `agent.feedback.buckets.min-similarity` | 0.65 | 最终成员到桶中心的余弦下限；finite且0..1，进入冻结revision，启动生效；需在真实语料校准。YAML别名 `FEEDBACK_BUCKETS_MIN_SIMILARITY`；其他字段别名依次为 `FEEDBACK_BUCKETS_MAX`、`FEEDBACK_BUCKETS_MIN_MEMBERS`、`FEEDBACK_BUCKETS_MAX_ITERATIONS`、`FEEDBACK_BUCKETS_CANDIDATE_SAMPLES`。 |", ""]
     lines += ["## agent.feedback.buckets任务中心化", "", "| 属性键 | 默认值 | 消费及生效语义 |", "|---|---|---|",

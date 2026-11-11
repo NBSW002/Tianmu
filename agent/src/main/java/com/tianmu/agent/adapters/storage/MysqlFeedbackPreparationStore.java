@@ -62,4 +62,46 @@ public final class MysqlFeedbackPreparationStore implements FeedbackPreparationS
         lock(job);int changed=db.update("UPDATE agent_feedback_preparation SET embedding_calls=embedding_calls+1 WHERE job_id=? AND step='SNAPSHOT' AND embedding_calls<?",job.toString(),limit);
         if(changed!=1)throw new AgentException("EMBEDDING_BUDGET_EXCEEDED","Embedding request budget exhausted");return null;
     });}
+    public RerankSlot rerankSlot(UUID job,String slot){return database(()->{
+        var rows=db.queryForList("SELECT result_json FROM agent_feedback_rerank_slot WHERE job_id=? AND slot=?",job.toString(),slot);
+        if(rows.isEmpty())return null;
+        Object value=rows.get(0).get("result_json");
+        try{return new RerankSlot(value==null?null:json.readValue(value.toString(),Blob.class));}
+        catch(com.fasterxml.jackson.core.JsonProcessingException invalid){throw new AgentException("STORAGE_CORRUPT","Invalid rerank slot");}
+    });}
+    private String rerankReference(Blob result){
+        try{return result==null?null:json.writeValueAsString(result);}
+        catch(com.fasterxml.jackson.core.JsonProcessingException invalid){throw new IllegalArgumentException("Invalid rerank reference");}
+    }
+    private void requireRerankLease(Work claim){
+        lock(claim.jobId());
+        if(db.queryForList("""
+                SELECT p.job_id FROM agent_feedback_preparation p JOIN agent_feedback_job j ON p.job_id=j.job_id
+                WHERE p.job_id=? AND p.step='MATERIALS' AND p.fence=? AND p.state='RUNNING'
+                  AND p.lease_until>UTC_TIMESTAMP(6) AND j.deadline>UTC_TIMESTAMP(6)
+                  AND j.phase IN ('QUEUED','SNAPSHOTTING','ANALYZING')
+                FOR UPDATE
+                """,claim.jobId().toString(),claim.fence()).isEmpty())
+            throw new AgentException("ANALYSIS_LEASE_LOST","Rerank work is no longer owned");
+    }
+    public boolean reserveRerank(Work claim,String slot,Blob result){
+        FeedbackPreparationStore.requireRerankSlot(claim,slot,result!=null);
+        return write(()->{
+            requireRerankLease(claim);
+            if(rerankSlot(claim.jobId(),slot)!=null)return false;
+            db.update("INSERT INTO agent_feedback_rerank_slot(job_id,slot,fence,result_json) VALUES(?,?,?,CAST(? AS JSON))",
+                    claim.jobId().toString(),slot,claim.fence(),rerankReference(result));
+            return true;
+        });
+    }
+    public void completeRerank(Work claim,String slot,Blob result){
+        FeedbackPreparationStore.requireRerankSlot(claim,slot,false);
+        write(()->{
+            requireRerankLease(claim);
+            if(db.update("UPDATE agent_feedback_rerank_slot SET result_json=CAST(? AS JSON) WHERE job_id=? AND slot=? AND fence=? AND result_json IS NULL",
+                    rerankReference(Objects.requireNonNull(result)),claim.jobId().toString(),slot,claim.fence())!=1)
+                throw new AgentException("ANALYSIS_LEASE_LOST","Rerank attempt is no longer writable");
+            return null;
+        });
+    }
 }

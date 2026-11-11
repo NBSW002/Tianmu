@@ -45,6 +45,7 @@ public final class HistoricalReportReader {
             var asset=feedback.historicalAsset(evidence.feedback().jobId(),source.authorized());
             metadata.put("data_as_of",asset.snapshot().dataAsOf());metadata.put("request",asset.request());
             if(com.tianmu.agent.feedback.FeedbackCompression.FIVE_VERSION.equals(asset.request().rulesVersion())){var summary=feedback.read(asset,"summary",0,1);metadata.put("assigned_counts",summary.get("assigned_counts"));metadata.put("method",summary.get("method"));metadata.put("limitations",summary.get("limitations"));}
+            else if(com.tianmu.agent.feedback.FeedbackCompression.RERANK_VERSION.equals(asset.request().rulesVersion())){var summary=feedback.read(asset,"summary",0,1);metadata.put("method",summary.get("method"));metadata.put("limitations",summary.get("limitations"));}
             else metadata.put("counts",asset.snapshot().counts());
             content=section.equals("summary")?Map.of("model",asset.model(),"policy_hash",asset.policyHash()):section.equals("observations")?feedback.notes(asset,offset,limit):feedback.read(asset,"topics",offset,limit);
         }else if(evidence.videoContent()!=null){

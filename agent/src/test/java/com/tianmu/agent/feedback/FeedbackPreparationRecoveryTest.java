@@ -74,7 +74,7 @@ class FeedbackPreparationRecoveryTest {
                 return models.analyze(input,control);
             }
         };
-        var policy=new FeedbackPolicy(5000,67108864,24000,1,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30),2);
+        var policy=new FeedbackPolicy(67108864,24000,1,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30),2);
         var service=new FeedbackAnalysisService(jobs,objects(),source,concurrent,policy);
         var prep=new FeedbackPreparationService(service,work,objects(),policy,new FeedbackClusters(null,null));var run=UUID.randomUUID();
         var job=prep.request(run,owner,request,video,control().deadline(),Source.COMMENT);prep.request(run,owner,request,video,job.deadline(),Source.DANMAKU);

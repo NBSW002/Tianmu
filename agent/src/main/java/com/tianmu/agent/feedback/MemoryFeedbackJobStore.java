@@ -76,6 +76,14 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
     public synchronized boolean phase(UUID id,long version,Phase p) {
         if(!matches(id,version))return false;var j=get(id);jobs.put(id,changed(j,p,null,j.snapshot(),j.video(),j.asset(),j.completedWork(),j.chargedTokens(),j.modelCalls()));return true;
     }
+    public synchronized boolean transitionClaim(Work claim,Phase phase,String errorCode){
+        if(phase!=Phase.WAITING_AUTH && phase!=Phase.FAILED)throw new IllegalArgumentException("Invalid claim transition");
+        var current=work.get(claim.id());var job=get(claim.jobId());
+        if(job==null || !active(job.phase()) || current==null || !current.jobId().equals(job.id())
+                || current.fence()!=claim.fence() || !"RUNNING".equals(current.state()) || !Instant.now().isBefore(current.leaseUntil()))return false;
+        jobs.put(job.id(),changed(job,phase,errorCode,job.snapshot(),job.video(),null,job.completedWork(),job.chargedTokens(),job.modelCalls()));
+        return true;
+    }
     public synchronized void fail(UUID id,String code) {var j=get(id);if(j!=null && active(j.phase()))jobs.put(id,changed(j,Phase.FAILED,code,j.snapshot(),j.video(),null,j.completedWork(),j.chargedTokens(),j.modelCalls()));}
     public synchronized void cancel(UUID id) {var j=get(id);if(j!=null && (active(j.phase()) || j.phase()==Phase.WAITING_AUTH))jobs.put(id,changed(j,Phase.CANCELLED,"CANCELLED",j.snapshot(),j.video(),null,j.completedWork(),j.chargedTokens(),j.modelCalls()));}
     public synchronized boolean reauthorize(UUID id,com.tianmu.agent.core.AgentTypes.AccessScope caller) {
@@ -85,6 +93,10 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
     public synchronized long reserve(UUID id,UUID workId,long fence,long estimate) {
         var j=get(id);var w=work.get(workId);String key=workId+":"+fence;
         if(j==null || !active(j.phase()) || w==null || !w.jobId().equals(id) || !w.state().equals("RUNNING") || w.fence()!=fence || reservations.containsKey(key))throw new AgentException("ANALYSIS_LEASE_LOST","Work is no longer owned");
+        if(FeedbackCompression.RERANK_VERSION.equals(j.request().rulesVersion())){
+            if(!Instant.now().isBefore(w.leaseUntil()))throw new AgentException("ANALYSIS_LEASE_LOST","Confirmation work is no longer owned");
+            if(j.modelCalls()>0)throw new AgentException("MODEL_DISPATCH_ALREADY_RESERVED","Confirmation dispatch has already been reserved");
+        }
         if(estimate<1 || j.modelCalls()>=j.callLimit() || estimate>j.tokenLimit()-j.chargedTokens())throw new AgentException("MODEL_TOKEN_BUDGET_EXCEEDED","Analysis budget exhausted");
         reservations.put(key,estimate);jobs.put(id,changed(j,j.phase(),null,j.snapshot(),j.video(),j.asset(),j.completedWork(),Math.addExact(j.chargedTokens(),estimate),j.modelCalls()+1));return estimate;
     }

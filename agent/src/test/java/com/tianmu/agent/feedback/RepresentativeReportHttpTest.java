@@ -31,6 +31,7 @@ class RepresentativeReportHttpTest {
         @Bean FeedbackVectorIndex representativeVectors(){var v=mock(FeedbackVectorIndex.class);when(v.dimension()).thenReturn(3);when(v.fetch(any(),anyList(),any())).thenReturn(Map.of());return v;}
     }
     @Autowired RunService runs;@Autowired MockMvc mvc;@Autowired FeedbackAnalysisService analysis;
+    @Autowired FeedbackPreparationService preparation;
     @MockBean ModelPort model;@MockBean FeedbackSnapshotPort source;
     final AccessScope owner=new AccessScope("demo","alice",Set.of(1001L));
     final AtomicBoolean empty=new AtomicBoolean(),single=new AtomicBoolean(),authorized=new AtomicBoolean(true);
@@ -52,6 +53,26 @@ class RepresentativeReportHttpTest {
     }
     @Test void threeToolWorkflowSavesStructuredJsonAndEnforcesReportAccess()throws Exception{exercise(false);}
     @Test void emptySnapshotProducesValidJsonWithoutInventingTopics()throws Exception{exercise(true);}
+    @Test void tieredDirectProtocolUsesTheSameReportToolAndJsonEndpoint()throws Exception{
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        preparation.configureRerank(true,(query,documents,control)->{
+            calls.incrementAndGet();
+            return new FeedbackReranker.Result(java.util.Collections.nCopies(documents.size(),1d),50L);
+        },FeedbackReusePolicy.defaults());
+        try{
+            var run=runs.create("只根据视频1001的评论和弹幕生成报告，不读取视频内容",owner);
+            long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(30);
+            while(!AgentTypes.terminal(run.snapshot().status()) && System.nanoTime()<end)Thread.sleep(20);
+            assertEquals(Status.SUCCEEDED,run.snapshot().status(),()->String.valueOf(run.snapshot().errorCode()));
+            assertEquals(FeedbackCompression.RERANK_VERSION,analysis.forRun(run.id).request().rulesVersion());
+            var receipt=run.execution().observations().stream().filter(r->r.tool().equals("generate_feedback_report")).findFirst().orElseThrow();
+            mvc.perform(get(receipt.data().get("json_url").toString()).header("Authorization","Bearer demo-alice"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.method.method").value(FeedbackCompression.RERANK_VERSION))
+                    .andExpect(jsonPath("$.method.representatives").value(4)).andExpect(jsonPath("$.method.raw").value(40))
+                    .andExpect(jsonPath("$.method.route").value("DIRECT_LLM"));
+            assertEquals(0,calls.get());
+        }finally{preparation.configureRerank(false,null,FeedbackReusePolicy.defaults());}
+    }
     @Test void aSingleCommentAndNoDanmakuProduceASingleObservation()throws Exception{
         single.set(true);var run=runs.create("只根据视频1001的评论和弹幕生成报告，不读取视频内容",owner);long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(30);
         while(!AgentTypes.terminal(run.snapshot().status()) && System.nanoTime()<end)Thread.sleep(20);

@@ -69,14 +69,14 @@ public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> no
         if(!raw.stripLeading().startsWith("[") && !raw.stripLeading().startsWith("{"))
             return raw.replaceAll("(?m)^评论 [1-9][0-9]{0,18} · ","上文 · ");
         try{
-            var chain=new com.fasterxml.jackson.databind.ObjectMapper().readTree(raw);if(!chain.isArray())return "回复上文保存在授权证据中。";
+            var chain=new com.fasterxml.jackson.databind.ObjectMapper().readTree(raw);if(!chain.isArray())return "暂时无法展示回复上文。";
             var lines=new ArrayList<String>();
             for(var entry:chain){
-                if(!entry.isObject() || !entry.path("text").isTextual() || !entry.path("author").isBoolean())return "回复上文保存在授权证据中。";
+                if(!entry.isObject() || !entry.path("text").isTextual() || !entry.path("author").isBoolean())return "暂时无法展示回复上文。";
                 lines.add((entry.path("author").asBoolean()?"作者：":"上文：")+entry.path("text").asText());
             }
             return String.join("\n",lines);
-        }catch(java.io.IOException malformed){return "回复上文暂不可展示，完整材料保存在授权证据中。";}
+        }catch(java.io.IOException malformed){return "暂时无法展示回复上文。";}
     }
     private static AgentException corrupt(){return new AgentException("STORAGE_CORRUPT","Report topics do not match accepted source membership");}
     private static String normalize(String s){return Normalizer.normalize(s,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[\\p{P}\\p{Z}\\s]+","");}

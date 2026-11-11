@@ -50,7 +50,7 @@ env('release.env', {'SITE_CONFIG_DIR': str(config), 'SITE_RELEASE': args.release
 env('business.env', {
     'TIANMU_SERVER_ADDRESS': '0.0.0.0', 'TIANMU_JDBC_URL': 'jdbc:mysql://business-mysql:3306/tianmu_site?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&sslMode=DISABLED',
     'TIANMU_DB_USER': 'site_business', 'TIANMU_REDIS_HOST': 'redis', 'TIANMU_REDIS_PORT': 6379, 'TIANMU_REDIS_DATABASE': 1,
-    'TIANMU_ES_URL': 'http://elasticsearch:9200', 'TIANMU_MINIO_URL': 'http://minio:9000', 'TIANMU_MINIO_BUCKET': 'tianmu-upload',
+    'TIANMU_ES_URL': 'http://elasticsearch:9200', 'TIANMU_MINIO_URL': 'http://minio:9000', 'TIANMU_MINIO_UPLOAD_URL': '/upload-storage', 'TIANMU_MINIO_BUCKET': 'tianmu-upload',
     'TIANMU_ROCKETMQ_NAMESERVER': 'rocketmq-namesrv:9876', 'TIANMU_CANAL_HOST': 'canal', 'TIANMU_CANAL_PORT': 11111,
     'TIANMU_CANAL_USER': '', 'TIANMU_CANAL_PASSWORD': '', 'AGENT_BRIDGE_ENABLED': 'true', 'BUSINESS_ACTIVE_USER_STATES': 'normal',
     'BUSINESS_TENANT_ID': 'tianmu-site', 'BUSINESS_DATETIME_ZONE': 'Asia/Shanghai',

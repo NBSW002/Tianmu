@@ -166,7 +166,7 @@ public class ToolDispatcher {
                 public ToolResult prepareFeedbackMaterials(){
                     if(!tool.parallelSubmission() || !tool.name().equals("prepare_feedback_materials") || preparation==null)
                         throw new AgentException("TOOL_CAPABILITY_DENIED","Parallel material submission unavailable");
-                    var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(task.specification());
+                    var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(task.specification(),preparation.reportRulesVersion(run.id));
                     com.tianmu.agent.application.FeedbackTaskPolicy.require(task.specification(),request);
                     run.checkpoint();run.verifyMemory();
                     if(!owner.videoIds().contains(request.query().videoId()))throw new AgentException("FORBIDDEN","Feedback video outside scope");
@@ -354,7 +354,7 @@ public class ToolDispatcher {
         }
         public ToolResult prepareFeedbackMaterials(){
             if(preparation==null || !tool.name().equals("prepare_feedback_materials"))throw new AgentException("TOOL_CAPABILITY_DENIED","Material preparation unavailable");
-            var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification());checkFeedback(request);
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification(),preparation.reportRulesVersion(run.id));checkFeedback(request);
             var job=preparation.requestMaterials(run.id,run.owner,request,run.deadline());
             if(preparation.materialsReady(job.id()))return com.tianmu.agent.application.FeedbackMaterialEvidence.bind(run,job,preparation.materials(job.id(),run.owner,run.callControl()));
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Material preparation cannot proceed");
@@ -362,7 +362,7 @@ public class ToolDispatcher {
         }
         public ToolResult generateFeedbackReport(String materialsId,String videoEvidenceId){
             if(preparation==null || !preparation.compressionEnabled() || !tool.name().equals("generate_feedback_report"))throw new AgentException("TOOL_CAPABILITY_DENIED","Representative reports unavailable");
-            var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification());checkFeedback(request);
+            var request=com.tianmu.agent.application.FeedbackTaskPolicy.compressedRequest(run.task().specification(),preparation.reportRulesVersion(run.id));checkFeedback(request);
             var material=evidence(materialsId);if(material.lookup()==null || !material.lookup().operation().equals("prepare_feedback_materials"))throw new AgentException("INVALID_EVIDENCE","Expected current materials reference");
             var job=feedback.owned(UUID.fromString(material.lookup().data().get("job_id").toString()),run.owner);
             if(!job.runId().equals(run.id) || !job.request().equals(request))throw new AgentException("INVALID_EVIDENCE","Material task mismatch");

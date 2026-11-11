@@ -1,51 +1,26 @@
 package com.orangecode.tianmu.controller;
 
-import java.util.List;
-import java.util.Set;
-
-import com.orangecode.tianmu.common.BaseResponse;
-import com.orangecode.tianmu.common.ErrorCode;
-import com.orangecode.tianmu.common.ResultUtils;
-import com.orangecode.tianmu.model.dto.file.InitUploadRequest;
-import com.orangecode.tianmu.model.dto.file.MergeChunkRequest;
-import com.orangecode.tianmu.service.FileService;
-
-import jakarta.annotation.Resource;
-import lombok.extern.slf4j.Slf4j;
+import com.orangecode.tianmu.application.*;
+import com.orangecode.tianmu.common.*;
 import org.springframework.web.bind.annotation.*;
+import java.util.*;
 
-/**
- * 视频上传
- */
 @RestController
-@RequestMapping("/file")
-@Slf4j
+@RequestMapping("/file/uploads")
 public class FileController {
-
-    @Resource
-    private FileService fileService;
-
-    @GetMapping("/check")
-    public BaseResponse<String> checkFileExistence(@RequestParam String fileHash) {
-        String fileUrl = fileService.checkFileExistence(fileHash);
-        if (fileUrl == null) {
-            return ResultUtils.error(ErrorCode.VIDEO_NOT_FOUND_ERROR);
-        }
-        return ResultUtils.success(fileUrl);
+    private final CurrentUser user;
+    private final UploadSessions uploads;
+    public FileController(CurrentUser user, UploadSessions uploads) { this.user=user; this.uploads=uploads; }
+    @PostMapping public BaseResponse<UploadSessions.View> start(@RequestBody UploadPolicy.Request request) {
+        return ResultUtils.success(uploads.start(user.requireUserId(),request));
     }
-
-    @PostMapping("/get/upload/urls")
-    public BaseResponse<List<String>> getUploadUrls(@RequestBody InitUploadRequest initUploadRequest) {
-        return ResultUtils.success(fileService.getUploadUrls(initUploadRequest));
+    @GetMapping("/{id}/progress") public BaseResponse<Set<Integer>> progress(@PathVariable String id) {
+        return ResultUtils.success(uploads.progress(user.requireUserId(),id));
     }
-
-    @GetMapping("/get/upload/progress")
-    public BaseResponse<Set<Integer>> getUploadProgress(@RequestParam String fileHash) {
-        return ResultUtils.success(fileService.getUploadProgress(fileHash));
+    @GetMapping("/{id}/urls") public BaseResponse<List<UploadObjects.Part>> urls(@PathVariable String id,@RequestParam int offset,@RequestParam(defaultValue="32") int limit) {
+        return ResultUtils.success(uploads.urls(user.requireUserId(),id,offset,limit));
     }
-
-    @PostMapping("/merge/chunk")
-    public BaseResponse<String> mergeChunk(@RequestBody MergeChunkRequest mergeChunkRequest) {
-        return ResultUtils.success(fileService.mergeChunk(mergeChunkRequest));
+    @PostMapping("/{id}/merge") public BaseResponse<String> merge(@PathVariable String id) {
+        return ResultUtils.success(uploads.merge(user.requireUserId(),id));
     }
 }

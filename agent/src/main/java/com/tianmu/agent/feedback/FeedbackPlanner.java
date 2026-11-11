@@ -28,7 +28,6 @@ public final class FeedbackPlanner {
             for(Unit row:rows) {
                 if(!request.sources().contains(row.source()) || !ids.add(row.id()))throw new AgentException("INVALID_EVIDENCE","Unselected or duplicate snapshot member");
                 if(row.createdAt()!=null && (row.createdAt().isBefore(request.query().start().atZone(DanmakuTypes.ZONE).toInstant()) || !row.createdAt().isBefore(request.query().end().atZone(DanmakuTypes.ZONE).toInstant())))throw new AgentException("INVALID_EVIDENCE","Snapshot member outside frozen time range");
-                if(ids.size()>policy.maxRecords())throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Feedback exceeds the configured record quota");
                 int size=objects.bytes(row);bytes=Math.addExact(bytes,size);
                 if(bytes>policy.maxSnapshotBytes())throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Feedback snapshot byte quota exceeded");
                 digest.update((row.id()+":"+size+":"+row.toString()+"\n").getBytes(StandardCharsets.UTF_8));

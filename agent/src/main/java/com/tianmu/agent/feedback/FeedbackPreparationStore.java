@@ -27,4 +27,13 @@ public interface FeedbackPreparationStore {
     void settle(UUID job,String terminalState);
     /** Persisted across retries and process restarts, shared by both source workers. */
     void reserveEmbedding(UUID job,int limit);
+    record RerankSlot(Blob result) {}
+    RerankSlot rerankSlot(UUID job,String slot);
+    /** The plan is written with its result. A bucket starts with an empty result before dispatch. */
+    boolean reserveRerank(Work claim,String slot,Blob result);
+    void completeRerank(Work claim,String slot,Blob result);
+    static void requireRerankSlot(Work claim,String slot,boolean plan){
+        if(claim.step()!=Step.MATERIALS || !(plan?"PLAN".equals(slot):slot.matches("B[1-5]")))
+            throw new IllegalArgumentException("Invalid rerank slot");
+    }
 }

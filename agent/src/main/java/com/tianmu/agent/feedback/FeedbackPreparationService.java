@@ -16,6 +16,8 @@ public final class FeedbackPreparationService {
     private final FeedbackAnalysisService analysis;private final FeedbackPreparationStore store;private final FeedbackObjects objects;
     private final SharedFeedbackSnapshot snapshots;private final FeedbackPlanner planner;private final FeedbackClusters clusters;
     private FeedbackCompression compression;
+    private FeedbackRerankPreparation rerank;
+    private boolean rerankEnabled;
     public record SourcePart(Source source,List<Blob> chunks,List<FeedbackCompression.Excluded> excluded,FeedbackCompression.SourceStats stats){public SourcePart{chunks=List.copyOf(chunks);excluded=List.copyOf(excluded);}}
     private FeedbackCompression.SourceMaterial loadPart(Blob ref){var part=objects.get(ref,SourcePart.class);var rows=new ArrayList<Unit>();for(var chunk:part.chunks())rows.addAll(Arrays.asList(objects.get(chunk,Unit[].class)));return new FeedbackCompression.SourceMaterial(part.source(),rows,part.excluded(),part.stats());}
     static SourcePart boundedPart(FeedbackObjects objects,SourcePart part){return part.stats()!=null && objects.bytes(part)>1048576?new SourcePart(part.source(),part.chunks(),part.excluded(),null):part;}
@@ -23,9 +25,21 @@ public final class FeedbackPreparationService {
     private Blob savePart(UUID id,FeedbackCompression.SourceMaterial part){var chunks=new ArrayList<Blob>();var chunk=new ArrayList<Unit>();int bytes=0;for(var u:part.eligible()){int size=objects.bytes(u);if(bytes+size>524288 && !chunk.isEmpty()){chunks.add(objects.put(id,List.copyOf(chunk)));chunk.clear();bytes=0;}chunk.add(u);bytes+=size;}if(!chunk.isEmpty())chunks.add(objects.put(id,chunk));return objects.put(id,boundedPart(objects,new SourcePart(part.source(),chunks,part.excluded(),part.stats())));}
     public FeedbackPreparationService(FeedbackAnalysisService analysis,FeedbackPreparationStore store,FeedbackObjects objects,FeedbackPolicy policy,FeedbackClusters clusters,com.tianmu.agent.feedback.FeedbackRuntimeProperties governance,FeedbackCompression compression){
         this(analysis,store,objects,policy,clusters,governance);this.compression=compression;analysis.compressionRevision(compression.revision());analysis.fiveCompressionRevision(compression.fiveRevision());
+        analysis.rerankCompressionRevision(compression.materialRevision(FeedbackCompression.RERANK_VERSION));
+        rerank=new FeedbackRerankPreparation(store,objects,null,FeedbackReusePolicy.defaults());
         analysis.representativeMethodProvider(id->{var work=store.get(id,Step.MATERIALS);if(work==null || !"COMPLETE".equals(work.state()))throw new AgentException("RESULT_NOT_FOUND","Representative method unavailable");return objects.get(work.result(),FeedbackCompression.Material.class).summary();});
     }
     public boolean compressionEnabled(){return compression!=null && compression.policy().enabled();}
+    void configureRerank(boolean enabled,FeedbackReranker model,FeedbackReusePolicy reuse){
+        if(enabled && (model==null || !compressionEnabled()))throw new IllegalArgumentException("Enabled rerank requires representative compression and a provider");
+        rerankEnabled=enabled;
+        rerank=new FeedbackRerankPreparation(store,objects,model,reuse);
+    }
+    public String reportRulesVersion(UUID run){
+        var job=analysis.forRun(run);
+        return job!=null && FeedbackCompression.representativeVersion(job.request().rulesVersion())
+                ?job.request().rulesVersion():rerankEnabled?FeedbackCompression.RERANK_VERSION:FeedbackCompression.FIVE_VERSION;
+    }
     public FeedbackReportJson reportJson(UUID id,AccessScope owner,CallControl control){
         var job=analysis.owned(id,owner);if(job.phase()!=Phase.READY)throw new AgentException("ANALYSIS_NOT_READY","Report analysis not ready");
         if(!FeedbackCompression.representativeVersion(job.request().rulesVersion()))throw new AgentException("RESULT_NOT_FOUND","Structured representative report unavailable");
@@ -52,7 +66,7 @@ public final class FeedbackPreparationService {
     public FeedbackCompression.Material materials(UUID id,AccessScope owner,CallControl control){
         var job=analysis.owned(id,owner);var w=store.get(id,Step.MATERIALS);if(w==null || !w.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Representative materials are not ready");
         var result=objects.get(w.result(),FeedbackCompression.Material.class);
-        if(!FeedbackCompression.representativeVersion(result.version()) || !(FeedbackCompression.FIVE_VERSION.equals(result.version())?compression.fiveRevision():compression.revision()).equals(result.protocolRevision()))throw new AgentException("RESOURCE_VERSION_MISMATCH","Material policy changed");
+        if(!job.request().rulesVersion().equals(result.version()) || !compression.materialRevision(result.version()).equals(result.protocolRevision()))throw new AgentException("RESOURCE_VERSION_MISMATCH","Material policy changed");
         snapshots.resolve(result.manifest(),job.runId(),owner,job.request(),control);return result;
     }
     public FeedbackJobStore.Job startCompressedReport(UUID id,AccessScope owner,VideoContent.Facts video,CallControl control){
@@ -125,7 +139,12 @@ public final class FeedbackPreparationService {
                 for(var source:job.request().sources()){var w=store.get(id,Step.valueOf(source.name()));if(w==null || !w.state().equals("COMPLETE"))throw new AgentException("ANALYSIS_NOT_READY","Source preparation incomplete");parts.add(loadPart(w.result()));}
                 var shared=snapshots.resolve(manifest.result(),job.runId(),job.owner(),job.request(),control);
                 FeedbackCompressionProperties settings=compression.policy();
-                var material=boundedMaterial(objects,compression.compress(id,job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls())));
+                var direct=FeedbackCompression.RERANK_VERSION.equals(job.request().rulesVersion())
+                        ?compression.directMaterial(manifest.result(),shared.counts(),parts,control):null;
+                var material=direct!=null?boundedMaterial(objects,direct):FeedbackCompression.RERANK_VERSION.equals(job.request().rulesVersion())
+                        ?rerank.select(claim,control,()->compression.planRerank(job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls())),
+                                ()->analysis.owned(id,job.owner()),job)
+                        :boundedMaterial(objects,compression.compress(id,job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls())));
                 result=objects.put(id,material,control);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.raw_records",shared.counts().total(),"analysis.filtered_records",material.excluded().size(),"analysis.exact_expressions",material.exactExpressions(),"analysis.clusters",material.clusters().size(),"analysis.representatives",material.representativeCount(),"analysis.representative_bytes",material.modelBytes(),"analysis.unclassified_records",material.unclassified().size()));
             }
@@ -144,11 +163,16 @@ public final class FeedbackPreparationService {
                 }
             }
             control.checkpoint();analysis.owned(id,job.owner());
-            if(Instant.now().isBefore(control.deadline())){if(!store.complete(claim,result,FeedbackPreparationStore.Reference.current()))throw new AgentException("PREPARATION_CLAIM_LOST","Preparation result was not accepted");}
-            else throw new AgentException("DEADLINE_EXCEEDED","Preparation deadline exceeded");
+            if(!Instant.now().isBefore(job.deadline()))throw new AgentException("DEADLINE_EXCEEDED","Preparation deadline exceeded");
+            if(!store.complete(claim,result,FeedbackPreparationStore.Reference.current()))
+                throw new AgentException("PREPARATION_CLAIM_LOST","Preparation result was not accepted");
             return true;
         }catch(AgentException failure){
-            if(failure.code().equals("PREPARATION_CLAIM_LOST")){settle(id);throw failure;}
+            var latest=analysis.forJob(id);
+            boolean expiredLease=claim!=null && !Instant.now().isBefore(claim.leaseUntil()) && latest!=null && Instant.now().isBefore(latest.deadline());
+            if(expiredLease || failure.code().equals("PREPARATION_CLAIM_LOST") || failure.code().equals("ANALYSIS_LEASE_LOST")){
+                settle(id);throw new AgentException("PREPARATION_CLAIM_LOST","Preparation result was not accepted");
+            }
             if(cancellation.cancelled())analysis.cancel(id);
             else if(claim!=null && Set.of("VECTOR_STORE_UNAVAILABLE","VECTOR_RATE_LIMITED","EMBEDDING_UNAVAILABLE","EMBEDDING_RATE_LIMITED","BUSINESS_UNAVAILABLE","BUSINESS_TIMEOUT","OBJECT_STORE_UNAVAILABLE","STORAGE_UNAVAILABLE").contains(failure.code()))store.release(claim);
             else {if(claim!=null && Set.of("UNAUTHORIZED","AUTH_CONTEXT_EXPIRED","AUTHORIZATION_EXPIRED").contains(failure.code()))store.release(claim);analysis.preparationFailed(id,failure.code());}

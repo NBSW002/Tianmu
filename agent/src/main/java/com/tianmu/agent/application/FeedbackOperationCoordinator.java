@@ -87,7 +87,7 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
     private void cancelOrphan(UUID job){service.cancel(job);if(preparation!=null)preparation.settle(job);}
     private void deliver(RunState run,PendingOperation op,FeedbackJobStore.Job job){
         run.checkpoint();
-        var request=op.kind().equals("representative-report")?FeedbackTaskPolicy.compressedRequest(run.task().specification()):op.kind().equals("feedback-report")?FeedbackTaskPolicy.pipelineRequest(run.task().specification()):FeedbackTaskPolicy.request(run.task().specification());
+        var request=op.kind().equals("representative-report")?FeedbackTaskPolicy.compressedRequest(run.task().specification(),job.request().rulesVersion()):op.kind().equals("feedback-report")?FeedbackTaskPolicy.pipelineRequest(run.task().specification()):FeedbackTaskPolicy.request(run.task().specification());
         var asset=service.asset(job.id(),run.owner,request);var evidence=FeedbackEvidenceBinding.bind(run,asset);
         ToolResult result;
         if(op.kind().equals("representative-report")){

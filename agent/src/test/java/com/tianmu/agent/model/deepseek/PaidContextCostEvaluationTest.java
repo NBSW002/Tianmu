@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(classes={AgentApplication.class,PaidContextCostEvaluationTest.RealModels.class},properties={
         "harness.loop.request-timeout=480s","harness.loop.model-timeout=60s","harness.loop.tool-timeout=30s","harness.loop.finalize-timeout=60s",
         "harness.loop.max-model-calls=8","harness.loop.max-tokens=128000","agent.feedback.max-model-calls=8","agent.feedback.max-tokens=120000",
-        "agent.feedback.model-timeout=60s","agent.feedback.max-records=243","agent.qa.enabled=false","harness.trace.details.enabled=true"})
+        "agent.feedback.model-timeout=60s","agent.qa.enabled=false","harness.trace.details.enabled=true"})
 class PaidContextCostEvaluationTest {
     static Path output(){return Path.of(Objects.requireNonNull(System.getenv("PAID_EVAL_DIR"),"PAID_EVAL_DIR required")).toAbsolutePath();}
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry){registry.add("harness.trace.directory",()->output().resolve("trace").toString());}

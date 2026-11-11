@@ -128,6 +128,20 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
         return db.update("UPDATE agent_feedback_job SET phase='READY',asset_json=CAST(? AS JSON),version=version+1 WHERE job_id=? AND version=? AND phase IN "+ACTIVE+" AND deadline>UTC_TIMESTAMP(6)",encode(asset),id.toString(),version)==1;
     }
     public boolean phase(UUID id,long version,Phase p) {authority.run();return db.update("UPDATE agent_feedback_job SET phase=?,version=version+1 WHERE job_id=? AND version=? AND phase IN "+ACTIVE,p.name(),id.toString(),version)==1;}
+    public boolean transitionClaim(Work claim,Phase phase,String errorCode){
+        if(phase!=Phase.WAITING_AUTH && phase!=Phase.FAILED)throw new IllegalArgumentException("Invalid claim transition");
+        return write(()->{
+            var job=locked(claim.jobId());
+            if(!running(job))return false;
+            return db.update("""
+                    UPDATE agent_feedback_job j SET phase=?,error_code=?,version=version+1
+                    WHERE j.job_id=? AND EXISTS (
+                        SELECT 1 FROM agent_feedback_work w WHERE w.job_id=j.job_id AND w.work_id=?
+                          AND w.fence=? AND w.state='RUNNING' AND w.lease_until>UTC_TIMESTAMP(6)
+                    )
+                    """,phase.name(),errorCode,claim.jobId().toString(),claim.id().toString(),claim.fence())==1;
+        });
+    }
     public void fail(UUID id,String code) {authority.run();db.update("UPDATE agent_feedback_job SET phase='FAILED',error_code=?,version=version+1 WHERE job_id=? AND phase IN "+ACTIVE,code,id.toString());}
     public void cancel(UUID id) {authority.run();db.update("UPDATE agent_feedback_job SET phase='CANCELLED',error_code='CANCELLED',version=version+1 WHERE job_id=? AND (phase IN "+ACTIVE+" OR phase='WAITING_AUTH')",id.toString());}
     public boolean reauthorize(UUID id,com.tianmu.agent.core.AgentTypes.AccessScope caller) {
@@ -141,6 +155,8 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
         return write(()->{
             Job j=locked(id);if(!running(j) || !Instant.now().isBefore(j.deadline()) || db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND work_id=? AND fence=? AND state='RUNNING' AND lease_until>UTC_TIMESTAMP(6)",Long.class,id.toString(),work.toString(),fence)!=1)
                 throw new AgentException("ANALYSIS_LEASE_LOST","Analysis work is no longer owned");
+            if(com.tianmu.agent.feedback.FeedbackCompression.RERANK_VERSION.equals(j.request().rulesVersion()) && j.modelCalls()>0)
+                throw new AgentException("MODEL_DISPATCH_ALREADY_RESERVED","Confirmation dispatch has already been reserved");
             if(estimate<1 || j.modelCalls()>=j.callLimit() || estimate>j.tokenLimit()-j.chargedTokens())throw new AgentException("MODEL_TOKEN_BUDGET_EXCEEDED","Analysis budget exhausted");
             if(db.queryForObject("SELECT COUNT(*) FROM agent_feedback_attempt WHERE work_id=? AND fence=?",Long.class,work.toString(),fence)>0)throw new AgentException("ANALYSIS_LEASE_LOST","Model attempt was already dispatched");
             db.update("INSERT INTO agent_feedback_attempt(work_id,fence,job_id,reserved_tokens,state,created_at) VALUES(?,?,?,?,'UNKNOWN',UTC_TIMESTAMP(6))",work.toString(),fence,id.toString(),estimate);

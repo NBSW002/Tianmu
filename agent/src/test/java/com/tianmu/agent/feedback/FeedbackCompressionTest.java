@@ -14,6 +14,121 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
+    @Test void rerankAnchorAndCandidatesKeep256CodePointsOfTextAndContext(){
+        var embedding=mock(FeedbackEmbedding.class);
+        var vectors=mock(FeedbackVectorIndex.class);
+        when(embedding.dimension()).thenReturn(3);
+        when(embedding.version()).thenReturn("excerpt-fixture");
+        when(vectors.dimension()).thenReturn(3);
+        when(vectors.fetchEntries(any(),anyList(),any())).thenReturn(Map.of());
+        when(embedding.embed(anyList(),any())).thenAnswer(inv ->
+                inv.<List<String>>getArgument(0).stream().map(t -> List.of(1f,0f,0f)).toList());
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        var rows=new ArrayList<Unit>();
+        for(int id=1;id<=4;id++)rows.add(new Unit("C:"+id,Source.COMMENT,""+id,
+                "具体反馈"+id+"😀".repeat(300),"上文"+"父".repeat(300),false,null,"u"+id,Instant.now()));
+        var c=control();
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.RERANK_VERSION);
+        var plan=compression.planRerank(owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
+                new Counts(4,0,0,0,4),List.of(compression.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertFalse(plan.buckets().isEmpty());
+        var all=new ArrayList<FeedbackCompression.Representative>();
+        for(var bucket:plan.buckets()){
+            all.add(bucket.anchor());
+            bucket.candidates().forEach(candidate -> all.add(candidate.representative()));
+        }
+        assertEquals(4,all.size());
+        for(var representative:all){
+            assertEquals(256,representative.text().codePointCount(0,representative.text().length()));
+            assertEquals(256,representative.context().codePointCount(0,representative.context().length()));
+            assertEquals(256,representative.textProvenance().endCodePoint());
+            assertEquals(256,representative.contextProvenance().endCodePoint());
+        }
+    }
+
+    @Test void filteringSeparatesPureInteractionsFromSubstantiveFeedback(){
+        var compression=new FeedbackCompression(null,null,FeedbackCompressionProperties.defaults(),json);
+        var rows=List.of(unit(1,Source.COMMENT,"[星星眼][星星眼]",0L),
+                unit(2,Source.COMMENT,"@朋友甲 @朋友乙",0L),
+                unit(3,Source.COMMENT,"@朋友甲 人声太小了[星星眼]",0L),
+                unit(4,Source.COMMENT,"这个版本真好听[星星眼]",0L));
+        var part=compression.prepare(Source.COMMENT,rows,control());
+        assertEquals(List.of("C:3","C:4"),part.eligible().stream().map(Unit::id).toList());
+        assertEquals(Set.of("EMOJI_ONLY","MENTION_ONLY"),
+                new HashSet<>(part.excluded().stream().map(FeedbackCompression.Excluded::reason).toList()));
+    }
+
+    @Test void tieredDirectRetainsFullTextAndContextWithoutCallingProviders(){
+        var embedding=mock(FeedbackEmbedding.class);
+        var vectors=mock(FeedbackVectorIndex.class);
+        when(embedding.dimension()).thenReturn(1024);
+        when(vectors.dimension()).thenReturn(1024);
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        compression.tieredPolicy(new FeedbackTieredProperties(true,32768));
+        String text="画面切得太快了".repeat(50);
+        var row=new Unit("C:1",Source.COMMENT,"1",text,"上文原话",false,null,"u1",Instant.now());
+        var c=control();
+        var material=compression.directMaterial(new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
+                new Counts(1,0,0,0,1),List.of(compression.prepare(Source.COMMENT,List.of(row),c)),c);
+        assertNotNull(material);
+        assertEquals("DIRECT_LLM",material.summary().get("route"));
+        assertEquals(text,material.inputs().get(0).groups().get(0).text());
+        assertEquals("上文原话",material.inputs().get(0).groups().get(0).replyContext());
+        var proposal=new FeedbackModels.Proposal("T1","节奏太快","观众明确提出画面切换太快。","尝试延长对应镜头。",
+                List.of("C:1"),new Selection(List.of("C:1"),List.of(),"COHERENT",true,"直接证据"));
+        assertEquals(1,FeedbackRerankConfirmation.validate("direct",material.inputs().get(0),List.of(proposal)).topics().size());
+        verify(embedding,never()).embed(anyList(),any());
+        verify(vectors,never()).fetchEntries(any(),anyList(),any());
+    }
+    @Test void tieredRoutingUsesBytesAndIncludesPolicyInRevision(){
+        var embedding=mock(FeedbackEmbedding.class);
+        var vectors=mock(FeedbackVectorIndex.class);
+        when(embedding.dimension()).thenReturn(1024);
+        when(vectors.dimension()).thenReturn(1024);
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        String previous=compression.materialRevision(FeedbackCompression.RERANK_VERSION);
+        compression.tieredPolicy(new FeedbackTieredProperties(true,8192));
+        assertNotEquals(previous,compression.materialRevision(FeedbackCompression.RERANK_VERSION));
+        var row=new Unit("C:1",Source.COMMENT,"1","长评论".repeat(2000),"",false,null,"u1",Instant.now());
+        var c=control();
+        assertNull(compression.directMaterial(new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
+                new Counts(1,0,0,0,1),List.of(compression.prepare(Source.COMMENT,List.of(row),c)),c));
+        verify(embedding,never()).embed(anyList(),any());
+    }
+
+    @Test void rerankPlanProducesFiveIndependentShortlistsWithSeparateAnchors(){
+        var vectors=mock(FeedbackVectorIndex.class);
+        when(vectors.dimension()).thenReturn(5);
+        when(vectors.fetch(any(),anyList(),any())).thenReturn(Map.of());
+        var embedding=mock(FeedbackEmbedding.class);
+        when(embedding.dimension()).thenReturn(5);
+        when(embedding.version()).thenReturn("fixture-five");
+        when(embedding.embed(anyList(),any())).thenAnswer(call->call.<List<String>>getArgument(0).stream()
+                .map(text->java.util.stream.IntStream.range(0,5).mapToObj(n->text.contains("方向"+n)?1f:0f).toList()).toList());
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.FIVE_VERSION);
+        var rows=new ArrayList<Unit>();
+        for(int bucket=0;bucket<5;bucket++)for(int index=0;index<22;index++){
+            rows.add(unit(bucket*22+index+1,Source.COMMENT,"方向"+bucket+"的具体反馈编号"+index,0L));
+        }
+        var c=control();
+        var plan=compression.planRerank(owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
+                new Counts(110,0,0,0,110),List.of(compression.prepare(Source.COMMENT,rows,c)),c,()->{});
+        assertEquals(5,plan.buckets().size());
+        assertEquals(100,plan.buckets().stream().mapToInt(bucket->bucket.candidates().size()).sum());
+        var scores=java.util.stream.IntStream.range(0,20).mapToObj(n->(double)n).toList();
+        var ranking=new FeedbackReranker.Result(scores,null);
+        int selected=0;
+        for(var bucket:plan.buckets()){
+            assertEquals(20,bucket.candidates().size());
+            assertTrue(bucket.candidates().stream().noneMatch(candidate->candidate.representative().id().equals(bucket.anchor().id())));
+            assertEquals(bucket.candidates().subList(0,3),bucket.evidence(null));
+            assertEquals(List.of(bucket.candidates().get(19),bucket.candidates().get(18),bucket.candidates().get(17)),bucket.evidence(ranking));
+            selected+=bucket.evidence(ranking).size();
+        }
+        assertEquals(15,selected);
+        assertEquals(110,plan.material().clusters().stream().mapToInt(bucket->bucket.members().size()).sum());
+    }
     @Test void provenanceSurvivesPrewarmingAndReportWritesWhileLegacyStaysUnknown(){
         var stored=new HashMap<String,FeedbackVectorIndex.Entry>();
         FeedbackVectorIndex vectors=new FeedbackVectorIndex(){

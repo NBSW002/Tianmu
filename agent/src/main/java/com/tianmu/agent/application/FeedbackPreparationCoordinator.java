@@ -40,7 +40,7 @@ public final class FeedbackPreparationCoordinator implements com.tianmu.agent.ru
                     if(job==null || !FeedbackCompression.representativeVersion(job.request().rulesVersion())
                             || preparation.preparationWork(job.id(),FeedbackPreparationStore.Step.MATERIALS)==null)continue;
                     analysis.owned(job.id(),run.owner);
-                    if(!job.request().equals(FeedbackTaskPolicy.compressedRequest(run.task().specification())))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Material request changed");
+                    if(!job.request().equals(FeedbackTaskPolicy.compressedRequest(run.task().specification(),job.request().rulesVersion())))throw new AgentException("TASK_CONSTRAINT_VIOLATION","Material request changed");
                     run.checkpoint();run.verifyMemory();
                 }else if(job==null || !job.id().equals(op.id())){run.fail("OPERATION_NOT_FOUND");continue;}
                 assembler.verify(run.task());

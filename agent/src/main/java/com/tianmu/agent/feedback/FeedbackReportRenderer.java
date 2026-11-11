@@ -54,7 +54,7 @@ public final class FeedbackReportRenderer {
                 boolean longer=q.text().codePointCount(0,q.text().length())>180;
                 if(longer)h.append("<details><summary>展开较长原话</summary>");
                 h.append("<blockquote>").append(e(preview(q.text(),800)));
-                if(q.text().codePointCount(0,q.text().length())>800)h.append("（节选，完整原文保存在授权证据中）");
+                if(q.text().codePointCount(0,q.text().length())>800)h.append("（原话节选）");
                 h.append("<footer>").append(q.author()?"作者":"观众").append(" · ").append(q.source()==Source.DANMAKU?"弹幕":"评论");
                 if(q.source()==Source.DANMAKU && q.playbackMs()!=null){h.append(" · ");link(h,video,q.playbackMs(),time(q.playbackMs()));}
                 h.append("</footer></blockquote>");if(longer)h.append("</details>");
@@ -75,14 +75,14 @@ public final class FeedbackReportRenderer {
         }
         h.append("</section>");
         FeedbackReportCharts.render(h,document);
-        h.append("<details class=\"method\"><summary>完整反馈与统计说明</summary><p>已处理所选范围全部 ").append(counts.total()).append(" 条互动，包含 ").append(counts.authorComments()+counts.authorDanmaku()).append(" 条作者发言。只包含当前保留的入库记录，结束时刻不计入。父评论仅作语境，不重复计数；跨来源观众已去重。原话是阅读例子，展示去重不改变分析成员和统计。结构覆盖不等于所有语义判断正确。</p><p>视频 ").append(video).append(" · 数据读取时间 ").append(e(DATE.format(asset.snapshot().dataAsOf().atZone(ZONE)))).append("。</p>");
+        h.append("<details class=\"method\"><summary>完整反馈与统计说明</summary><p>已处理所选范围全部 ").append(counts.total()).append(" 条互动，包含 ").append(counts.authorComments()+counts.authorDanmaku()).append(" 条作者发言。只包含当前保留的入库记录，结束时刻不计入。父评论仅作语境，不重复计数；跨来源观众已去重。所列原话为反馈摘录，不能代表每位观众的看法。</p><p>报告数据截至 ").append(e(DATE.format(asset.snapshot().dataAsOf().atZone(ZONE)))).append("。</p>");
         if(asset.video()!=null){h.append("<details><summary>这段视频的内容与画面依据</summary>");paragraphs(h,asset.video().summary());h.append("<p class=\"muted\">依据 ").append(asset.video().sampledAtMs().size()).append(" 个采样位置；静帧不代表完整连续过程。");if(asset.video().transcript().isBlank())h.append("未提供音频转录，配乐与收音评价仅来自反馈，尚未独立核实。");h.append("</p></details>");}
         if(!document.daily().isEmpty()){
             h.append("<details class=\"daily-data\"><summary>按发送日期查看反馈</summary><p class=\"muted\">按反馈发送日期统计，与视频播放位置不同。</p><div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">日期</th><th scope=\"col\">反馈记录</th></tr></thead><tbody>");
             document.daily().forEach((day,n)->h.append("<tr><th scope=\"row\">").append(e(day)).append("</th><td>").append(n).append("</td></tr>"));h.append("</tbody></table></div></details>");
         }
         if(!document.notes().isEmpty()){
-            h.append("<p>以下是保留的局部观察，可能相互重叠，不能叠加计数。完整原文与归属保存在私有证据中。</p>");
+            h.append("<p>以下是保留的局部观察，可能相互重叠，不能叠加计数。</p>");
             for(var t:document.notes()){h.append("<details><summary>").append(e(t.title())).append("</summary>");paragraphs(h,t.observation());paragraphs(h,t.recommendation());h.append("</details>");}
         }
         h.append("</details><footer class=\"page-footer\">观众反馈报告 · <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"/video/").append(video).append("\">返回视频 ↗</a></footer></main></body></html>");

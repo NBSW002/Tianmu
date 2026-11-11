@@ -20,9 +20,13 @@ public interface FeedbackModels {
     /** Classification context, not evidence: the first accepted title and cumulative message count. */
     record KnownTopic(String key,String title,long messages) {}
     record Input(WorkKind kind, List<Group> groups, List<Topic> children, VideoContent.Facts video,Correction correction,
-                 @com.fasterxml.jackson.annotation.JsonIgnore List<KnownTopic> knownTopics) {
+                 @com.fasterxml.jackson.annotation.JsonIgnore List<KnownTopic> knownTopics,
+                 @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_DEFAULT) boolean rerankDegraded) {
         public Input(WorkKind kind,List<Group> groups,List<Topic> children,VideoContent.Facts video){this(kind,groups,children,video,null);}
         public Input(WorkKind kind,List<Group> groups,List<Topic> children,VideoContent.Facts video,Correction correction){this(kind,groups,children,video,correction,null);}
+        public Input(WorkKind kind,List<Group> groups,List<Topic> children,VideoContent.Facts video,Correction correction,List<KnownTopic> knownTopics){
+            this(kind,groups,children,video,correction,knownTopics,false);
+        }
         public Input {
             groups = List.copyOf(groups); children = List.copyOf(children);
             // Old serialized inputs may contain full prior topics. New retry inputs do not persist derived context.
@@ -39,4 +43,6 @@ public interface FeedbackModels {
     default String pipelinePolicyHash(){return policyHash();}
     default List<Proposal> analyzePipeline(Input input,CallControl control){return analyze(input,control);}
     default boolean representativeReviewEnabled(){return false;}
+    default List<Proposal> confirmReranked(Input input,CallControl control){return List.of();}
+    default String rerankConfirmationHash(){return pipelinePolicyHash();}
 }

@@ -35,22 +35,35 @@ final class FeedbackReportCharts {
         if(trend.plotted()==0){h.append("<p class='chart-empty'>暂无可绘制的弹幕播放位置。</p>");if(trend.omitted()>0)h.append("<p class='chart-note'>").append(trend.omitted()).append(" 条未定位，未画入趋势。</p>");h.append("</figcaption></figure>");return;}
         String interval=trend.bucketMs()<1000?trend.bucketMs()+"毫秒":trend.bucketMs()%60000==0?trend.bucketMs()/60000+"分钟":trend.bucketMs()/1000+"秒";
         long peak=Collections.max(trend.counts());int peakIndex=trend.counts().indexOf(peak);
-        h.append("<p class='chart-note'>每 ").append(interval).append("一段 · 按播放位置统计，非观看人数</p></figcaption><div class='peak-callout'><span class='peak-dot'></span>峰值 <strong>").append(peak).append(" 条</strong><span>").append(rangeTime(trend.binStart(peakIndex))).append("–").append(rangeTime(trend.binEnd(peakIndex))).append("</span></div>");
-        var line=new StringBuilder();int n=trend.counts().size();long ceiling=Math.max(2,peak);if(ceiling%2!=0 && ceiling<Long.MAX_VALUE)ceiling++;
+        h.append("<p class='chart-note'>每 ").append(interval).append("的弹幕数量</p></figcaption><div class='peak-callout'><span>").append(rangeTime(trend.binStart(peakIndex))).append("–").append(rangeTime(trend.binEnd(peakIndex))).append(" 最密集</span><strong>").append(peak).append(" 条</strong></div>");
+        int n=trend.counts().size();
+        long ceiling=Math.max(2,peak);
+        if(ceiling%2!=0 && ceiling<Long.MAX_VALUE)ceiling++;
+        h.append("<div class='trend-plot'><div class='y-axis' aria-hidden='true'><span>").append(ceiling)
+                .append("</span><span>").append(ceiling/2).append("</span><span>0</span></div>")
+                .append("<svg class='playback-chart' viewBox='0 0 640 180' preserveAspectRatio='none' role='img' aria-labelledby='playback-title playback-description'>")
+                .append("<title id='playback-title'>弹幕播放位置分布</title><desc id='playback-description'>共绘制 ")
+                .append(trend.plotted()).append(" 条弹幕，每").append(interval)
+                .append("一段。每根柱对应一个播放区间，完整计数见下方数据表。</desc>")
+                .append("<path class='plot-grid' d='M0 8H640 M0 90H640 M0 172H640'/>");
+        double duration=trend.endMs()-trend.startMs();
         for(int i=0;i<n;i++){
-            double midpoint=trend.binStart(i)+(trend.binEnd(i)-trend.binStart(i))/2.0;
-            double x=640*(midpoint-trend.startMs())/(trend.endMs()-trend.startMs()),y=172-164.0*trend.counts().get(i)/ceiling;
-            line.append(i==0?"M":" L").append(number(x)).append(' ').append(number(y));
+            double x=640*(trend.binStart(i)-trend.startMs())/duration;
+            double width=640*(trend.binEnd(i)-trend.binStart(i))/duration;
+            double height=164.0*trend.counts().get(i)/ceiling;
+            h.append("<rect class='playback-bar' x='").append(number(x+width*0.16))
+                    .append("' y='").append(number(172-height)).append("' width='")
+                    .append(number(width*0.68)).append("' height='").append(number(height))
+                    .append("' fill='").append(i==peakIndex?"#a55237":"#c6c2b8").append("'><title>")
+                    .append(rangeTime(trend.binStart(i))).append("–").append(rangeTime(trend.binEnd(i)))
+                    .append("：").append(trend.counts().get(i)).append(" 条</title></rect>");
         }
-        if(n==1){double y=172-164.0*peak/ceiling;line=new StringBuilder("M0 "+number(y)+" L640 "+number(y));}
-        double firstX=n==1?0:640*((trend.binStart(0)+(trend.binEnd(0)-trend.binStart(0))/2.0)-trend.startMs())/(trend.endMs()-trend.startMs());
-        double lastX=n==1?640:640*((trend.binStart(n-1)+(trend.binEnd(n-1)-trend.binStart(n-1))/2.0)-trend.startMs())/(trend.endMs()-trend.startMs());
-        h.append("<div class='trend-plot'><div class='y-axis' aria-hidden='true'><span>").append(ceiling).append("</span><span>").append(ceiling/2).append("</span><span>0</span></div><svg class='playback-chart' viewBox='0 0 640 180' preserveAspectRatio='none' role='img' aria-labelledby='playback-title playback-description'><title id='playback-title'>弹幕播放位置分布</title><desc id='playback-description'>共绘制 ").append(trend.plotted()).append(" 条弹幕，每").append(interval).append("一段，峰值 ").append(peak).append(" 条；完整分段计数见下方数据表。</desc><path class='plot-grid' d='M0 8H640 M0 90H640 M0 172H640'/><path fill='#c96442' fill-opacity='.14' d='").append(line).append(" L").append(number(lastX)).append(" 172 L").append(number(firstX)).append(" 172 Z'/><path class='trend-line' vector-effect='non-scaling-stroke' d='").append(line).append("'/></svg><div class='x-axis' aria-hidden='true'>");
+        h.append("</svg><div class='x-axis' aria-hidden='true'>");
         for(int i=0;i<5;i++)h.append("<span>").append(time(trend.startMs()+(long)((trend.endMs()-trend.startMs())*(i/4.0)))).append("</span>");
-        h.append("</div></div><p class='chart-note'>已定位 ").append(trend.plotted()).append(" 条");
+        h.append("</div></div><details class='chart-data'><summary>查看详细数据</summary><p class='chart-note'>已定位 ").append(trend.plotted()).append(" 条");
         if(trend.omitted()>0)h.append(" · ").append(trend.omitted()).append(" 条位置缺失或超出范围，未绘制");
         if(!trend.knownRange())h.append(" · 范围截至已记录的最晚位置，未取得视频时长");
-        h.append("。含作者发言；末段可能不足一个完整分段。</p><details class='chart-data'><summary>查看分段数据</summary><div class='table-scroll'><table><thead><tr><th scope='col'>播放区间（左闭右开）</th><th scope='col'>弹幕数</th></tr></thead><tbody>");
+        h.append("。</p><div class='table-scroll'><table><thead><tr><th scope='col'>视频时间段</th><th scope='col'>弹幕数</th></tr></thead><tbody>");
         for(int i=0;i<n;i++)h.append("<tr><th scope='row'>").append(rangeTime(trend.binStart(i))).append("–").append(rangeTime(trend.binEnd(i))).append("</th><td>").append(trend.counts().get(i)).append("</td></tr>");
         h.append("</tbody></table></div></details></figure>");
     }

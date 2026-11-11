@@ -22,5 +22,5 @@ class ThinkingTimeoutPolicyTest {
         assertThrows(IllegalArgumentException.class,()->withTimeout(baseline,Duration.ofSeconds(180).plusNanos(1)));
         assertThrows(IllegalArgumentException.class,()->withTimeout(baseline,Duration.ofMillis(999)));
     }
-    private FeedbackPolicy withTimeout(FeedbackPolicy p,Duration timeout){return new FeedbackPolicy(p.maxRecords(),p.maxSnapshotBytes(),p.batchBytes(),p.batchGroups(),p.maxModelCalls(),p.maxTokens(),p.timeout(),timeout,p.readParallelism());}
+    private FeedbackPolicy withTimeout(FeedbackPolicy p,Duration timeout){return new FeedbackPolicy(p.maxSnapshotBytes(),p.batchBytes(),p.batchGroups(),p.maxModelCalls(),p.maxTokens(),p.timeout(),timeout,p.readParallelism());}
 }

@@ -22,6 +22,9 @@ public class MinioConfig {
     @Bean
     public MinioClient minioClient() {
         return MinioClient.builder()
+                .httpClient(new okhttp3.OkHttpClient.Builder().connectTimeout(java.time.Duration.ofSeconds(5))
+                        .readTimeout(java.time.Duration.ofSeconds(60)).writeTimeout(java.time.Duration.ofSeconds(60))
+                        .callTimeout(java.time.Duration.ofSeconds(90)).build())
                 .endpoint(url)
                 .credentials(accessKey, secretKey)
                 .build();

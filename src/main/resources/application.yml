@@ -35,6 +35,7 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 minio:
+  upload-url: ${TIANMU_MINIO_UPLOAD_URL:${minio.url}}
   url: ${TIANMU_MINIO_URL:http://127.0.0.1:9000}
   access-key: ${TIANMU_MINIO_ACCESS_KEY}
   secret-key: ${TIANMU_MINIO_SECRET_KEY}

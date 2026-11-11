@@ -74,7 +74,6 @@ public final class SharedFeedbackSnapshot {
                 if(!request.sources().contains(unit.source()) || !ids.add(unit.id()))
                     throw new AgentException("INVALID_EVIDENCE","Unselected or duplicate snapshot member");
                 verifyTime(unit,request);
-                if(ids.size()>policy.maxRecords()) throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Snapshot record quota exceeded");
                 bytes[0]+=objects.bytes(unit);
                 if(bytes[0]>policy.maxSnapshotBytes()) throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Snapshot byte quota exceeded");
                 total.accept(unit); builders.get(unit.source()).accept(unit);
@@ -116,7 +115,7 @@ public final class SharedFeedbackSnapshot {
                 if(unit.source()!=selected || !seen.add(unit.id()))
                     throw new AgentException("STORAGE_CORRUPT","Invalid source partition member");
                 verifyTime(unit,expected); counts.accept(unit); bytes+=objects.bytes(unit);
-                if(seen.size()>policy.maxRecords() || bytes>policy.maxSnapshotBytes())
+                if(bytes>policy.maxSnapshotBytes())
                     throw new AgentException("FULL_ANALYSIS_TOO_LARGE","Partition exceeds read quota");
             }
             check(control); consumer.accept(chunk.units());

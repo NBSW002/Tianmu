@@ -237,7 +237,7 @@ RunState 初期保留兼容外观，逐步委托给生命周期、执行账本�
 | compaction retain/target/reserve/retries 候选 | 尚未形成统一配置；不得借填默认虚构已实现 | CompactionService 与模型预算逐项迁移 | 设计确认后先映射既有行为 |
 | agent.memory.* | enabled false；consolidation.enabled false | 条件 Bean；无需以代码存在推断功能已开放 | 启动开关；授权和撤销始终实时 |
 | memory.guard-interval 候选 | 100000000ns =100ms | MemoryRecallService；交付另有强制 barrier | 可配置节流不能取消关键边界强制复核 |
-| agent.feedback.* | 5000条/64MiB；24000B/批、80组/批；2000调用/16000000 Token；总1h/模型30s；读并行1 | FeedbackPolicy；条数≤100000；总时限1min..6h；读并行1..4 | 后台任务快照；与前台循环预算明确分账 |
+| agent.feedback.* | 64MiB；24000B/批、80组/批；2000调用/16000000 Token；总1h/模型30s；读并行1 | FeedbackPolicy；总时限1min..6h；读并行1..4 | 后台任务快照；与前台循环预算明确分账 |
 | agent.feedback.reuse.* | true / 10min / 1024项 | YAML + FeedbackReusePolicy，环境覆盖 | 仅复用有效同范围结果；权限实时 |
 | feedback source worker 候选 | 2线程/队列4/keepalive30s；轮询500ms | FeedbackPreparationCoordinator 内嵌 | 启动容量/调度；拒绝继续等待，不丢状态 |
 | agent.video.cache.* | memory-ttl1h；retention0s；1024项 | YAML/VideoCachePolicy；0含义以现实现为准 | 启动/后续声明缓存边界 |
@@ -846,11 +846,15 @@ I2初次实现遗漏模型/工具旁路，独立审查提出P1后已补齐；Com
 
 用户于2026-11-07明确开始实施，之后另行授权部署与真实测试，实际发布见对应验收记录。本节按批次记录实际产物，不改写独立设计审查历史结论。源码目录为agent/front，上传相关独立工作区改动不属于本轮治理修改。
 
-### 16.9 Harness 上下文投影顺序（2026-11-09，本地实现）
+### 16.9 Harness 上下文投影顺序（2026-11-09）
 
 `chat_native_v2` 将固定规则、公开工具与可见 Skill 目录放在首条 system，随后依次发送历史、本轮资料、用户原话和原生工具组。运行状态、必走动作和当前动态工具目录放在尾部。记忆仍使用独立的 user 参考块。工具执行准入、结果配对、收尾禁用工具与字节预算继续由原宿主链路负责。
 
 现有 v1 快照保持原投影。发布先安装兼容版本并保持 v2 开关关闭，再启用 v2 验收。保留 v2 快照期间使用兼容版本关闭开关回退。完整顺序、Trace 和 TTFT 比较口径见 [动态上下文架构](动态上下文架构.md)。本地请求对照与线上部署、缓存命中和 TTFT 结果分开记录。
+
+生产 Agent 已发布 `20261109-ac3950a-context` 并开启 v2，业务和前端容器未替换。旧发布的已有报告查询在 DeepSeek 强制工具与思考模式同时启用时返回 HTTP 400，Trace 为 `2f5a0b38102bc5b396965f4f2377b0a0`。兼容包修复该组合后，在同一报告查询上分别运行 v1 和 v2 各三次，六次均成功。线上 Trace 显示首条 system 在 v2 的四次调用中保持一致，相邻完整消息公共前缀由 `0 / 0 / 3` 增至 `5 / 7 / 9`。最终正文轮 TTFT 中位数由 2971 ms 降至 2288 ms。主模型请求的缓存命中率从 64.04% 升至 65.65%，未命中输入从 15884 增至 17750 tokens。该结果是一次小样本对照，包含冷暖缓存差异。样例 Trace 为旧顺序 `f21e1c83550d9e5b39b2e661b4f673e1`、新顺序 `7f71f830fd48ee19f26182953ada6d5f`，汇总位于本地忽略目录 `var/context-order-production`。
+
+2026-11-10 已发布 `20261110-9207b80-context` 并启用 `chat_native_v3`。同一已有报告查询在同日分别按 v2、v3 各运行三次，六次成功，每次四个主模型请求。线上 Trace 确认日期和时区从第二条消息的 `execution_context` 移到工具记录后的 `runtime_state`。最终正文 TTFT 中位数为 2046 → 1730 ms，缓存命中 token 均为 38528，未命中为 13154 → 13025。小样本无法将延迟变化单独归因于日期位置。只变日期的本地投影模拟确认公共前缀从首条 system 延伸到完整工具组。线上样例为 v2 `76f06d26df3b43110e7d77f1c3ee30fd`、v3 `b9c50a8746b1b3b535365a127981b032`，明细位于本地忽略目录 `var/context-date-tail-production`。
 
 ## 17. 反馈报告向量压缩（三工具，2026-11-08）
 
@@ -1002,7 +1006,6 @@ agent:
       collection: ${AGENT_FEEDBACK_MILVUS_COLLECTION:}
       dimension: ${AGENT_FEEDBACK_MILVUS_DIMENSION:0}
       timeout: ${AGENT_FEEDBACK_MILVUS_TIMEOUT:5s}
-    max-records: 5000
     max-snapshot-bytes: 67108864
     batch-bytes: 24000
     batch-groups: 80
@@ -1229,21 +1232,20 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import java.time.Duration;
 
 @ConfigurationProperties("agent.feedback")
-public record FeedbackPolicy(@DefaultValue("5000") int maxRecords,
-        @DefaultValue("67108864") long maxSnapshotBytes, @DefaultValue("24000") int batchBytes,
+public record FeedbackPolicy(@DefaultValue("67108864") long maxSnapshotBytes, @DefaultValue("24000") int batchBytes,
         @DefaultValue("80") int batchGroups,
         @DefaultValue("2000") int maxModelCalls, @DefaultValue("16000000") long maxTokens,
         @DefaultValue("1h") Duration timeout, @DefaultValue("30s") Duration modelTimeout,@DefaultValue("1") int readParallelism) {
-    public FeedbackPolicy(int records,long bytes,int batchBytes,int groups,int calls,long tokens,Duration timeout,Duration modelTimeout){this(records,bytes,batchBytes,groups,calls,tokens,timeout,modelTimeout,1);}
+    public FeedbackPolicy(long bytes,int batchBytes,int groups,int calls,long tokens,Duration timeout,Duration modelTimeout){this(bytes,batchBytes,groups,calls,tokens,timeout,modelTimeout,1);}
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public FeedbackPolicy {
-        if(readParallelism<1 || readParallelism>4 || maxRecords<1 || maxRecords>100000 || maxSnapshotBytes<1048576 || maxSnapshotBytes>536870912L
+        if(readParallelism<1 || readParallelism>4 || maxSnapshotBytes<1048576 || maxSnapshotBytes>536870912L
                 || batchBytes<24000 || batchBytes>48000 || batchGroups<1 || batchGroups>100
                 || maxModelCalls<1 || maxModelCalls>10000 || maxTokens<8192 || maxTokens>1000000000L
                 || timeout==null || timeout.compareTo(Duration.ofMinutes(1))<0 || timeout.compareTo(Duration.ofHours(6))>0
                 || modelTimeout==null || modelTimeout.toSeconds()<1 || modelTimeout.toSeconds()>60)throw new IllegalArgumentException("Invalid feedback execution policy");
     }
-    public static FeedbackPolicy defaults(){return new FeedbackPolicy(5000,67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
+    public static FeedbackPolicy defaults(){return new FeedbackPolicy(67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
 }
 ```
 
@@ -1587,7 +1589,7 @@ agent/src/main/java\com\tianmu\agent\feedback\FeedbackTopicDirectory.java:16:   
 agent/src/main/java\com\tianmu\agent\feedback\FeedbackReusePolicy.java:9:    public FeedbackReusePolicy{if(window==null || window.isNegative() || window.compareTo(Duration.ofDays(7))>0 || maxEntries<1 || maxEntries>8192)throw new IllegalArgumentException("Invalid analysis reuse limits");}
 agent/src/main/java\com\tianmu\agent\feedback\FeedbackReusePolicy.java:10:    public static FeedbackReusePolicy defaults(){return new FeedbackReusePolicy(true,Duration.ofMinutes(10),1024);}
 agent/src/main/java\com\tianmu\agent\feedback\FeedbackPolicy.java:19:                || timeout==null || timeout.compareTo(Duration.ofMinutes(1))<0 || timeout.compareTo(Duration.ofHours(6))>0
-agent/src/main/java\com\tianmu\agent\feedback\FeedbackPolicy.java:22:    public static FeedbackPolicy defaults(){return new FeedbackPolicy(5000,67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
+agent/src/main/java\com\tianmu\agent\feedback\FeedbackPolicy.java:22:    public static FeedbackPolicy defaults(){return new FeedbackPolicy(67108864,24000,80,2000,16000000,Duration.ofHours(1),Duration.ofSeconds(30));}
 agent/src/main/java\com\tianmu\agent\model\RuntimeModelCatalog.java:33:                               io.opentelemetry.api.trace.Tracer tracer,@Value("${agent.models.catalog:}") String file) {
 agent/src/main/java\com\tianmu\agent\model\RuntimeModelCatalog.java:59:                var config=new DeepSeekProperties(URI.create(entry.baseUrl()),environment.apply(entry.keyEnv()),entry.model(),entry.model(),Duration.ofSeconds(3),384,entry.maxTokens(),entry.model());
 agent/src/main/java\com\tianmu\agent\runtime\ToolBatchLedger.java:6:import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

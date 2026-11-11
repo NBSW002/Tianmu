@@ -13,7 +13,8 @@ public final class FeedbackCompression {
     private static final int MAX_STATS_KEYS=10000; // Keeps each sealed aggregation below the object-store limit.
     public static final String VERSION="feedback-representatives-v1";
     public static final String FIVE_VERSION=FeedbackAnalysis.FIVE_BUCKET_VERSION;
-    public static boolean representativeVersion(String version){return VERSION.equals(version) || FIVE_VERSION.equals(version);}
+    public static final String RERANK_VERSION="feedback-five-rerank-v1";
+    public static boolean representativeVersion(String version){return VERSION.equals(version) || FIVE_VERSION.equals(version) || RERANK_VERSION.equals(version);}
     public record Excluded(String id,String reason) {}
     public record SourceStats(Map<String,Long> daily,Map<Long,Long> playback,long playbackMissing) {
         public SourceStats {daily=Map.copyOf(daily);playback=Map.copyOf(playback);}
@@ -29,27 +30,49 @@ public final class FeedbackCompression {
         public Cluster {members=List.copyOf(members);representatives=List.copyOf(representatives);}
     }
     public record BucketMetric(String mode,String fallback,double threshold,int expressions,String transformVersion) {}
+    public record Candidate(Representative representative,List<String> originalIds) {
+        public Candidate {originalIds=List.copyOf(originalIds);}
+    }
+    public record RerankBucket(String id,Representative anchor,List<Candidate> candidates) {
+        public RerankBucket {candidates=List.copyOf(candidates);}
+        public List<Candidate> evidence(FeedbackReranker.Result ranking){
+            return FeedbackReranker.topThree(candidates.size(),ranking).stream().map(candidates::get).toList();
+        }
+    }
+    public record RerankPlan(Material material,List<RerankBucket> buckets) {
+        public RerankPlan {buckets=List.copyOf(buckets);}
+    }
     public record Material(String version,FeedbackCompressionProperties policy,String protocolRevision,Blob manifest,Counts rawCounts,
                            Counts eligibleCounts,List<Excluded> excluded,int exactExpressions,List<Cluster> clusters,
                            List<FeedbackModels.Input> inputs,int representativeCount,int modelBytes,List<String> unclassified,List<Representative> unclassifiedExamples,BucketMetric bucketMetric,SourceStats stats) {
         public Material {excluded=List.copyOf(excluded);clusters=List.copyOf(clusters);inputs=List.copyOf(inputs);unclassified=unclassified==null?List.of():List.copyOf(unclassified);unclassifiedExamples=unclassifiedExamples==null?List.of():List.copyOf(unclassifiedExamples);}
         public Material withoutStats(){return new Material(version,policy,protocolRevision,manifest,rawCounts,eligibleCounts,excluded,exactExpressions,clusters,inputs,representativeCount,modelBytes,unclassified,unclassifiedExamples,bucketMetric,null);}
-        public Map<String,Object> summary(){var values=new LinkedHashMap<String,Object>();values.put("raw",rawCounts.total());values.put("excluded",excluded.size());values.put("eligible",eligibleCounts.total());values.put("exact",exactExpressions);values.put("clusters",clusters.size());values.put("representatives",representativeCount);values.put("model_bytes",modelBytes);values.put("method",version);values.put("policy",protocolRevision);values.put("unclassified",unclassified.size());if(bucketMetric!=null)values.put("bucket_metric",Map.of("mode",bucketMetric.mode(),"fallback",bucketMetric.fallback(),"threshold",bucketMetric.threshold(),"expressions",bucketMetric.expressions(),"transform_version",bucketMetric.transformVersion()));return Collections.unmodifiableMap(values);}
+        public Map<String,Object> summary(){var values=new LinkedHashMap<String,Object>();values.put("raw",rawCounts.total());values.put("excluded",excluded.size());values.put("eligible",eligibleCounts.total());values.put("exact",exactExpressions);values.put("clusters",clusters.size());values.put("representatives",representativeCount);values.put("model_bytes",modelBytes);values.put("method",version);values.put("policy",protocolRevision);values.put("unclassified",unclassified.size());values.put("route",bucketMetric!=null && "DIRECT".equals(bucketMetric.mode())?"DIRECT_LLM":"VECTOR_RERANK");if(bucketMetric!=null)values.put("bucket_metric",Map.of("mode",bucketMetric.mode(),"fallback",bucketMetric.fallback(),"threshold",bucketMetric.threshold(),"expressions",bucketMetric.expressions(),"transform_version",bucketMetric.transformVersion()));return Collections.unmodifiableMap(values);}
     }
     private record Exact(Source source,String text,String context,boolean author,Long bucket) {}
     private record Expression(Unit exemplar,List<Unit> members) {}
     private final FeedbackEmbedding embedding;private final FeedbackVectorIndex vectors;
     private final FeedbackCompressionProperties policy;private final ObjectMapper json;
     private FeedbackBucketProperties buckets=new FeedbackBucketProperties(5,.65,2,50,64);
+    private FeedbackTieredProperties tiered;
+    public void tieredPolicy(FeedbackTieredProperties value){tiered=value;}
+    private String rerankProviderRevision="qwen3-rerank";
     public void bucketPolicy(FeedbackBucketProperties value){buckets=Objects.requireNonNull(value);}
+    void rerankProviderRevision(String model,String endpoint){
+        rerankProviderRevision=FeedbackObjects.sha((model+"|"+Objects.toString(endpoint,"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
     public FeedbackCompression(FeedbackEmbedding embedding,FeedbackVectorIndex vectors,FeedbackCompressionProperties policy,ObjectMapper json){
         this.embedding=embedding;this.vectors=vectors;this.policy=policy;this.json=json;
         if(policy.enabled() && (embedding==null || vectors==null))throw new IllegalArgumentException("Compression requires Embedding and vector storage");
         if(embedding!=null && vectors!=null && embedding.dimension()!=vectors.dimension())throw new IllegalArgumentException("Compression vector dimension mismatch");
     }
     public FeedbackCompressionProperties policy(){return policy;}
-    public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1|substantive-feedback-v2").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v7").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String materialRevision(String version){
+        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top3-text256-context256-v2"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return FIVE_VERSION.equals(version)?fiveRevision():revision();
+    }
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
         var accepted=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;boolean statsOverflow=false;
         for(var u:rows){check(control);if(u.source()!=source)throw new AgentException("INVALID_EVIDENCE","Mixed preparation partition");
@@ -58,7 +81,11 @@ public final class FeedbackCompression {
                 if(daily.size()+playback.size()>MAX_STATS_KEYS){statsOverflow=true;daily.clear();playback.clear();}}
             String clean=Normalizer.normalize(u.text(),Normalizer.Form.NFKC).replaceAll("[\\p{Z}\\s]+"," ").strip();
             long effective=clean.codePoints().filter(Character::isLetterOrDigit).count();
-            String reason=clean.isEmpty()?"EMPTY":effective<policy.minEffectiveChars()?"SHORT_TEXT":null;
+            String substantive=clean.replaceAll("\\[[^\\[\\]\\s]{1,30}\\]","").strip();
+            boolean mentionOnly=clean.matches("^(?:@[^@\\s]+\\s*)+$");
+            boolean emojiOnly=!clean.isEmpty() && substantive.codePoints().noneMatch(Character::isLetterOrDigit);
+            String reason=clean.isEmpty()?"EMPTY":mentionOnly?"MENTION_ONLY":emojiOnly?"EMOJI_ONLY":
+                    effective<policy.minEffectiveChars()?"SHORT_TEXT":null;
             // Author remarks remain source records but do not become audience representatives or statistics.
             if(u.author())reason="AUTHOR_CONTEXT";
             if(reason!=null){excluded.add(new Excluded(u.id(),reason));continue;}
@@ -68,6 +95,62 @@ public final class FeedbackCompression {
     }
     public Material compress(UUID job,AccessScope owner,Request request,Blob manifest,Counts raw,List<SourceMaterial> partitions,
                              CallControl control,Runnable reserveEmbedding){
+        if(RERANK_VERSION.equals(request.rulesVersion()))throw new IllegalArgumentException("Use planRerank for reranked materials");
+        return compress(owner,request,manifest,raw,partitions,control,reserveEmbedding,null);
+    }
+    /** Returns null when the complete evidence payload exceeds the direct-reading budget. */
+    Material directMaterial(Blob manifest, Counts raw, List<SourceMaterial> parts, CallControl control) {
+        if (tiered == null || !tiered.enabled()) return null;
+        var exact = new LinkedHashMap<Exact,List<Unit>>();
+        var excluded = new ArrayList<Excluded>();
+        for (var part : parts) {
+            excluded.addAll(part.excluded());
+            for (var row : part.eligible()) {
+                check(control);
+                var key = new Exact(row.source(), row.text(), row.replyContext(), row.author(),
+                        row.playbackMs() == null ? null : row.playbackMs() / policy.playbackBucketMs());
+                exact.computeIfAbsent(key, ignored -> new ArrayList<>()).add(row);
+            }
+        }
+        var clusters = new ArrayList<Cluster>();
+        var groups = new ArrayList<FeedbackModels.Group>();
+        long comments = 0, danmaku = 0;
+        var people = new HashSet<String>();
+        int bytes = 4096; // Reserve prompt, aliases and bounded video context.
+        for (var members : exact.values()) {
+            var row = members.get(0);
+            String clusterId = "D" + (clusters.size() + 1);
+            var rep = representative(row, members.size(), manifest.sha256(),
+                    row.text().codePointCount(0,row.text().length()),
+                    row.replyContext().codePointCount(0,row.replyContext().length()));
+            var ids = members.stream().map(Unit::id).toList();
+            var group = new FeedbackModels.Group(rep.id(),rep.source(),rep.text(),rep.context(),
+                    false,rep.playbackMs(),members.size(),ids,clusterId);
+            bytes += write(FeedbackRerankConfirmation.modelEvidence(group))
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 48;
+            if (bytes > tiered.directInputBytes()) return null;
+            clusters.add(new Cluster(clusterId,ids,List.of(rep)));
+            groups.add(group);
+            if (row.source() == Source.COMMENT) comments += members.size();
+            else danmaku += members.size();
+            members.stream().map(Unit::userId).filter(Objects::nonNull).forEach(people::add);
+        }
+        var input = new FeedbackModels.Input(WorkKind.CLASSIFY,groups,List.of(),null);
+        var metric = new BucketMetric("DIRECT","NONE",0,exact.size(),"direct-reading-v1");
+        return new Material(RERANK_VERSION,policy,materialRevision(RERANK_VERSION),manifest,raw,
+                new Counts(comments,danmaku,0,0,people.size()),excluded,exact.size(),clusters,
+                List.of(input),groups.size(),bytes,List.of(),List.of(),metric,mergeStats(parts));
+    }
+
+    public RerankPlan planRerank(AccessScope owner,Request request,Blob manifest,Counts raw,List<SourceMaterial> partitions,
+                                CallControl control,Runnable reserveEmbedding){
+        if(!FIVE_VERSION.equals(request.rulesVersion()) && !RERANK_VERSION.equals(request.rulesVersion()))throw new IllegalArgumentException("Expected five-bucket inputs");
+        var plan=new ArrayList<RerankBucket>();
+        var material=compress(owner,request,manifest,raw,partitions,control,reserveEmbedding,plan);
+        return new RerankPlan(material,plan);
+    }
+    private Material compress(AccessScope owner,Request request,Blob manifest,Counts raw,List<SourceMaterial> partitions,
+                              CallControl control,Runnable reserveEmbedding,List<RerankBucket> rerank){
         if(embedding==null || vectors==null)throw new AgentException("VECTOR_REQUIRED","Representative reports require the vector pipeline");
         var rows=new ArrayList<Unit>();var excluded=new ArrayList<Excluded>();var sourceSet=EnumSet.noneOf(Source.class);
         for(var p:partitions){if(!sourceSet.add(p.source()) || !request.sources().contains(p.source()))throw new AgentException("INVALID_EVIDENCE","Invalid material partitions");rows.addAll(p.eligible());excluded.addAll(p.excluded());}
@@ -80,7 +163,7 @@ public final class FeedbackCompression {
         for(var members:exact.values()){members.sort(ranking);expressions.add(new Expression(members.get(0),List.copyOf(members)));}
         if((long)expressions.size()*embedding.dimension()*Float.BYTES*3>policy.vectorBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Task vector memory quota exceeded");
         var encoded=encode(owner,request,expressions,control,reserveEmbedding,FeedbackVectorIndex.Origin.REPORT_ANALYSIS);
-        if(FIVE_VERSION.equals(request.rulesVersion()))return fiveBuckets(manifest,raw,excluded,rows,expressions,encoded,control,mergeStats(partitions));
+        if(FIVE_VERSION.equals(request.rulesVersion()) || rerank!=null)return fiveBuckets(manifest,raw,excluded,rows,expressions,encoded,control,mergeStats(partitions),rerank);
         var assigned=new BitSet(expressions.size());var clusters=new ArrayList<Cluster>();var inputs=new ArrayList<FeedbackModels.Input>();
         var allGroups=new ArrayList<FeedbackModels.Group>();int reps=0,bytes=0;
         for(int seed=0;seed<expressions.size();seed++){
@@ -148,7 +231,7 @@ public final class FeedbackCompression {
         return new Material(VERSION,policy,revision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,reps,bytes,List.of(),List.of(),null,mergeStats(partitions));
     }
     private SourceStats mergeStats(List<SourceMaterial> parts){var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;for(var part:parts){if(part.stats()==null)return null;part.stats().daily().forEach((k,v)->daily.merge(k,v,Math::addExact));part.stats().playback().forEach((k,v)->playback.merge(k,v,Math::addExact));missing=Math.addExact(missing,part.stats().playbackMissing());if(daily.size()+playback.size()>MAX_STATS_KEYS)return null;}return new SourceStats(daily,playback,missing);}
-    private Material fiveBuckets(Blob manifest,Counts raw,List<Excluded> excluded,List<Unit> rows,List<Expression> expressions,List<float[]> encoded,CallControl control,SourceStats stats){
+    private Material fiveBuckets(Blob manifest,Counts raw,List<Excluded> excluded,List<Unit> rows,List<Expression> expressions,List<float[]> encoded,CallControl control,SourceStats stats,List<RerankBucket> rerank){
         var eligibleIndices=new ArrayList<Integer>();var unclassified=new ArrayList<String>();
         for(int n=0;n<expressions.size();n++){if(contextDependent(expressions.get(n).exemplar()))expressions.get(n).members().forEach(u->unclassified.add(u.id()));else eligibleIndices.add(n);}
         var transformed=FeedbackVectorTransform.apply(eligibleIndices.stream().map(encoded::get).toList(),buckets,control);
@@ -169,6 +252,18 @@ public final class FeedbackCompression {
             double minimum=indices.stream().mapToDouble(i->cosine(rankingVectors.get(i),center)).min().orElse(0);double mean=indices.stream().mapToDouble(i->cosine(rankingVectors.get(i),center)).average().orElse(0);
             similarity.add(String.format(java.util.Locale.ROOT,"B%d:%.3f:%.3f",clusters.size()+1,minimum,mean));
             var members=new ArrayList<Unit>();indices.forEach(n->members.addAll(expressions.get(n).members()));var selected=new ArrayList<Integer>();
+            if(rerank!=null){
+                String id="B"+(clusters.size()+1);
+                var ordered=indices.stream().sorted(Comparator.<Integer>comparingDouble(n->cosine(rankingVectors.get(n),center))
+                        .reversed().thenComparing(n->expressions.get(n).exemplar().id())).toList();
+                var anchor=expressions.get(ordered.get(0));
+                var candidates=ordered.stream().skip(1).limit(FeedbackReranker.CANDIDATES_PER_BUCKET).map(expressions::get)
+                        .map(e->new Candidate(representative(e.exemplar(),e.members().size(),manifest.sha256(),256,256),
+                                e.members().stream().map(Unit::id).toList())).toList();
+                rerank.add(new RerankBucket(id,representative(anchor.exemplar(),anchor.members().size(),manifest.sha256(),256,256),candidates));
+                clusters.add(new Cluster(id,members.stream().map(Unit::id).toList(),List.of()));
+                continue;
+            }
             for(var source:Source.values()){
                 var candidates=new ArrayList<>(indices.stream().filter(n->expressions.get(n).exemplar().source()==source).toList());
                 if(candidates.isEmpty())continue;candidates.sort((a,b)->compare(expressions.get(a),expressions.get(b),rankingVectors.get(a),rankingVectors.get(b),center));selected.add(candidates.get(0));
@@ -179,7 +274,9 @@ public final class FeedbackCompression {
         }
         int bytes=projectedBytes(groupRows);if(bytes>policy.packageBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative model projection exceeds global byte quota");
         var byId=new HashMap<String,Unit>();rows.forEach(u->byId.put(u.id(),u));
-        var order=new ArrayList<Integer>();for(int n=0;n<clusters.size();n++)order.add(n);order.sort(Comparator.<Integer>comparingInt(n->clusters.get(n).members().size()).reversed().thenComparingInt(n->n));
+        var order=new ArrayList<Integer>();
+        if(rerank==null)for(int n=0;n<clusters.size();n++)order.add(n);
+        order.sort(Comparator.<Integer>comparingInt(n->clusters.get(n).members().size()).reversed().thenComparingInt(n->n));
         for(int index:order){
             if(representatives>=policy.maxRepresentatives())break;check(control);var cluster=clusters.get(index);var ids=new HashSet<>(cluster.members());var selected=new ArrayList<>(cluster.representatives());var choices=new ArrayList<Integer>();
             for(int n=0;n<expressions.size();n++)if(ids.contains(expressions.get(n).exemplar().id()))choices.add(n);
@@ -194,7 +291,7 @@ public final class FeedbackCompression {
             }
             clusters.set(index,new Cluster(cluster.id(),cluster.members(),selected));
         }
-        groupRows.clear();for(var cluster:clusters)groupRows.addAll(groups(cluster.id(),cluster.members().stream().map(byId::get).toList(),cluster.representatives()));
+        groupRows.clear();if(rerank==null)for(var cluster:clusters)groupRows.addAll(groups(cluster.id(),cluster.members().stream().map(byId::get).toList(),cluster.representatives()));
         bytes=projectedBytes(groupRows);if(bytes>policy.packageBytes())throw new AgentException("MATERIAL_BUDGET_EXCEEDED","Representative model projection exceeds global byte quota");
         var batch=new ArrayList<FeedbackModels.Group>();int batchBytes=0;
         for(var cluster:clusters){var groups=groupRows.stream().filter(g->cluster.id().equals(g.candidateCluster())).toList();int size=projectedBytes(groups);
@@ -209,7 +306,8 @@ public final class FeedbackCompression {
                 "analysis.bucket_sizes",clusters.stream().map(c->c.id()+":"+c.members().size()).toList(),
                 "analysis.bucket_candidates",clusters.stream().map(c->c.id()+":"+c.representatives().size()).toList(),"analysis.bucket_similarity",similarity));
         for(int i=0;i<clusters.size() && i<5;i++)com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.bucket_"+(i+1)+"_candidate_ids",clusters.get(i).representatives().stream().map(Representative::id).toList()));
-        return new Material(FIVE_VERSION,policy,fiveRevision(),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,representatives,bytes,unclassified,examples,metric,stats);
+        String version=rerank==null?FIVE_VERSION:RERANK_VERSION;
+        return new Material(version,policy,materialRevision(version),manifest,raw,new Counts(comments,rows.size()-comments,0,0,people.size()),excluded,expressions.size(),clusters,inputs,representatives,bytes,unclassified,examples,metric,stats);
     }
     private int projectedBytes(List<FeedbackModels.Group> groups){return write(groups.stream().map(g->FeedbackModelProjection.group(g,json)).toList()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;}
     private List<FeedbackModels.Group> groups(String id,List<Unit> members,List<Representative> reps){
@@ -265,7 +363,10 @@ public final class FeedbackCompression {
         m.put("playback_ms",r.playbackMs());m.put("likes",r.likes());m.put("likes_available",r.likes()!=null);m.put("exact_messages",r.exactMessages());m.put("excerpt",r.excerpt());return m;
     }).toList());}
     private Representative representative(Unit u,long frequency,String snapshotHash){
-        String text=clip(u.text(),policy.textChars()),context=clip(u.replyContext(),policy.contextChars());
+        return representative(u,frequency,snapshotHash,policy.textChars(),policy.contextChars());
+    }
+    private Representative representative(Unit u,long frequency,String snapshotHash,int textLimit,int contextLimit){
+        String text=clip(u.text(),textLimit),context=clip(u.replyContext(),contextLimit);
         return new Representative(u.id(),u.source(),text,context,u.playbackMs(),u.likeCount(),frequency,!text.equals(u.text()),
             excerpt(u.id(),"clean_text",snapshotHash,u.text(),text),context.isEmpty()?null:excerpt(u.id(),"replyContext",snapshotHash,u.replyContext(),context));
     }

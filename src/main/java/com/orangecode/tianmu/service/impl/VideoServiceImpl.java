@@ -53,6 +53,9 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
     private CurrentUser currentUser;
 
     @Resource
+    private com.orangecode.tianmu.application.UploadSessions uploads;
+
+    @Resource
     private CategoryService categoryService;
 
 
@@ -88,6 +91,8 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean submit(VideoSubmitRequest videoSubmitRequest) throws Exception {
+        long owner = currentUser.requireMatchingUser(videoSubmitRequest.getUserId());
+        uploads.requireCompleted(owner, videoSubmitRequest.getFileUrl());
         // 判断文件大小
         long size = videoSubmitRequest.getFile().getSize();
         ThrowUtils.throwIf(size > 1024 * 1024 * 1, ErrorCode.FILE_SIZE_ERROR);
