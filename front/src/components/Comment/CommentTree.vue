@@ -2,7 +2,7 @@
   <div class="reply-list">
     <div
       class="reply-item"
-      v-for="(item, index) in isLogin ? commentList : commentList.slice(0, 2)"
+      v-for="(item, index) in visibleComments"
       :key="item.commentId"
     >
       <!-- 第二楼特有的未登录蒙版 -->
@@ -135,6 +135,11 @@
       </div>
       <div class="bottom-line"></div>
     </div>
+    <nav v-if="isLogin && commentList.length > 20" class="comment-pagination" aria-label="评论分页">
+      <button type="button" :disabled="currentPage === 1" @click="changePage(currentPage - 1)">上一页</button>
+      <span>第 {{ currentPage }} / {{ pageCount }} 页</span>
+      <button type="button" :disabled="currentPage === pageCount" @click="changePage(currentPage + 1)">下一页</button>
+    </nav>
     <div class="reply-loading" v-if="loading">正在加载...</div>
     <div class="no-any" v-if="commentList.length === 0 && !loading">
       还没有评论，写下你的看法吧
@@ -146,7 +151,7 @@
         (!isLogin && commentList.length === 1)
       "
     >
-      已显示全部评论
+      {{ pageCount > 1 && isLogin ? '每页显示 20 条主评论' : '已显示全部评论' }}
     </div>
     <div
       class="login-prompt"
@@ -189,6 +194,7 @@ export default {
       },
       lastClickCmtId: "", //上一次点击回复的评论的id
       commentList: [],
+      page: 1,
       loading: false, // 是否正在加载评论
     };
   },
@@ -227,9 +233,17 @@ export default {
   },
   computed: {
     ...mapState(useUserStore, ["user", "isLogin"]),
+    pageCount() { return Math.max(1, Math.ceil(this.commentList.length / 20)); },
+    currentPage() { return Math.min(this.page, this.pageCount); },
+    visibleComments() { return this.isLogin ? this.commentList.slice((this.currentPage - 1) * 20, this.currentPage * 20) : this.commentList.slice(0, 2); },
   },
   methods: {
     ...mapActions(useUserStore, ["updateDialogVisible"]),
+    changePage(page) {
+      this.page = Math.max(1, Math.min(page, this.pageCount));
+      this.commentInfo.rootCommentId = '';
+      this.$nextTick(() => this.$el.closest('.comment')?.scrollIntoView({ block: 'start', behavior: 'auto' }));
+    },
     toLogin() {
       this.updateDialogVisible(true);
     },
@@ -241,10 +255,13 @@ export default {
         const res = await fetchCommentList(this.$route.params.videoId);
         if (res.code === 200) {
           this.commentList = res.data;
+          this.page = 1;
           this.loading = false;
         }
       } catch (error) {
         ElMessage.error("获取评论失败：" + error);
+      } finally {
+        this.loading = false;
       }
     },
 
@@ -428,6 +445,9 @@ export default {
 </script>
 
 <style scoped>
+.comment-pagination {display:flex;justify-content:center;align-items:center;gap:16px;padding:20px 0;font-size:13px;}
+.comment-pagination button {border:1px solid var(--workbench-border);border-radius:6px;background:var(--workbench-raised);color:var(--workbench-ink);padding:6px 12px;cursor:pointer;}
+.comment-pagination button:disabled {opacity:.4;cursor:default;}
 .reply-list {
   margin-top: 14px;
   padding-bottom: 100px;

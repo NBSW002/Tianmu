@@ -105,7 +105,7 @@
         </div>
       </div>
     </div>
-    <div v-if="!isShowMoreCmt && subCommentList.length > 2" class="view-more"><button type="button" class="view-more-btn" @click="isShowMoreCmt = true">共 {{ subCommentList.length }} 条回复，点击查看</button></div>
+    <div v-if="visibleReplies.length < subCommentList.length" class="view-more"><button type="button" class="view-more-btn" @click="visibleCount += 10">共 {{ subCommentList.length }} 条回复，{{ visibleCount === 2 ? '点击查看' : '再显示 10 条' }}</button></div>
   </div>
 </template>
 
@@ -156,12 +156,12 @@ export default {
   },
   data() {
     return {
-      isShowMoreCmt: false, //是否展示更多评论
+      visibleCount: 2,
     };
   },
   computed: {
     ...mapState(useUserStore, ["user"]),
-    visibleReplies() { return this.isShowMoreCmt ? this.subCommentList : this.subCommentList.slice(0, 2); },
+    visibleReplies() { return this.subCommentList.slice(0, this.visibleCount); },
   },
   methods: {
     // 计算大于1万的数字
