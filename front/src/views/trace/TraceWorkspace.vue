@@ -244,7 +244,7 @@ function downloadExample() {
             <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">执行图</button>
             <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
             <div class="view-meta">
-              <div v-if="mode === 'graph'" class="trace-legend" aria-label="节点类型图例"><span><i class="legend-model" />模型</span><span><i class="legend-tool" />工具</span><span><i class="legend-stage" />判断 / 任务</span></div>
+              <div v-if="mode === 'graph'" class="trace-legend" aria-label="节点与连线图例"><span><i class="legend-model" />模型</span><span><i class="legend-tool" />工具</span><span><i class="legend-stage" />判断 / 任务</span><span title="直接父子 Span">─ 父子</span><span title="中间 Span 未显示，连接到最近的可见祖先">┄ 祖先</span></div>
               <span class="view-count" title="卡片是合并后的可视步骤；Span 是日志中的原始记录">{{ graph.nodes.length }} 卡片 / {{ trace.nodes.length }} Span</span>
             </div>
           </div>

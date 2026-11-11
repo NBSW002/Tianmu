@@ -493,17 +493,9 @@ export function defaultExpandedStages(presentation) {
   return new Set(presentation.cards.filter(card => card.cardKind === 'execution').map(card => card.id))
 }
 
-// Root ownership can span the whole graph; retain the recorded edges for inspection.
-export function visibleTraceEdges(graph, showRootOwnership = false) {
-  if (showRootOwnership) return graph.edges
-  const roots = new Set(graph.nodes.filter(node => node.data.cardKind === 'run').map(node => node.id))
-  const firstByRoot = new Set()
-  return graph.edges.filter(edge => {
-    if (!roots.has(edge.source) || !['parent', 'ancestor'].includes(edge.relation)) return true
-    if (firstByRoot.has(edge.source)) return false
-    firstByRoot.add(edge.source)
-    return true
-  })
+// This view represents recorded span ancestry, not execution order.
+export function visibleTraceEdges(graph) {
+  return graph.edges.filter(edge => ['parent', 'ancestor'].includes(edge.relation))
 }
 
 // Time controls placement only. Edges are rebuilt from recorded parent IDs and
@@ -630,7 +622,7 @@ export function layoutPresentation(presentation, expanded = new Set()) {
   const emitted=new Set()
   const link=(from,to,relation)=>{if(!from || from.id===to.id)return;const key=`${relation}:${from.id}:${to.id}`;if(emitted.has(key))return;emitted.add(key);edges.push({id:key,source:from.id,target:to.id,relation})}
   for (const item of nodes) {
-    const roots=item.data.rootIds || [item.data.sourceId || item.id]
+    const roots=item.data.rootIds || (item.data.sourceId ? [item.data.sourceId] : item.data.children?.flatMap(child => child.rootIds || [child.sourceId || child.id]) || [item.id])
     for (const id of roots) {
       const raw=presentation.rawById.get(id);if(!raw)continue
       let parent=presentation.rawById.get(raw.parentId);const visited=new Set()
