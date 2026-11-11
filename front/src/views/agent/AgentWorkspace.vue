@@ -165,22 +165,18 @@
                 >
                   <div class="report-toolbar">
                     <div>
-                      <strong>观众反馈报告</strong><span>{{ turn.reportJson ? '代表反馈分析 · 五个主主题' : '数据概览与内容观察' }}</span>
+                      <strong>观众反馈报告</strong>
                     </div>
-                    <button
-                      v-if="turn.reportHtml"
-                      class="text-button"
-                      @click="downloadReport(turn)"
-                    >
-                      下载报告 ↓
-                    </button>
+                    <div v-if="turn.reportHtml" class="report-actions">
+                      <button class="text-button" @click="openReport(turn)">打开报告</button>
+                      <button class="text-button" @click="downloadReport(turn)">下载报告 ↓</button>
+                    </div>
                   </div>
                   <p v-if="turn.reportLoading" class="report-state" role="status">正在加载报告…</p>
                   <div v-else-if="turn.reportError" class="report-state" role="alert">
                     {{ turn.reportError }}
                     <button class="text-button" @click="loadReport(turn)">重新加载</button>
                   </div>
-                  <FeedbackReportView v-else-if="turn.reportJson" :report="turn.reportJson" />
                   <iframe
                     v-else-if="turn.reportHtml"
                     :srcdoc="reportDocument(turn)"
@@ -251,14 +247,13 @@ import EchoMark from '@/components/agent/EchoMark.vue';
 import TraceIcon from '@/components/trace/TraceIcon.vue';
 import ModelPicker from '@/components/agent/ModelPicker.vue';
 import { useConversationViewport } from '@/composables/useConversationViewport';
-import { themeReportHtml } from '@/agent/report-theme.mjs';
+import { reportDocumentHtml } from '@/agent/report-document.mjs';
 import VideoContentIndex from '@/components/agent/VideoContentIndex.vue';
 import { getAssistantModels } from '@/api/agent';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import MemoryManager from '@/components/agent/MemoryManager.vue';
 import MemoryUsage from '@/components/agent/MemoryUsage.vue';
 import CreatorDraft from '@/components/agent/CreatorDraft.vue';
-import FeedbackReportView from '@/components/agent/FeedbackReportView.vue';
 import { createCompositionGuard } from '@/agent/composer-input.mjs';
 import { isLogCommand, logReply } from '@/agent/local-commands.mjs';
 import { useRoute, useRouter } from 'vue-router';
@@ -271,7 +266,6 @@ import {
   cancelAgentRun,
   createAgentRun,
   getAgentReport,
-  getAgentReportJson,
   getAgentRun,
   resumeAgentAnalysis,
 } from '@/api/agent';
@@ -469,16 +463,13 @@ function stopMonitoring(cancelReports = true) {
 }
 
 async function loadReport(turn) {
-  const structured = Boolean(turn.snapshot?.task?.resourceVersions?.['feedback:compression']);
-  if (turn.reportLoading || turn.reportHtml && (!structured || turn.reportJson)) return;
+  if (turn.reportLoading || turn.reportHtml) return;
   const controller = new AbortController();
   reportControllers.add(controller);
   turn.reportLoading = true;
   turn.reportError = '';
   try {
     turn.reportHtml = await getAgentReport(turn.runId, turn.reportPath, controller.signal);
-    if (structured)
-      turn.reportJson = await getAgentReportJson(turn.runId, turn.reportPath, controller.signal);
   } catch (error) {
     if (error.name !== 'AbortError') turn.reportError = error.message;
   } finally {
@@ -695,7 +686,12 @@ async function cancel() {
   }
 }
 function reportDocument(turn) {
-  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><base href="${window.location.origin}/">${themeReportHtml(turn.reportHtml)}`;
+  return reportDocumentHtml(turn.reportHtml,window.location.origin);
+}
+function openReport(turn) {
+  const url=URL.createObjectURL(new Blob([reportDocument(turn)],{type:'text/html;charset=utf-8'}));
+  window.open(url,'_blank','noopener,noreferrer');
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 function downloadReport(turn) {
   const url = URL.createObjectURL(new Blob([reportDocument(turn)], { type: 'text/html;charset=utf-8' }));
@@ -1373,6 +1369,7 @@ onBeforeUnmount(() => {
   background: var(--workbench-raised);
   gap: 8px;
 }
+.report-actions { display:flex; gap:16px; align-items:center; }
 .report-toolbar strong {
   display: block;
   font-size: 12px;
