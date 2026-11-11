@@ -11,6 +11,7 @@ class PublicVideoAccessTest {
         var db = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", ""));
         db.execute("CREATE TABLE video(video_id BIGINT PRIMARY KEY,user_id BIGINT,status INT,is_delete INT,title VARCHAR(100),duration DOUBLE)");
         db.update("INSERT INTO video VALUES(1,10,2,0,'public',30),(2,20,1,0,'draft',20),(3,20,0,0,'offline',20),(4,20,2,1,'deleted',20),(5,10,1,0,'own draft',20)");
+        db.execute("ALTER TABLE video ADD cover_url VARCHAR(2048)");
         var service = new BusinessMetrics(db,new BridgeProperties("site",Set.of("normal"),"Asia/Shanghai",5));
         var viewer = new BusinessAuthentication.Principal("site","30");
         var author = new BusinessAuthentication.Principal("site","10");
