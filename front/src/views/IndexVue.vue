@@ -14,13 +14,12 @@
         <button class="refresh-feed" type="button" :disabled="isLoadingCumulative || checkingViewport || refreshing" @click="refreshRecommendations"><el-icon :class="{ 'is-spinning': refreshing }"><Refresh /></el-icon>{{ refreshing ? '更新中' : '换一换' }}</button>
       </div>
       <section class="recommended-container" aria-label="推荐视频" :aria-busy="loadingRecm">
-        <div class="container" v-infinite-scroll="loadMoreVideo" :infinite-scroll-disabled="!hasMoreVideo || isLoadingCumulative || loadError" :infinite-scroll-delay="300" :infinite-scroll-distance="420" :infinite-scroll-immediate="true">
+        <div ref="feedGrid" class="container">
           <div class="recommended-swipe"><CarouselIndex :videos="homeFeed.featured" /></div>
-          <VideoCard v-for="(item,index) in (loadingRecm ? 15 : homeFeed.cards)" :key="loadingRecm ? `initial-${index}` : `feed-${item.videoId}`" :item="item" :isLoading="loadingRecm" :style="{ '--card-order': index }" />
-          <VideoCardSkeleton v-for="index in (isLoadingCumulative && !loadingRecm ? 15 : 0)" :key="`skeleton-${current}-${index}`" :hasMoreVideo="true" />
+          <VideoCard v-for="(item,index) in (loadingRecm ? feedPageSize : pagedCards)" :key="loadingRecm ? `initial-${index}` : `feed-${item.videoId}`" :item="item" :isLoading="loadingRecm" :style="{ '--card-order': index }" />
         </div>
         <div v-if="!loadingRecm && !loadError && !recmVideoList.length" class="feed-empty"><el-icon><Film /></el-icon><h2>第一份精彩，等你分享</h2><p>这里还没有视频，来发布你的第一条作品吧。</p><router-link to="/platform/upload">去投稿</router-link></div>
-        <div v-else-if="!hasMoreVideo && !loadError" class="no-more"><span></span>已经到底啦，去看看别的精彩吧<span></span></div>
+        <nav v-if="!loadingRecm && recmVideoList.length" class="feed-pagination" aria-label="首页视频分页"><button type="button" :disabled="feedPage === 1 || checkingViewport" @click="changeFeedPage(feedPage - 1)">上一页</button><span>第 {{ feedPage }} 页</span><button type="button" :disabled="checkingViewport || (!hasMoreVideo && homeFeed.cards.length <= feedPage * feedPageSize)" @click="changeFeedPage(feedPage + 1)">{{ checkingViewport ? '加载中' : '下一页' }}</button></nav>
         <div v-if="loadError" class="feed-load-error" role="status"><span>视频暂时没有加载出来</span><button type="button" :disabled="isLoadingCumulative" @click="retryLoadMore">重新加载</button></div>
       </section>
     </main>
@@ -33,7 +32,6 @@ import HeaderBar from "@/components/headerBar/HeaderBar.vue";
 import HeaderChannel from "@/components/headerChannel/HeaderChannel.vue";
 import CarouselIndex from "@/components/carousel/CarouselIndex.vue";
 import VideoCard from "@/components/VideoCard/VideoCard.vue";
-import VideoCardSkeleton from "@/components/VideoCardSkeleton/VideoCardSkeleton.vue";
 
 import { fetchVideoList } from "@/api/video";
 import { splitHomeFeed, uniqueVideos } from "@/lib/home-feed.mjs";
@@ -46,7 +44,6 @@ export default {
     HeaderChannel,
     CarouselIndex,
     VideoCard,
-    VideoCardSkeleton,
   },
   data() {
     return {
@@ -62,6 +59,8 @@ export default {
       // 推荐视频列表
       recmVideoList: [],
       current: 0,
+      feedPage: 1,
+      feedColumns: 5,
       hasMoreVideo: true,
       isLoadingCumulative: false, // 添加加载状态锁，防止无限加载出现多余的请求，当响应数据为空时，就阻止再请求
       loadError: false,
@@ -72,6 +71,7 @@ export default {
   },
   async mounted() {
     this.el = document.documentElement;
+    this.measureFeedColumns();
     window.addEventListener("scroll", this.handleScroll, { passive: true });
     window.addEventListener("resize", this.handleResize, { passive: true });
     const loaded = await this.getVideoList(1);
@@ -83,15 +83,29 @@ export default {
     if (this.resizeTimer) window.clearTimeout(this.resizeTimer);
   },
   computed: {
+    feedPageSize() { return Math.max(4, this.feedColumns * 4 - 4); },
+    pagedCards() { return this.homeFeed.cards.slice((this.feedPage - 1) * this.feedPageSize, this.feedPage * this.feedPageSize); },
     assistantOpen() { return useAssistantStore().open; },
     homeFeed() {
       return splitHomeFeed(this.recmVideoList, this.recommendationOffset);
     },
   },
   methods: {
+    measureFeedColumns() {
+      if (this.$refs.feedGrid) this.feedColumns = getComputedStyle(this.$refs.feedGrid).gridTemplateColumns.split(' ').filter(Boolean).length || 5;
+    },
+    async changeFeedPage(page) {
+      if (this.checkingViewport || this.isLoadingCumulative) return;
+      const previous = this.feedPage;
+      this.feedPage = Math.max(1, page);
+      await this.ensureViewportFilled();
+      if (!this.pagedCards.length && !this.loadError) this.feedPage = previous;
+      this.$nextTick(() => document.getElementById('recommended-feed')?.scrollIntoView({block:'start'}));
+    },
     async refreshRecommendations() {
       if (this.isLoadingCumulative || this.checkingViewport || this.refreshing) return;
       this.refreshing = true;
+      this.feedPage = 1;
       try {
         if (await this.getVideoList(1)) {
           this.recommendationOffset += 6;
@@ -147,7 +161,7 @@ export default {
         let pagesLoaded = 0;
         await this.$nextTick();
         while (this.hasMoreVideo && !this.loadError && pagesLoaded < 4 &&
-          (this.homeFeed.cards.length < 15 || document.documentElement.scrollHeight <= window.innerHeight + 120)) {
+          (this.recmVideoList.length < 12 || this.homeFeed.cards.length < this.feedPage * this.feedPageSize)) {
           const loaded = await this.getVideoList(this.current + 1);
           if (!loaded) break;
           pagesLoaded += 1;
@@ -161,6 +175,8 @@ export default {
       if (this.resizeTimer) window.clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(async () => {
         this.handleScroll();
+        this.measureFeedColumns();
+        this.feedPage = 1;
         await this.ensureViewportFilled();
       }, 100);
     },
@@ -175,6 +191,9 @@ export default {
 </script>
 
 <style scoped>
+.feed-pagination {display:flex;align-items:center;justify-content:center;gap:20px;padding:28px 0;font-size:13px;}
+.feed-pagination button {padding:7px 14px;border:1px solid var(--workbench-border);border-radius:6px;background:var(--workbench-raised);color:var(--workbench-ink);cursor:pointer;}
+.feed-pagination button:disabled {opacity:.4;cursor:default;}
 
 .index { --home-gutter: clamp(20px, 4vw, 96px); background: #fff; color: #18191c; min-height: 100vh; }
 .home-masthead { position: relative; }
