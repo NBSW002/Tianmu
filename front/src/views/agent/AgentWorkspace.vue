@@ -27,11 +27,15 @@
     <button v-if="navigationOpen" class="history-scrim" type="button" aria-label="关闭会话历史" @click="hideNavigation" />
     <main class="workspace-main" :inert="navigationOpen || undefined">
       <header class="workspace-header">
-        <div class="assistant-identity"><span class="brand-symbol"><EchoMark /></span><strong>个人助手</strong></div>
+        <div class="workspace-header-leading">
+          <div class="assistant-identity"><span class="brand-symbol"><EchoMark /></span><strong>个人助手</strong></div>
+          <nav class="assistant-navigation" aria-label="助手功能">
+            <button ref="memoryToggle" type="button" class="header-action labeled-action" aria-label="管理个人记忆" @click="memoryOpen = true"><TraceIcon name="layers" :size="16" /><span>记忆</span></button>
+            <button ref="historyToggle" type="button" class="history-toggle labeled-action" aria-label="打开会话历史" aria-controls="assistant-conversations" :aria-expanded="navigationOpen" @click="toggleNavigation"><TraceIcon name="list" :size="16" /><span>历史</span></button>
+            <button type="button" class="header-action labeled-action" aria-label="新对话" :disabled="busy" @click="newAnalysis"><TraceIcon name="plus" :size="16" /><span>新建</span></button>
+          </nav>
+        </div>
         <div class="workspace-header-actions">
-          <button ref="memoryToggle" type="button" class="header-action" aria-label="管理个人记忆" title="个人记忆" @click="memoryOpen = true"><TraceIcon name="layers" :size="18" /></button>
-          <button ref="historyToggle" type="button" class="history-toggle" aria-label="打开会话历史" aria-controls="assistant-conversations" :aria-expanded="navigationOpen" @click="toggleNavigation"><TraceIcon name="list" :size="18" /></button>
-          <button type="button" class="header-action" aria-label="新对话" title="新对话" :disabled="busy" @click="newAnalysis"><TraceIcon name="plus" :size="18" /></button>
           <button v-if="embedded" type="button" class="header-action" aria-label="展开个人助手" title="展开助手" @click="$emit('expand')"><TraceIcon name="fit" :size="18" /></button>
           <button v-if="embedded" type="button" class="header-action close-assistant" aria-label="关闭个人助手" @click="$emit('close')">×</button>
           <router-link v-else class="back-video" :to="form.videoId ? '/video/' + form.videoId : '/'">返回{{ form.videoId ? '视频' : '网站' }} ↗</router-link>
@@ -60,13 +64,6 @@
               </button>
             </div>
           </section>
-          <details v-if="creator && form.videoId" class="workspace-tools" @toggle="toolsOpen = $event.target.open">
-            <summary>更多工具<span>实时弹幕汇总 / 常见问答</span></summary>
-            <template v-if="toolsOpen">
-              <RoomAudience v-if="form.videoId" :video-id="form.videoId" />
-              <QaKnowledge />
-            </template>
-          </details>
           <div v-if="notice" class="workspace-notice" role="alert">
             {{ notice
             }}<button
@@ -258,8 +255,6 @@ import { themeReportHtml } from '@/agent/report-theme.mjs';
 import VideoContentIndex from '@/components/agent/VideoContentIndex.vue';
 import { getAssistantModels } from '@/api/agent';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import RoomAudience from '@/components/agent/RoomAudience.vue';
-import QaKnowledge from '@/components/agent/QaKnowledge.vue';
 import MemoryManager from '@/components/agent/MemoryManager.vue';
 import MemoryUsage from '@/components/agent/MemoryUsage.vue';
 import CreatorDraft from '@/components/agent/CreatorDraft.vue';
@@ -360,7 +355,6 @@ async function refreshModels() {
   finally { modelsLoading.value = false; }
 }
 refreshModels();
-const toolsOpen = ref(false);
 const memoryOpen=ref(false), memoryToggle=ref(null);
 function closeMemory(){memoryOpen.value=false;nextTick(()=>memoryToggle.value?.focus());}
 
@@ -1659,4 +1653,11 @@ onBeforeUnmount(() => {
 .creator-suggestions .is-primary .suggestion-icon {top:18px;color:var(--workbench-accent);}
 .embedded .history-list {min-height:0;overflow:auto;scrollbar-width:thin;}
 @container(max-width:440px){.workspace-footnote>span{display:none;}.workspace-intro h1,.embedded .workspace-intro h1{font-size:24px;}.suggestion-grid{gap:8px;}}
+.workspace-header-leading {display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;min-width:0;}
+.assistant-navigation {display:flex;align-items:center;gap:4px;}
+.assistant-navigation .labeled-action {width:auto;min-width:0;height:34px;padding:0 8px;gap:6px;font:13px/20px var(--workbench-ui);color:var(--workbench-ink);white-space:nowrap;}
+.assistant-navigation .labeled-action:disabled {opacity:.45;cursor:default;}
+.assistant-navigation svg {flex:none;}
+@media(max-width:520px){.workspace-header{height:auto;min-height:86px;padding-top:10px;padding-bottom:10px;align-items:flex-start;}.workspace-header-leading{flex:1;gap:8px;}.assistant-navigation{flex-basis:100%;}.workspace-header-actions{margin-top:2px;}.assistant-navigation .labeled-action{padding:0 9px;height:36px;}}
+@media(pointer:coarse){.assistant-navigation .labeled-action{height:44px;}}
 </style>
