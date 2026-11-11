@@ -1039,12 +1039,14 @@ export default {
 }
 
 @media (min-width:1200px) {
+  .videoDetail {transition: padding-right 250ms ease;}
+  .videoDetail--assistant-open {padding-right: clamp(640px,38vw,850px);box-sizing:border-box;}
   .videoDetail--assistant-open .video-container {
-    width: calc(100% - clamp(520px,38vw,640px));
+    width: 100%;
     min-width: 0;
     max-width: 1280px;
-    margin-left: 0;
-    margin-right: 0;
+    margin-left: auto;
+    margin-right: auto;
     grid-template-columns: minmax(0,1fr);
   }
   .videoDetail--assistant-open .right-container {display:none;}

@@ -77,4 +77,6 @@ pre {margin:0;padding:11px;max-height:clamp(160px,26dvh,280px);min-height:64px;b
 pre:focus-visible {outline:2px solid var(--workbench-focus);outline-offset:-2px;}
 .code-empty,.code-protected {margin:0;padding:12px 11px;border:0;border-radius:0;background:transparent;}
 .code-empty small {margin-top:2px;}
+pre {line-height:1.85;letter-spacing:0;}
+.code-heading {line-height:1.5;letter-spacing:.01em;}
 </style>

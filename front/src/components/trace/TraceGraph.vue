@@ -33,7 +33,7 @@ async function fit(readable = true) {
   if (!canvas || !nodes.value.length) return
   if (readable !== false && viewport.zoom < 0.8) {
     const ys = nodes.value.map(node => node.position.y)
-    flow.setViewport({ x: 28, y: canvas.clientHeight * 0.38 - (Math.min(...ys) + Math.max(...ys) + 48) / 2, zoom: 1 }, { duration: 0 })
+    flow.setViewport({ x: 28, y: canvas.clientHeight * 0.38 - (Math.min(...ys) + Math.max(...ys) + 56) / 2, zoom: 1 }, { duration: 0 })
     return
   }
   const top = Math.min(...nodes.value.map(node => node.position.y * viewport.zoom + viewport.y))
@@ -46,6 +46,17 @@ const fitAnimated = () => fit(false)
 // A readable starting scale, even for thousands of spans. Resizing panes must
 // preserve the user's zoom and pan instead of repeatedly fitting the whole run.
 const resetView = () => instance.value?.setViewport({ x: 28, y: 48, zoom: 1 }, { duration: 0 })
+function panSegment(direction) {
+  const flow = instance.value, canvas = panel.value?.querySelector('.graph-canvas')
+  if (!flow || !canvas || !nodes.value.length) return
+  const viewport = flow.getViewport()
+  const left = Math.min(...nodes.value.map(node => node.position.x))
+  const right = Math.max(...nodes.value.map(node => node.position.x + 136))
+  const maxX = 28 - left * viewport.zoom
+  const minX = Math.min(maxX, canvas.clientWidth - 28 - right * viewport.zoom)
+  const x = Math.max(minX, Math.min(maxX, viewport.x - direction * canvas.clientWidth * 0.7))
+  flow.setViewport({ ...viewport, x }, { duration: 180 })
+}
 function ready(flow) { instance.value = flow; nextTick(fit) }
 const nodeTone = node => ['memory_restore','memory_write','memory_dream','memory_request'].includes(node.cardKind) ? 'memory' : ['faq','intent','emotion','clarification','merge','background','work','memory','compaction'].includes(node.cardKind) ? node.cardKind : node.cardKind === 'tool' || node.kind === 'TOOL' ? 'tool' : node.kind === 'MODEL' || node.cardKind === 'model' ? 'model' : 'stage';
 const stackCount = node => node.children?.length || node.repeatCount || 0
@@ -58,18 +69,20 @@ watch(() => props.selectedId, async () => {
   const viewport = flow.getViewport()
   const x = node.position.x * viewport.zoom + viewport.x
   const y = node.position.y * viewport.zoom + viewport.y
-  if (x < 0 || x + 136 * viewport.zoom > panel.value.clientWidth || y < 24 || y + 48 * viewport.zoom > panel.value.clientHeight) {
-    flow.setViewport({ ...viewport, x: 36 - node.position.x * viewport.zoom, y: 48 - node.position.y * viewport.zoom }, { duration: 0 })
-  }
+  const canvas = panel.value.querySelector('.graph-canvas')
+  if (!canvas) return
+  const outsideX = x < 24 || x + 136 * viewport.zoom > canvas.clientWidth - 24
+  const outsideY = y < 24 || y + 56 * viewport.zoom > canvas.clientHeight - 64
+  if (!outsideX && !outsideY) return
+  flow.setViewport({ ...viewport,
+    x: outsideX ? canvas.clientWidth * .4 - node.position.x * viewport.zoom : viewport.x,
+    y: outsideY ? canvas.clientHeight * .4 - node.position.y * viewport.zoom : viewport.y,
+  }, { duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180 })
 })
 </script>
 
 <template>
   <section ref="panel" class="trace-graph-panel">
-    <div v-if="mode === 'graph'" class="graph-titlebar">
-      <span class="time-direction" title="从左到右展示执行阶段；上下分支表示日志中的并行步骤。拖动画布查看后续步骤，原始时间保留在下方时间线。">执行主线 →<small>拖动画布查看后续步骤</small></span>
-      <div class="graph-legend"><span><i class="model-dot" />模型</span><span><i class="tool-dot" />工具</span><span><i class="stage-dot" />判断 / 任务</span></div>
-    </div>
     <div v-if="mode === 'graph'" class="graph-canvas">
       <VueFlow
         :key="trace.id" :nodes="nodes" :edges="edges" :min-zoom="0.15" :max-zoom="1.8"
@@ -92,6 +105,9 @@ watch(() => props.selectedId, async () => {
         </template>
       </VueFlow>
       <div class="graph-controls">
+        <button type="button" aria-label="查看上一段流程" title="上一段流程" @click="panSegment(-1)"><TraceIcon name="chevron" :size="16" class="previous-segment" /></button>
+        <button type="button" aria-label="查看下一段流程" title="下一段流程" @click="panSegment(1)"><TraceIcon name="chevron" :size="16" /></button>
+        <span />
         <button type="button" aria-label="缩小调用图" title="缩小" @click="instance?.zoomOut({ duration: 0 })"><TraceIcon name="minus" :size="16" /></button>
         <button type="button" aria-label="放大调用图" title="放大" @click="instance?.zoomIn({ duration: 0 })"><TraceIcon name="plus" :size="16" /></button>
         <button type="button" aria-label="返回时间起点" title="返回时间起点" @click="resetView">起点</button>
@@ -145,6 +161,7 @@ watch(() => props.selectedId, async () => {
 .graph-canvas :deep(.vue-flow__node:focus-visible) { outline: 3px solid var(--workbench-muted); outline-offset: 4px; border-radius: 10px; }
 .graph-controls { position: absolute; bottom: 16px; right: 16px; display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--workbench-raised); border: 1px solid var(--workbench-border); border-radius: 9px; }
 .graph-controls button { display: flex; padding: 7px; border: 0; background: none; color: var(--workbench-accent); cursor: pointer; border-radius: 5px; }
+.graph-controls .previous-segment {transform:rotate(180deg);}
 .graph-controls button:hover { background: var(--workbench-paper); }.graph-controls button:focus-visible { outline: 2px solid var(--workbench-accent); }
 .graph-controls>span { height: 15px; width: 1px; background: var(--workbench-border); margin: 0 3px; }
 .node-table-wrap { overflow: auto; flex: 1; padding: 20px 16px; }
@@ -206,4 +223,14 @@ watch(() => props.selectedId, async () => {
 .cluster-toggle:hover {background:var(--workbench-sidebar);color:var(--workbench-ink);}
 .trace-node.is-failed {border-color:var(--workbench-error);}
 .graph-controls {bottom:12px;right:12px;}
+.graph-controls {gap:3px;padding:5px;border-color:var(--workbench-border);box-shadow:0 2px 8px rgba(20,20,19,.04);}
+.graph-controls button {min-width:30px;min-height:30px;justify-content:center;align-items:center;}
+.node-name {font-size:13px;letter-spacing:.01em;}
+.node-highlight {opacity:.8;}
+.trace-node {height:56px;padding:7px 10px;gap:3px;}
+.node-name {font-size:13px;line-height:19px;letter-spacing:.02em;}
+.node-highlight {font-size:12px;line-height:18px;letter-spacing:.01em;opacity:1;}
+.trace-node.is-selected,.trace-node.is-stack.is-selected {border-color:var(--workbench-accent);box-shadow:0 0 0 1px var(--workbench-accent);}
+.trace-node.is-selected .node-name {font-weight:600;}
+.trace-node.is-failed.is-selected {border-color:var(--workbench-error);box-shadow:0 0 0 1px var(--workbench-error);}
 </style>

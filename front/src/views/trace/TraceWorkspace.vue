@@ -34,6 +34,7 @@ const queryError = ref('')
 const querying = ref(false)
 const payloadLoading = ref(false)
 const payloadError = ref('')
+const payloadAttempt = ref(0)
 const inspector = ref(null)
 const userStore = useUserStore()
 const route = useRoute()
@@ -77,8 +78,9 @@ const intentSelection = computed(() => intentDetails(selected.value))
 const contextSelection = computed(() => contextDetails(selected.value))
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
-const executionSelection = computed(() => executionFacts(selected.value, presentation.value))
-const standardSelection = computed(() => recordDetails(selectedSource.value))
+const executionSelection = computed(() => executionFacts(selected.value, presentation.value).filter(fact => fact !== '思考状态未记录'))
+const usefulNotices = computed(() => presentation.value.notices.filter(notice => !['情绪识别：未执行或未记录', '澄清判断：无独立记录'].includes(notice)))
+const standardSelection = computed(() => recordDetails(selectedSource.value).filter(row => row.value !== '未采集' && row.value !== '本节点不适用'))
 const privateSources = computed(() => ['prompt','code','execution'].flatMap(direction => traceDetailSources(selected.value,presentation.value,direction).map(source => ({direction,source}))))
 const timingNodes = computed(() => mode.value === 'graph' ? graph.value.nodes.map(n => n.data) : trace.value.nodes)
 function toggleGroup(id) {
@@ -122,7 +124,7 @@ async function queryTrace() {
   } catch (error) { if (!controller.signal.aborted) queryError.value = error.message }
   finally { if (queryController === controller) querying.value = false }
 }
-watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCleanup) => {
+watch([() => trace.value.id, () => selectedSource.value?.id, payloadAttempt], async (_, __, onCleanup) => {
   payloadController?.abort()
   const node = selectedSource.value, current = trace.value
   payloadError.value = ''
@@ -146,7 +148,7 @@ watch([() => trace.value.id, () => selectedSource.value?.id], async (_, __, onCl
       })))
     const failure = results.find((result) => result.status === 'rejected')
     if (failure) throw failure.reason
-  } catch (error) { if (!controller.signal.aborted) payloadError.value = error.message }
+  } catch (error) { if (!controller.signal.aborted) payloadError.value = `部分节点正文加载失败：${error.message}` }
   finally { if (!controller.signal.aborted) payloadLoading.value = false }
 })
 watch(selectedId, async () => { await nextTick(); if (inspector.value) inspector.value.scrollTop = 0 })
@@ -233,7 +235,7 @@ function downloadExample() {
         <p v-if="exportError" role="status">{{ exportError }}</p>
         <div class="run-context"><h2 :title="trace.title">{{ trace.title }}</h2><span class="model-name" :title="trace.model">{{ trace.model }}</span></div>
         <span class="status-pill" :class="trace.status.toLowerCase()">{{ statusLabel(trace.status) }}</span>
-        <div class="run-metrics"><span><TraceIcon name="clock" :size="14" />{{ formatDuration(trace.durationMs) }}</span><span><TraceIcon name="token" :size="14" />{{ formatValue(trace.totalTokens) }}<small>Token</small><small v-if="!trace.usageComplete" title="部分节点未提供用量">部分</small></span><span v-if="trace.foregroundModelCalls != null || trace.preparationModelCalls != null || trace.backgroundModelCalls != null" title="来源任务的历史调用不计入本次"><small>本次模型调用：</small>前台 {{ trace.foregroundModelCalls ?? '未知' }} · 前置 {{ trace.preparationModelCalls ?? '未知' }} · 后台 {{ trace.backgroundModelCalls ?? '未知' }}</span></div>
+        <div class="run-metrics"><span title="运行自身记录的耗时；可能与所有节点覆盖的时间跨度不同"><TraceIcon name="clock" :size="14" /><small>运行耗时</small>{{ formatDuration(trace.durationMs) }}</span><span><TraceIcon name="token" :size="14" />{{ formatValue(trace.totalTokens) }}<small>Token</small><small v-if="!trace.usageComplete" title="部分节点未提供用量">部分</small></span><span v-if="trace.foregroundModelCalls != null || trace.preparationModelCalls != null || trace.backgroundModelCalls != null" title="来源任务的历史调用不计入本次"><small>本次模型调用：</small>前台 {{ trace.foregroundModelCalls ?? '未知' }} · 前置 {{ trace.preparationModelCalls ?? '未知' }} · 后台 {{ trace.backgroundModelCalls ?? '未知' }}</span></div>
       </div>
 
       <div class="workspace-panels">
@@ -241,14 +243,18 @@ function downloadExample() {
           <div ref="viewTabs" class="view-tabs">
             <button type="button" :class="{ active: mode === 'graph' }" :aria-pressed="mode === 'graph'" @click="mode = 'graph'">执行图</button>
             <button type="button" :class="{ active: mode === 'list' }" :aria-pressed="mode === 'list'" @click="mode = 'list'">原始节点</button>
-            <span>{{ graph.nodes.length }} 卡片 / {{ trace.nodes.length }} Span</span>
+            <div class="view-meta">
+              <div v-if="mode === 'graph'" class="trace-legend" aria-label="节点类型图例"><span><i class="legend-model" />模型</span><span><i class="legend-tool" />工具</span><span><i class="legend-stage" />判断 / 任务</span></div>
+              <span class="view-count" title="卡片是合并后的可视步骤；Span 是日志中的原始记录">{{ graph.nodes.length }} 卡片 / {{ trace.nodes.length }} Span</span>
+            </div>
           </div>
-          <p v-if="mode === 'graph'" class="projection-notice">实线：直接父子；点划线：上级归属（中间节点折叠）；虚线：前置依赖；点线：任务触发。未记录的关系不会推断。</p>
           <TraceGraph :trace="trace" :graph="graph" :expanded="expanded" :selected-id="selectedId" :mode="mode" @select="selectNode" @toggle="toggleGroup" />
-          <p v-if="mode === 'graph' && presentation.notices.length" class="projection-notice">{{ presentation.notices.join(' · ') }}</p>
+          <p v-if="mode === 'graph' && usefulNotices.length" class="projection-notice">{{ usefulNotices.join(' · ') }}</p>
           <section class="timing-panel" aria-label="执行时间线">
-            <div class="timing-heading"><h2>执行时间线</h2><span>{{ formatDuration(trace.extentMs) }}</span></div>
-            <div class="timing-axis"><span>0 ms</span><span>{{ Math.round(trace.extentMs / 2) }}</span><span>{{ Math.round(trace.extentMs) }}</span></div>
+            <div class="timing-header">
+              <div class="timing-heading"><h2>执行时间线</h2><span title="从最早节点开始到最晚节点结束的时间范围">节点跨度 {{ formatDuration(trace.extentMs) }}</span></div>
+              <div class="timing-axis"><span>0 ms</span><span>{{ Math.round(trace.extentMs / 2) }} ms</span><span>{{ Math.round(trace.extentMs) }} ms</span></div>
+            </div>
             <button v-for="node in timingNodes" :key="node.id" type="button" class="timing-row" :class="{ active: node.id === selectedId, failed: ['FAILED', 'TIMED_OUT'].includes(node.status) }" :aria-label="`查看 ${node.label}，耗时 ${formatDuration(node.durationMs)}`" :aria-pressed="node.id === selectedId" @click="selectNode(node.id)">
               <span class="timing-name" :title="node.label">{{ mode === 'graph' ? cardTitle(node) : nodeDisplayName(node) }}</span><span class="timing-track"><i v-if="node.durationMs != null && node.offsetMs != null" :style="timingStyle(node)" :class="`bar-${node.kind.toLowerCase()}`" /></span><span class="timing-value">{{ formatDuration(node.durationMs) }}</span>
             </button>
@@ -279,7 +285,7 @@ function downloadExample() {
               <p>原始消息保留；摘要只覆盖标明的范围，失效来源不会继续使用。</p>
             </section>
             <TraceContext :selection="contextSelection" />
-            <section class="metadata-section" aria-label="统一记录字段"><h3>统一记录字段</h3><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></section>
+            <section v-if="standardSelection.length" class="metadata-section" aria-label="统一记录字段"><h3>统一记录字段</h3><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></section>
             <section v-if="executionSelection.length" class="intent-selection" aria-label="执行与复用情况"><h3>执行与复用情况</h3><p v-for="fact in executionSelection" :key="fact">{{ fact }}</p></section>
             <section v-if="selected.cardKind === 'merge' && preparationSelection.visible" class="intent-selection" aria-label="前置合并与改写">
               <h3>前置合并与改写</h3>
@@ -319,7 +325,7 @@ function downloadExample() {
             <p v-if="selected.sourceNote || selected.legacy" class="projection-notice">{{ selected.sourceNote || '历史记录缺少任务 ID，按同一运行的父级范围归组；内部阶段可能未记录。' }}</p>
             <section v-if="selectedMembers.length" class="member-section"><h3>内部记录 · {{ selectedMembers.length }}</h3><button v-for="member in selectedMembers" :key="member.id" type="button" @click="selectNode(member.id)"><span>{{ nodeDisplayName(member) }}</span><small :class="{ error: ['FAILED', 'TIMED_OUT'].includes(member.status) }">{{ statusLabel(member.status) }} · {{ formatDuration(member.durationMs) }}</small></button></section>
             <dl v-if="selected.kind === 'MODEL' || selected.totalTokens != null" class="token-grid"><div><dt>输入 Token</dt><dd>{{ formatValue(selected.inputTokens) }}</dd></div><div><dt>输出 Token</dt><dd>{{ formatValue(selected.outputTokens) }}</dd></div></dl>
-            <p v-if="payloadLoading || payloadError" class="payload-state" role="status">{{ payloadError || '正在加载节点正文…' }}</p>
+            <div v-if="payloadLoading || payloadError" class="payload-state" role="status"><span>{{ payloadError || '正在加载节点正文…' }}</span><button v-if="payloadError && !payloadLoading" type="button" @click="payloadAttempt++">重试加载</button></div>
             <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
             <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
             <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
@@ -571,6 +577,13 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .node-overview,.metadata-section,.intent-selection,.invocation-section,.member-section {
   min-width:0;margin:0 0 14px;padding:12px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--workbench-raised);
 }
+.intent-selection[aria-label="执行与复用情况"] {max-height:280px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;}
+.intent-selection[aria-label="执行与复用情况"] p {padding:6px 0;margin:0;line-height:1.65;}
+.intent-selection[aria-label="执行与复用情况"] p+p {border-top:1px solid var(--workbench-border-subtle);}
+.payload-state {display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--workbench-error-soft);border-radius:9px;background:var(--workbench-error-soft);line-height:1.6;}
+.payload-state button {flex:none;border:0;padding:0;background:none;color:var(--workbench-error);cursor:pointer;text-decoration:underline;}
+.timing-header {position:sticky;top:0;z-index:1;padding:14px 0 1px;background:var(--workbench-raised);}
+.timing-panel {padding-top:0;}
 .node-overview .node-status-line {margin:14px 0 12px;gap:8px;}
 .node-overview .semantic-result {margin:0;border:1px solid var(--workbench-border-subtle);color:var(--workbench-ink);overflow-wrap:anywhere;}
 .metadata-section h3,.intent-selection h3,.invocation-section h3,.member-section h3 {margin:0 0 10px;font-size:12px;}
@@ -587,4 +600,51 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .invocation-payloads :deep(.trace-code) {margin:10px 0 0;}
 .member-section button:last-child {border-bottom:0;}
 .token-grid {margin:0 0 14px;gap:10px;padding:10px 12px;}
+.workspace-panels {border-color:var(--workbench-border);border-radius:10px;}
+.view-tabs {height:48px;padding:0 20px;gap:22px;}
+.view-tabs button {font-size:13px;color:var(--workbench-muted);}
+.view-tabs button.active {color:var(--workbench-ink);font-weight:500;border-bottom-color:var(--workbench-accent);}
+.view-meta {display:flex;align-items:center;gap:24px;margin-left:auto;min-width:0;color:var(--workbench-muted);font-size:11px;white-space:nowrap;}
+.trace-legend {display:flex;align-items:center;gap:14px;}
+.trace-legend span {display:inline-flex;align-items:center;gap:5px;}
+.trace-legend i {width:6px;height:6px;border-radius:50%;background:var(--workbench-charcoal);}
+.trace-legend .legend-model {background:var(--workbench-accent);}
+.trace-legend .legend-tool {background:var(--workbench-success);}
+.view-count {color:var(--workbench-tertiary);}
+.timing-heading h2,.inspector-heading {font-size:13px;font-weight:500;}
+.timing-row {min-height:30px;}
+.node-overview {background:var(--workbench-paper);border-color:var(--workbench-ring);padding:14px;}
+.node-overview .selected-node-heading h2 {font-size:15px;font-weight:600;line-height:1.4;}
+.node-overview .selected-node-heading small {color:var(--workbench-muted);margin-top:4px;}
+.node-overview .selected-node-icon {width:38px;height:38px;border-radius:10px;}
+.node-overview .semantic-result {background:transparent;border:0;padding:0;color:var(--workbench-muted);}
+.metadata-section h3,.intent-selection h3,.invocation-section h3,.member-section h3 {font-size:13px;font-weight:500;}
+.node-metadata dt {color:var(--workbench-tertiary);}
+.node-metadata dd {color:var(--workbench-ink);font-weight:500;}
+.token-grid {background:var(--workbench-paper);border-color:var(--workbench-border);}
+.token-grid dd {font-size:19px;font-weight:500;}
+.invocation-section {padding:0;border:0;border-radius:0;background:transparent;}
+.invocation-section h3 {margin:0 0 12px;}
+.invocation-card {padding:12px;margin:0;background:var(--workbench-raised);border:1px solid var(--workbench-border);border-radius:9px;}
+.invocation-card+.invocation-card {margin-top:12px;}
+.invocation-heading {align-items:center;}
+.invocation-heading strong {font-size:13px;font-weight:500;}
+.invocation-heading>span {padding:1px 6px;border-radius:4px;background:var(--workbench-success-soft);}
+.invocation-heading>.invocation-error {background:var(--workbench-error-soft);}
+.invocation-heading>.invocation-pending {background:var(--workbench-sidebar);}
+.invocation-summary {color:var(--workbench-muted);line-height:1.6;}
+.invocation-payloads :deep(.trace-code) {margin:12px 0 0;border:0;border-radius:0;background:transparent;overflow:visible;}
+.invocation-payloads :deep(.code-heading) {padding:0 0 7px;border:0;background:transparent;align-items:center;}
+.invocation-payloads :deep(.code-heading h3) {font-size:11px;color:var(--workbench-muted);font-weight:400;}
+.invocation-payloads :deep(pre),.invocation-payloads :deep(.code-empty),.invocation-payloads :deep(.code-protected) {border-radius:6px;background:var(--workbench-paper);padding:10px;}
+.invocation-link {margin-top:12px;padding:0;font-size:12px;}
+.inspector-content {font-size:13px;line-height:1.7;letter-spacing:.02em;}
+.inspector-content :is(h2,h3,h4) {letter-spacing:.01em;line-height:1.5;}
+.node-metadata dd {line-height:1.8;}
+.invocation-summary {line-height:1.75;}
+.timing-row {line-height:20px;letter-spacing:.01em;border-left:2px solid transparent;}
+.timing-row.active {border-left-color:var(--workbench-accent);font-weight:500;}
+.timing-axis,.timing-value,.run-metrics {letter-spacing:0;font-variant-numeric:tabular-nums;}
+@media(max-width:1200px){.trace-legend{display:none;}}
+@media(max-width:700px){.view-tabs{padding:0 14px;gap:16px;}.view-meta{font-size:10px;}}
 </style>

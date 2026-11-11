@@ -41,7 +41,7 @@ function measureDrawer() {
   geometryFrame = requestAnimationFrame(() => {
     const player = document.querySelector('.videoDetail .player-viewport')
     const available = player ? document.documentElement.clientWidth - player.getBoundingClientRect().right - 16 : 0
-    const width = Math.min(available, 640)
+    const width = Math.min(available, Math.max(640, window.innerWidth * 0.38))
     drawerStyle.value = player && available >= 520 && window.innerWidth >= 1000
       ? { width: `${Math.floor(width)}px`, '--assistant-history-width': '176px' }
       : {}

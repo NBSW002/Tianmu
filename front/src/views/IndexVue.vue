@@ -114,7 +114,7 @@ export default {
         if (res.code !== 200 || !Array.isArray(res.data)) throw new Error("视频列表不可用");
         this.recmVideoList = uniqueVideos(page === 1 ? res.data : this.recmVideoList.concat(res.data));
         this.current = page;
-        this.hasMoreVideo = res.data.length >= pageSize;
+        this.hasMoreVideo = res.data.length > 0;
         this.failedPage = null;
         return true;
       } catch (_) {
