@@ -1,9 +1,9 @@
 <template>
-  <div class="videoDetail">
+  <div class="videoDetail" :class="{ 'videoDetail--assistant-open': assistantOpen }">
     <HeaderBar :isFixHeaderBar="true"></HeaderBar>
     <div class="video-container">
       <!-- 左边视频区域 -->
-      <div class="left-container" :style="`width: ${playerSize.width}px;`">
+      <div ref="playerColumn" class="left-container">
         <!-- 标题、排名、播放数、弹幕数、发布时间 -->
         <div class="video-info-container">
           <h1 title="视频标题" class="video-title">{{ videoDetail.title }}</h1>
@@ -46,17 +46,21 @@
           <!-- 左边的互动操作——点赞、不喜欢、投币、收藏、分享 -->
           <div class="video-toolbar-left">
             <!-- 点赞 -->
-            <div class="toolbar-left-item-wrap" title="点赞（Q）">
+            <div class="toolbar-left-item-wrap">
               <div
                 class="video-toolbar-left-item"
                 :class="{ on: isLike }"
+                role="button" tabindex="0" :aria-pressed="isLike"
+                :aria-label="`点赞 ${fullInteractionCount(likeCount)} 次`"
+                :title="`点赞 ${fullInteractionCount(likeCount)} 次，长按一键三连`"
+                @keydown.enter.prevent="handleGood" @keydown.space.prevent="handleGood"
                 @mousedown="startLongPress('like')"
                 @mouseup="endLongPress('like')"
               >
                 <i class="iconfont icon-dianzan btn" ref="likeBtn">
                   <canvas class="progress-ring" ref="likeProgress"></canvas>
                 </i>
-                <span class="video-toolbar-item-text">{{ likeCount }}</span>
+                <span class="video-toolbar-label">点赞</span><span class="video-toolbar-item-text">{{ compactInteractionCount(likeCount) }}</span>
                 <div
                   class="dianzan-gif"
                   :class="false ? 'gif-show' : 'gif-hide'"
@@ -68,30 +72,37 @@
             <!-- 投币 -->
             <div
               class="toolbar-left-item-wrap"
-              :title="isCoin ? '对本稿件的投币数已经用完' : '投币'"
             >
               <div
                 class="video-toolbar-left-item"
                 :class="{ on: isCoin }"
+                role="button" tabindex="0" :aria-pressed="isCoin"
+                :aria-label="`投币 ${fullInteractionCount(coinCount)} 枚`"
+                :title="`投币 ${fullInteractionCount(coinCount)} 枚${isCoin ? '，对本稿件的投币数已经用完' : ''}`"
+                @keydown.enter.prevent="handleCoin" @keydown.space.prevent="handleCoin"
                 @click="handleCoin"
               >
                 <i class="iconfont icon-toubi btn" ref="coinBtn"
                   ><canvas class="progress-ring" ref="coinProgress"></canvas
                 ></i>
-                <span class="video-toolbar-item-text">{{ coinCount }}</span>
+                <span class="video-toolbar-label">投币</span><span class="video-toolbar-item-text">{{ compactInteractionCount(coinCount) }}</span>
               </div>
             </div>
             <!-- 收藏 -->
-            <div class="toolbar-left-item-wrap" title="收藏（E）">
+            <div class="toolbar-left-item-wrap">
               <div
                 class="video-toolbar-left-item"
                 :class="{ on: isFavorite }"
+                role="button" tabindex="0" :aria-pressed="isFavorite"
+                :aria-label="`收藏 ${fullInteractionCount(favoriteCount)} 次`"
+                :title="`收藏 ${fullInteractionCount(favoriteCount)} 次`"
+                @keydown.enter.prevent="handleCollect" @keydown.space.prevent="handleCollect"
                 @click="handleCollect"
               >
                 <i class="iconfont icon-shoucang1 btn" ref="collectBtn">
                   <canvas class="progress-ring" ref="collectProgress"></canvas>
                 </i>
-                <span class="video-toolbar-item-text">{{ favoriteCount }}</span>
+                <span class="video-toolbar-label">收藏</span><span class="video-toolbar-item-text">{{ compactInteractionCount(favoriteCount) }}</span>
               </div>
             </div>
           </div>
@@ -298,6 +309,7 @@ import { useAssistantStore } from '@/store/assistant';
 import { useUserStore } from "@/store/user";
 import { mapState, mapActions } from "pinia";
 import { mediaVideoUrl, mediaUrl } from "@/lib/media";
+import { compactInteractionCount, fullInteractionCount } from '@/lib/interaction-count.mjs';
 export default {
   name: "VideoDetail",
   components: {
@@ -327,6 +339,7 @@ export default {
         width: 704,
         height: 442,
       },
+      playerColumnObserver: null,
       onlineUserCount: 0, //在线人数
       seekTimePoint: -1, // 双击弹幕跳转的时间点
       isSelfDanmu: false, //标记websocket传输的弹幕是否自己发的弹幕
@@ -367,6 +380,13 @@ export default {
     this.getVideoDetail();
   },
   mounted() {
+    this.playerColumnObserver = new ResizeObserver(entries => {
+      const width = Math.round(entries[0].contentRect.width);
+      if (width && width !== this.playerSize.width) {
+        this.playerSize = { width, height: Math.round(width * 9 / 16) + 60 };
+      }
+    });
+    this.playerColumnObserver.observe(this.$refs.playerColumn);
     // 延时100ms，确保组件渲染完成，再连接websocket
     setTimeout(() => {
       // 连接WebSocket
@@ -377,10 +397,12 @@ export default {
     this.initAllinVar();
   },
   beforeUnmount() {
+    this.playerColumnObserver?.disconnect();
     // 关闭websocket
     this.closeWebSocket();
   },
   computed: {
+    assistantOpen() { return useAssistantStore().open; },
     ...mapState(useUserStore, ["user", "isLogin"]),
     isVideoAuthor() {
       return this.isLogin && this.user.userId != null && this.videoDetail.userId != null
@@ -415,6 +437,8 @@ export default {
     },
   },
   methods: {
+    compactInteractionCount,
+    fullInteractionCount,
     updateAssistantPlayback(milliseconds) {
       const store = useAssistantStore();
       if (store.page?.videoId === String(this.$route.params.videoId)) store.page.playbackMs = milliseconds;
@@ -987,18 +1011,33 @@ export default {
 .open-assistant { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 13px; border: 1px solid #e9cee0; border-radius: 8px; background: #fff; color: #b5789a; font-size: 12px; cursor: pointer; transition: background .2s; }
 .open-assistant:hover { background: #f9edf4; }
 .video-container {
-  width: auto;
-  padding: 64px 10px 0px;
-  max-width: 2540px;
+  width: 100%;
+  padding: 64px 32px 0;
+  max-width: 1600px;
   min-width: 1080px;
   margin: 0 auto;
-  display: flex;
-  justify-content: center;
-  box-sizing: content-box;
+  display: grid;
+  grid-template-columns: minmax(0,1fr) clamp(288px,22vw,352px);
+  gap: 32px;
+  align-items: start;
+  box-sizing: border-box;
   position: relative;
 }
 
+@media (min-width:1200px) {
+  .videoDetail--assistant-open .video-container {
+    width: calc(100% - clamp(520px,38vw,640px));
+    min-width: 0;
+    max-width: 1280px;
+    margin-left: 0;
+    margin-right: 0;
+    grid-template-columns: minmax(0,1fr);
+  }
+  .videoDetail--assistant-open .right-container {display:none;}
+}
+
 .left-container {
+  min-width: 0;
   /*position: sticky;*/
   height: fit-content;
 }
@@ -1082,7 +1121,7 @@ export default {
   justify-content: space-between;
   /* padding-top: 16px;
   padding-bottom: 12px; */
-  padding: 5px 0;
+  padding: 8px 0;
   line-height: 28px;
   border-bottom: 1px solid var(--line_regular);
 }
@@ -1091,13 +1130,16 @@ export default {
   position: relative;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  min-width: 0;
   -webkit-user-select: none;
   user-select: none;
 }
 
 .toolbar-left-item-wrap {
   position: relative;
-  margin-right: 8px;
+  flex: 0 0 auto;
 }
 
 .video-toolbar-left-item {
@@ -1106,9 +1148,13 @@ export default {
   display: flex;
   -ms-flex-align: center;
   align-items: center;
-  width: 92px;
+  width: auto;
+  min-width: 136px;
+  min-height: 48px;
+  gap: 8px;
+  border-radius: 8px;
   white-space: nowrap;
-  transition: all 0.3s;
+  transition: color .18s, background-color .18s;
   font-size: 13px;
   color: var(--text2);
   font-weight: 500;
@@ -1121,8 +1167,11 @@ export default {
 }
 
 .video-toolbar-left-item .iconfont {
-  margin-right: 8px;
-  font-size: 26px;
+  flex: none;
+  margin-right: 0;
+  width: 36px;
+  height: 36px;
+  font-size: 24px;
 }
 
 .video-toolbar-left-item .icon-diancai {
@@ -1130,11 +1179,14 @@ export default {
 }
 
 .video-toolbar-item-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-word;
+  flex: none;
+  min-width: 5ch;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.video-toolbar-label {flex:none;font-size:13px;}
+.video-toolbar-left-item:focus-visible {outline:2px solid var(--workbench-focus);outline-offset:3px;}
 
 .dianzan-gif {
   position: absolute;
@@ -1243,15 +1295,16 @@ export default {
 }
 
 .right-container {
-  width: 350px;
+  min-width: 0;
+  width: auto;
   flex: none;
-  margin-left: 30px;
+  margin-left: 0;
   position: relative;
   pointer-events: none;
 }
 
 .right-container-inner {
-  padding-bottom: 250px;
+  padding-bottom: 32px;
   /* position: sticky; */
 }
 
@@ -1463,10 +1516,6 @@ export default {
   .video-info-container .video-title {
     font-size: 22px;
     line-height: 34px;
-  }
-
-  .right-container {
-    width: 411px;
   }
 
   .up-name {

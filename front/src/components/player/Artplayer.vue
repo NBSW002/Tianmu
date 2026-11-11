@@ -10,8 +10,9 @@
     </div>
     <div class="player-sending-area">
       <div class="player-video-info">
-        <div class="player-video-info-text">
-          {{ onlineUserCount }} 人正在观看，已装填 {{ danmuCount }} 条弹幕
+        <div class="player-video-info-text" :title="`${fullInteractionCount(onlineUserCount)} 人正在观看，已装填 ${fullInteractionCount(danmuCount)} 条弹幕`">
+          <span class="player-info-wide">{{ compactInteractionCount(onlineUserCount) }} 人正在观看，已装填 {{ compactInteractionCount(danmuCount) }} 条弹幕</span>
+          <span class="player-info-compact">{{ compactInteractionCount(onlineUserCount) }} 人在看 · {{ compactInteractionCount(danmuCount) }} 条弹幕</span>
         </div>
       </div>
       <div ref="artDanmuRef" class="danmu-panel"></div>
@@ -26,12 +27,14 @@ import { markRaw, toRaw } from "vue";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "@/store/user";
 import { mapState } from "pinia";
+import { compactInteractionCount, fullInteractionCount } from '@/lib/interaction-count.mjs';
 export default {
   data() {
     return {
       instance: null,
       loading: true,
       playbackError: "",
+      emitterRoot: null,
       option: {
         autoSize: false, // 固定播放区域，宽屏素材也不会将控制栏挤成一条
         autoMini: true, //当播放器滚动到浏览器视口以外时，自动进入 迷你播放 模式
@@ -150,6 +153,8 @@ export default {
     },
   },
   methods: {
+    compactInteractionCount,
+    fullInteractionCount,
     initArtPlayer() {
       this.$nextTick(() => {
         this.instance = markRaw(new Artplayer({
@@ -200,7 +205,65 @@ export default {
         toRaw(this.instance).plugins.artplayerPluginDanmuku.mount(
           this.$refs.artDanmuRef
         );
+        this.prepareEmitter();
       });
+    },
+    prepareEmitter() {
+      const root = this.$refs.artDanmuRef.querySelector('.artplayer-plugin-danmuku');
+      if (!root) return;
+      this.emitterRoot = root;
+      const controls = [['.apd-toggle', '弹幕'], ['.apd-config', '弹幕设置'], ['.apd-style', '样式'], ['.apd-send', '发送弹幕']];
+      for (const [selector, label] of controls) {
+        const control = root.querySelector(selector);
+        control.setAttribute('role', 'button');
+        control.setAttribute('tabindex', '0');
+        control.setAttribute('aria-label', label);
+        control.setAttribute('title', label);
+        if (selector === '.apd-config' || selector === '.apd-style') {
+          control.setAttribute('aria-expanded', 'false');
+          this.instance.proxy(control, 'click', event => {
+            if (event.target.closest('.apd-config-panel,.apd-style-panel')) return;
+            const open = !control.classList.contains('emitter-panel-open');
+            this.closeEmitterPanels();
+            control.classList.toggle('emitter-panel-open', open);
+            control.setAttribute('aria-expanded', String(open));
+          });
+        }
+        this.instance.proxy(control, 'keydown', event => {
+          if (event.target !== control) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            if (control.getAttribute('aria-disabled') !== 'true') control.click();
+          }
+          if (event.key === 'Escape') this.closeEmitterPanels();
+        });
+      }
+      this.instance.proxy(document, 'pointerdown', event => {
+        if (!event.target.closest('.apd-config,.apd-style')) this.closeEmitterPanels();
+      });
+      this.instance.on('artplayerPluginDanmuku:show', this.updateEmitterState);
+      this.instance.on('artplayerPluginDanmuku:hide', this.updateEmitterState);
+      this.updateEmitterState();
+    },
+    closeEmitterPanels() {
+      this.emitterRoot?.querySelectorAll('.emitter-panel-open').forEach(control => {
+        control.classList.remove('emitter-panel-open');
+        control.setAttribute('aria-expanded', 'false');
+      });
+    },
+    updateEmitterState() {
+      if (!this.emitterRoot) return;
+      const input = this.emitterRoot.querySelector('.apd-input');
+      input.setAttribute('aria-label', '弹幕内容');
+      input.placeholder = this.playbackError ? '视频暂不可用，请重试' : this.loading ? '视频准备中…' : this.isLogin ? '发条弹幕，一起聊聊' : '登录后发送弹幕';
+      input.disabled = this.loading || !!this.playbackError;
+      const send = this.emitterRoot.querySelector('.apd-send');
+      send.setAttribute('aria-disabled', String(input.disabled));
+      const toggle = this.emitterRoot.querySelector('.apd-toggle');
+      const visible = !this.instance.plugins.artplayerPluginDanmuku.isHide;
+      toggle.setAttribute('aria-label', visible ? '关闭弹幕' : '打开弹幕');
+      toggle.setAttribute('title', visible ? '关闭弹幕' : '打开弹幕');
+      toggle.setAttribute('aria-pressed', String(visible));
     },
     retryPlayback() {
       if (!this.instance) return;
@@ -215,6 +278,7 @@ export default {
     },
     sendDanmu(danmu) {
       return new Promise((resolve) => {
+        if (this.loading || this.playbackError) { resolve(false); return; }
         // 判断网络是否连接
         // if (!navigator.onLine) {
         //   resolve(false);
@@ -242,6 +306,9 @@ export default {
     },
   },
   watch: {
+    isLogin() { this.updateEmitterState(); },
+    loading() { this.updateEmitterState(); },
+    playbackError() { this.updateEmitterState(); },
     '$route.query.t'() { this.seekFromRoute(); },
     poster(value) { if (this.instance) this.instance.poster = value || ''; },
     videoUrl(newVal) {

@@ -17,7 +17,7 @@
     <!-- 实体内容——视频卡片 -->
     <div class="video-card__wrap" v-if="!isLoading">
       <!-- 视频上半部分——视频封面、播放数、弹幕数、时长 -->
-      <a :href="`/video/${item.videoId}`" target="_blank">
+      <a :href="`/video/${item.videoId}`" target="_blank" rel="noopener" :aria-label="item.title">
         <div class="video-card__image">
           <span class="video-card__play" aria-hidden="true"><TraceIcon name="play" :size="22" /></span>
           <!-- 视频封面 -->
@@ -30,14 +30,14 @@
           <div class="video-card__mask">
             <div class="video-card__stats">
               <div class="video-card__stats--left">
-                <span class="video-card__stats--item">
-                  <i class="iconfont icon-bofangshu"></i>
+                <span class="video-card__stats--item" :title="`播放 ${item.viewCount ?? 0} 次`" :aria-label="`播放 ${item.viewCount ?? 0} 次`">
+                  <i class="iconfont icon-bofangshu" aria-hidden="true"></i>
                   <span class="video-card__stats--text">
                     {{ handleNum(item.viewCount) }}
                   </span>
                 </span>
-                <span class="video-card__stats--item">
-                  <i class="iconfont icon-danmushu"></i>
+                <span class="video-card__stats--item video-card__stats--danmaku" :title="`弹幕 ${item.bulletCount ?? 0} 条`" :aria-label="`弹幕 ${item.bulletCount ?? 0} 条`">
+                  <i class="iconfont icon-danmushu" aria-hidden="true"></i>
                   <span class="video-card__stats--text">
                     {{ handleNum(item.bulletCount) }}
                   </span>
@@ -59,10 +59,12 @@
               v-if="dataType === 'search'"
               :href="`/video/${item.videoId}`"
               target="_blank"
+              rel="noopener"
+              :title="item.title"
               v-html="highlightKeyword(item.title)"
             >
             </a>
-            <a v-else :href="`/video/${item.videoId}`" target="_blank">
+            <a v-else :href="`/video/${item.videoId}`" target="_blank" rel="noopener" :title="item.title">
               {{ item.title }}
             </a>
           </h3>
@@ -75,6 +77,8 @@
               class="video-card__info--owner"
               :href="`/user/${item.userId}`"
               target="_blank"
+              rel="noopener"
+              :title="item.nickName"
             >
               <i class="iconfont icon-uper" :style="''"></i>
               <span class="video-card__info--author">{{ item.nickName }}</span>

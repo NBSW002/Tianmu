@@ -11,12 +11,12 @@
     <main id="recommended-feed" class="main__layout">
       <div class="feed-heading">
         <div class="feed-heading__title"><span class="feed-heading__mark"><el-icon><VideoPlay /></el-icon></span><h1>为你推荐</h1><span class="feed-heading__subtitle">发现有趣，遇见热爱</span></div>
-        <button class="refresh-feed" type="button" :disabled="isLoadingCumulative" @click="refreshRecommendations"><el-icon :class="{ 'is-spinning': refreshing }"><Refresh /></el-icon>{{ refreshing ? '更新中' : '换一换' }}</button>
+        <button class="refresh-feed" type="button" :disabled="isLoadingCumulative || checkingViewport || refreshing" @click="refreshRecommendations"><el-icon :class="{ 'is-spinning': refreshing }"><Refresh /></el-icon>{{ refreshing ? '更新中' : '换一换' }}</button>
       </div>
       <section class="recommended-container" aria-label="推荐视频" :aria-busy="loadingRecm">
         <div class="container" v-infinite-scroll="loadMoreVideo" :infinite-scroll-disabled="!hasMoreVideo || isLoadingCumulative || loadError" :infinite-scroll-delay="300" :infinite-scroll-distance="420" :infinite-scroll-immediate="true">
-          <div class="recommended-swipe"><CarouselIndex :videos="feedVideos" /></div>
-          <VideoCard v-for="(item,index) in (loadingRecm ? 15 : feedVideos)" :key="loadingRecm ? `initial-${index}` : `feed-${item.videoId}`" :item="item" :isLoading="loadingRecm" :style="{ '--card-order': index }" />
+          <div class="recommended-swipe"><CarouselIndex :videos="homeFeed.featured" /></div>
+          <VideoCard v-for="(item,index) in (loadingRecm ? 15 : homeFeed.cards)" :key="loadingRecm ? `initial-${index}` : `feed-${item.videoId}`" :item="item" :isLoading="loadingRecm" :style="{ '--card-order': index }" />
           <VideoCardSkeleton v-for="index in (isLoadingCumulative && !loadingRecm ? 15 : 0)" :key="`skeleton-${current}-${index}`" :hasMoreVideo="true" />
         </div>
         <div v-if="!loadingRecm && !loadError && !recmVideoList.length" class="feed-empty"><el-icon><Film /></el-icon><h2>第一份精彩，等你分享</h2><p>这里还没有视频，来发布你的第一条作品吧。</p><router-link to="/platform/upload">去投稿</router-link></div>
@@ -24,7 +24,7 @@
         <div v-if="loadError" class="feed-load-error" role="status"><span>视频暂时没有加载出来</span><button type="button" :disabled="isLoadingCumulative" @click="retryLoadMore">重新加载</button></div>
       </section>
     </main>
-    <aside class="home-tools" aria-label="页面工具"><button type="button" :disabled="isLoadingCumulative" @click="refreshRecommendations" aria-label="换一批推荐视频"><el-icon><Refresh /></el-icon><span>换一换</span></button><button v-if="showBackToTop" type="button" @click="backToTop" aria-label="回到顶部"><el-icon><Top /></el-icon><span>顶部</span></button></aside>
+    <aside v-if="showBackToTop && !assistantOpen" class="home-tools" aria-label="页面工具"><button type="button" @click="backToTop" aria-label="回到顶部" title="回到顶部"><el-icon><Top /></el-icon></button></aside>
   </div>
 </template>
 
@@ -36,6 +36,8 @@ import VideoCard from "@/components/VideoCard/VideoCard.vue";
 import VideoCardSkeleton from "@/components/VideoCardSkeleton/VideoCardSkeleton.vue";
 
 import { fetchVideoList } from "@/api/video";
+import { splitHomeFeed, uniqueVideos } from "@/lib/home-feed.mjs";
+import { useAssistantStore } from "@/store/assistant";
 
 export default {
   name: "IndexVue",
@@ -81,15 +83,14 @@ export default {
     if (this.resizeTimer) window.clearTimeout(this.resizeTimer);
   },
   computed: {
-    feedVideos() {
-      const first = this.recmVideoList.slice(0, 15);
-      const offset = first.length ? this.recommendationOffset % first.length : 0;
-      return [...first.slice(offset), ...first.slice(0, offset), ...this.recmVideoList.slice(15)];
+    assistantOpen() { return useAssistantStore().open; },
+    homeFeed() {
+      return splitHomeFeed(this.recmVideoList, this.recommendationOffset);
     },
   },
   methods: {
     async refreshRecommendations() {
-      if (this.isLoadingCumulative) return;
+      if (this.isLoadingCumulative || this.checkingViewport || this.refreshing) return;
       this.refreshing = true;
       try {
         if (await this.getVideoList(1)) {
@@ -102,6 +103,7 @@ export default {
       window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     },
     async getVideoList(page) {
+      if (this.isLoadingCumulative) return false;
       // Keep page size stable so page-based APIs do not skip rows between pages.
       const pageSize = 15;
       this.isLoadingCumulative = true;
@@ -110,7 +112,7 @@ export default {
       try {
         const res = await fetchVideoList(page, pageSize);
         if (res.code !== 200 || !Array.isArray(res.data)) throw new Error("视频列表不可用");
-        this.recmVideoList = page === 1 ? res.data : this.recmVideoList.concat(res.data);
+        this.recmVideoList = uniqueVideos(page === 1 ? res.data : this.recmVideoList.concat(res.data));
         this.current = page;
         this.hasMoreVideo = res.data.length >= pageSize;
         this.failedPage = null;
@@ -127,7 +129,7 @@ export default {
       }
     },
     async loadMoreVideo() {
-      if (!this.hasMoreVideo || this.isLoadingCumulative || this.loadError || this.current === 0) return;
+      if (!this.hasMoreVideo || this.isLoadingCumulative || this.checkingViewport || this.refreshing || this.loadError || this.current === 0) return;
       const loaded = await this.getVideoList(this.current + 1);
       if (loaded) await this.ensureViewportFilled();
     },
@@ -139,13 +141,13 @@ export default {
       if (loaded) await this.ensureViewportFilled();
     },
     async ensureViewportFilled() {
-      if (this.checkingViewport) return;
+      if (this.checkingViewport || this.isLoadingCumulative) return;
       this.checkingViewport = true;
       try {
         let pagesLoaded = 0;
         await this.$nextTick();
         while (this.hasMoreVideo && !this.loadError && pagesLoaded < 4 &&
-          document.documentElement.scrollHeight <= window.innerHeight + 120) {
+          (this.homeFeed.cards.length < 15 || document.documentElement.scrollHeight <= window.innerHeight + 120)) {
           const loaded = await this.getVideoList(this.current + 1);
           if (!loaded) break;
           pagesLoaded += 1;
@@ -204,16 +206,16 @@ export default {
 .feed-empty > .el-icon { color: #c9dbe3; font-size: 50px; }
 .feed-empty h2 { color: #61666d; font-size: 18px; margin: 12px 0; }
 .feed-empty p { font-size: 13px; margin-bottom: 24px; }
-.home-tools { position: fixed; right: 6px; bottom: 70px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
-.home-tools button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 5px; width: 44px; border: 1px solid #e3e5e7; border-radius: 9px; background: #fff; color: #61666d; cursor: pointer; box-shadow: 0 3px 10px #18191c05; font: inherit; font-size: 11px; }
+.home-tools { position: fixed; right: calc(var(--page-tools-right) + 4px); bottom: calc(var(--page-tools-bottom) + var(--page-tools-size) + 12px); z-index: 30; }
+.home-tools button { display: grid; place-items: center; padding: 0; width: 48px; height: 48px; border: 1px solid #e3e5e7; border-radius: 10px; background: #fff; color: #61666d; cursor: pointer; font: inherit; }
 .home-tools button:hover { color: #00aeec; background: #f6f7f8; }
 .home-tools .el-icon { font-size: 20px; }
 .is-spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (min-width: 2200px) { .container { grid-template-columns: repeat(6,minmax(0,1fr)); } }
-@media (max-width: 1199px) { .container { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 24px 16px; } .home-tools { right: 5px; } }
-@media (max-width: 1299px) { .home-tools { display: none; } }
-@media (max-width: 959px) { .index { --home-gutter: 24px; } .container { grid-template-columns: repeat(3,minmax(0,1fr)); } .home-tools { display: none; } }
+@media (max-width: 1199px) { .container { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 24px 16px; } }
+@media (max-width: 959px) { .index { --home-gutter: 24px; } .container { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (max-width: 600px) { .home-tools {right:calc(var(--page-tools-right) + 2px);} .home-tools button {width:44px;height:44px;} }
 @media (max-width: 699px) {
   .index { --home-gutter: 16px; } .home-banner { height: 196px; } .home-banner__image { object-position: 58% center; }
   .home-banner__brand { bottom: 19px; } .home-banner__brand > span { font-size: 10px; letter-spacing: 2px; }

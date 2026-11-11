@@ -86,19 +86,28 @@ button,input,textarea,select {font-family:inherit;}
 #app .header-bar .upload-buttom {background:var(--workbench-accent);border-radius:8px;}
 #app .header-bar .upload-buttom:hover {background:var(--workbench-accent-hover);}
 #app .index {background:var(--workbench-paper);color:var(--text1);}
-#app .home-banner {height:148px;max-width:1488px;margin:84px auto 0;width:calc(100% - 2 * var(--home-gutter));background:#dce2cb;border-radius:16px;}
-#app .home-banner__ornament {position:absolute;width:200px;height:200px;border:36px solid #aab994;border-radius:60% 40% 65% 35%;right:-30px;top:-28px;transform:rotate(-24deg);opacity:.55;}
-#app .home-banner__brand {left:30px;bottom:28px;color:#354632;text-shadow:none;gap:10px;}
-#app .home-banner__brand a {font:500 34px/1.2 var(--workbench-display);letter-spacing:-1px;}
-#app .home-banner__brand>span {font-size:13px;letter-spacing:1px;}
+#app .home-banner {height:104px;max-width:1488px;margin:76px auto 0;width:calc(100% - 2 * var(--home-gutter));background:#dce2cb;border-radius:12px;}
+#app .home-banner__ornament {position:absolute;width:144px;height:144px;border:28px solid #aab994;border-radius:60% 40% 65% 35%;right:-20px;top:-20px;transform:rotate(-24deg);opacity:.55;}
+#app .home-banner__brand {left:30px;bottom:20px;color:#354632;text-shadow:none;gap:6px;}
+#app .home-banner__brand a {font:500 30px/1.2 var(--workbench-display);letter-spacing:-1px;}
+#app .home-banner__brand>span {font-size:12px;letter-spacing:1px;}
 #app .brand-spark {color:#667b57;font-size:.5em;transform:translateY(-8px);}
-#app .header-channel {background:transparent;color:var(--text1);max-width:1680px;}
-#app .shortcut-circle {background:var(--workbench-sidebar);color:var(--workbench-charcoal);width:42px;height:42px;font-size:23px;}
-#app .shortcut-circle.recommend {background:var(--workbench-success-soft);color:var(--workbench-success);}
-#app :is(.channel-link,.more-channels summary) {border-color:var(--workbench-border);background:var(--workbench-raised);color:var(--text2);border-radius:8px;}
+#app .header-channel {background:transparent;color:var(--text1);max-width:1680px;gap:24px;padding-top:20px;padding-bottom:24px;}
+#app .channel-shortcuts {gap:20px;}
+#app .channel-shortcut {gap:8px;font-size:13px;line-height:20px;}
+#app .shortcut-circle {background:var(--workbench-sidebar);color:var(--workbench-charcoal);width:48px;height:48px;font-size:24px;transition:background .18s,color .18s;}
+#app .channel-shortcut:hover .shortcut-circle {transform:none;background:var(--workbench-soft);color:var(--workbench-accent);}
+#app .shortcut-circle.recommend {background:var(--workbench-accent);color:var(--workbench-raised);}
+#app .channel-shortcut:has(.recommend) {font-weight:500;}
+#app .channel-grid {gap:8px;}
+#app :is(.channel-link,.more-channels summary) {border-color:transparent;background:var(--line_light);color:var(--text2);border-radius:6px;}
 #app :is(.channel-link:hover,.channel-link.is-active) {background:var(--workbench-soft);color:var(--workbench-accent);border-color:transparent;}
+#app .more-channels[open] summary {background:var(--workbench-soft);color:var(--workbench-accent);}
 #app .more-channel-panel {background:var(--workbench-raised);border-color:var(--workbench-border);box-shadow:var(--workbench-whisper);}
 #app :is(.channel-utilities a,.more-channel-panel a) {color:var(--text2);}
+#app .channel-utilities {gap:16px 20px;padding-left:24px;border-color:var(--workbench-border);}
+#app .channel-utilities .el-icon {font-size:16px;}
+#app :is(.channel-utilities a:hover,.more-channel-panel a:hover) {color:var(--workbench-accent);}
 #app .main__layout {max-width:1680px;}
 #app .feed-heading__mark {background:var(--workbench-soft);color:var(--workbench-accent);}
 #app .feed-heading h1 {font-weight:500;font-size:20px;}
@@ -107,13 +116,9 @@ button,input,textarea,select {font-family:inherit;}
 #app :is(.refresh-feed:hover,.home-tools button:hover) {background:var(--workbench-sidebar);color:var(--text1);}
 #app .feed-load-error {color:var(--text2);}
 #app :is(.feed-load-error button,.feed-empty a) {background:var(--workbench-soft);color:var(--workbench-accent);border-radius:8px;}
-#app .recommended-swipe {grid-column:span 2;grid-row:span 2;min-height:280px;aspect-ratio:auto;height:100%;border-radius:12px;background:var(--workbench-sidebar);}
+#app .recommended-swipe {grid-column:span 2;grid-row:span 2;min-height:0;aspect-ratio:7/5;height:auto;align-self:start;container-type:inline-size;border-radius:12px;background:var(--workbench-dark);}
 #app .featured-carousel {height:100%;}
 #app .carousel-empty {background:var(--workbench-sidebar);color:var(--text2);font-size:14px;}
-#app .carousel-footer {padding:32px 14px 26px;}
-#app .carousel-title {font-size:17px;line-height:1.5;}
-#app .carousel-label {font-size:11px;}
-#app .featured-carousel .el-carousel__arrow {width:24px;height:24px;bottom:7px;}
 #app .video-card__image,#app .video-card__skeleton--cover {border-radius:12px;}
 #app .video-card__wrap {background:transparent;}
 #app .video-card__info--tit {font-weight:500;}
@@ -140,8 +145,20 @@ button,input,textarea,select {font-family:inherit;}
 .el-dialog,.el-popover.el-popper {border-radius:14px;background:var(--workbench-raised);box-shadow:var(--workbench-whisper);}
 @media(max-width:760px){
  #app .header-bar .site-wordmark {font-size:21px;margin-right:0;}
- #app .home-banner {margin-top:76px;height:132px;border-radius:12px;}
- #app .home-banner__brand {left:22px;bottom:24px;}
- #app .home-banner__brand a {font-size:30px;}
+ #app .home-banner {margin-top:76px;height:88px;border-radius:12px;}
+ #app .home-banner__brand {left:22px;bottom:16px;}
+ #app .home-banner__brand a {font-size:26px;}
  #app .header-channel {padding-top:20px;padding-bottom:20px;}
+}
+@media(max-width:959px){
+ #app .header-channel {gap:20px;}
+ #app .channel-shortcuts {gap:14px;}
+ #app .shortcut-circle {width:40px;height:40px;font-size:22px;}
+}
+@media(max-width:699px){
+ #app .header-channel {gap:16px;padding-top:16px;padding-bottom:20px;}
+ #app .channel-shortcuts {gap:12px;}
+ #app .channel-shortcut {font-size:12px;line-height:18px;gap:6px;}
+ #app .shortcut-circle {width:36px;height:36px;font-size:20px;}
+ #app .channel-grid {gap:6px;}
 }

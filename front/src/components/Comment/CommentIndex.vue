@@ -101,6 +101,7 @@ export default {
       isWideWindow: false, // 是否是宽屏
       left: 0, // 固钉评论框左偏移量
       width: 0, // 固钉评论框宽度
+      replyResizeObserver: null,
       // 是否隐藏回复框
       isHideReplyBox: true,
       replyBoxDisplay: "none",
@@ -110,6 +111,9 @@ export default {
   mounted() {
     this.$nextTick(() => {
       this.resize();
+      this.replyResizeObserver = new ResizeObserver(this.resize);
+      const reply = this.$el.querySelector('.reply-wrap');
+      if (reply) this.replyResizeObserver.observe(reply);
       // this.handleScroll();
     });
     window.addEventListener("click", this.handleOutSideClick);
@@ -117,6 +121,7 @@ export default {
     window.addEventListener("resize", this.resize);
   },
   beforeUnmount() {
+    this.replyResizeObserver?.disconnect();
     window.removeEventListener("click", this.handleOutSideClick);
     window.removeEventListener("scroll", this.handleScroll);
     window.removeEventListener("resize", this.resize);

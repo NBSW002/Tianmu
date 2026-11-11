@@ -1,4 +1,6 @@
 @import './workbench-tokens.css';
+:root {--page-tools-right:24px;--page-tools-bottom:max(24px,env(safe-area-inset-bottom));--page-tools-size:56px;}
+@media(max-width:600px){:root{--page-tools-right:16px;--page-tools-bottom:max(16px,env(safe-area-inset-bottom));--page-tools-size:48px;}}
 
 .assistant-host {
   color: var(--workbench-ink);
@@ -17,13 +19,19 @@
 .assistant-host .assistant-host-toolbar button:hover {background:var(--workbench-raised);}
 .assistant-host .assistant-access-note {background:var(--workbench-soft);color:var(--workbench-ink);}
 .assistant-launcher.assistant-launcher {
-  width:56px;height:56px;border-radius:50%;
+  right:var(--page-tools-right);bottom:var(--page-tools-bottom);
+  width:var(--page-tools-size);height:var(--page-tools-size);border-radius:50%;
   color:var(--workbench-raised);background:var(--workbench-ink);
   border:1px solid var(--workbench-ink);
   box-shadow:var(--workbench-ring-shadow);
   font-size:32px;
   transition:transform 250ms var(--workbench-ease), background 150ms;
 }
+.assistant-launcher.assistant-launcher.assistant-launcher--home {display:flex;align-items:center;justify-content:center;gap:0;overflow:hidden;}
+.assistant-launcher--home svg {flex:none;width:28px;height:28px;}
+.assistant-launcher__label {max-width:0;opacity:0;overflow:hidden;white-space:nowrap;font:500 13px/20px var(--workbench-ui);}
+.assistant-launcher.assistant-launcher.assistant-launcher--expanded {width:132px;height:48px;border-radius:24px;gap:8px;}
+.assistant-launcher--expanded .assistant-launcher__label {max-width:64px;opacity:1;}
 .assistant-launcher:hover {transform:translateY(-3px) rotate(-8deg);background:var(--workbench-accent);}
 .assistant-launcher:focus-visible,.assistant-host :focus-visible {outline:2px solid var(--workbench-focus);outline-offset:4px;}
 .assistant-host .assistant-login {font-family:var(--workbench-ui);padding:40px;}
