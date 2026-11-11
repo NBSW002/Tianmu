@@ -1,10 +1,10 @@
 <script setup>
 /* global defineProps, defineEmits */
-import { computed, nextTick, shallowRef, watch } from 'vue'
+import { computed, nextTick, shallowRef, watch, ref } from 'vue'
 import { VueFlow, Handle, BaseEdge, Position, MarkerType } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import { formatDuration, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { cardTitle, cardHighlight } from '@/trace/trace-presentation.mjs'
+import { cardTitle, cardHighlight, visibleTraceEdges } from '@/trace/trace-presentation.mjs'
 import TraceIcon from './TraceIcon.vue'
 
 const props = defineProps({ trace: { type: Object, required: true }, graph: { type: Object, required: true }, expanded: { type: Set, required: true }, selectedId: String, mode: String })
@@ -13,7 +13,9 @@ const instance = shallowRef(null)
 const panel = shallowRef(null)
 const nodes = computed(() => props.graph.nodes.map((node) => ({ ...node,
   selected: node.id === props.selectedId || node.data.memberIds?.includes(props.selectedId) })))
-const edges = computed(() => props.graph.edges.map((edge) => ({ ...edge,
+const showRootOwnership = ref(false)
+watch(() => props.trace.id, () => { showRootOwnership.value = false })
+const edges = computed(() => visibleTraceEdges(props.graph, showRootOwnership.value).map((edge) => ({ ...edge,
   type: 'orthogonal', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--workbench-connector)', width: 14, height: 14 },
   style: { stroke: 'var(--workbench-connector)', strokeWidth: 1.3, strokeDasharray: edge.relation === 'dependency' ? '5 4' : edge.relation === 'trigger' ? '2 4' : edge.relation === 'ancestor' ? '8 3 2 3' : undefined },
 })))
@@ -105,6 +107,8 @@ watch(() => props.selectedId, async () => {
         </template>
       </VueFlow>
       <div class="graph-controls">
+        <button type="button" class="ownership-toggle" :aria-pressed="showRootOwnership" :title="showRootOwnership ? '隐藏根节点的其他归属线' : '显示根节点的全部归属线'" @click="showRootOwnership = !showRootOwnership">{{ showRootOwnership ? '隐藏归属' : '显示归属' }}</button>
+        <span />
         <button type="button" aria-label="查看上一段流程" title="上一段流程" @click="panSegment(-1)"><TraceIcon name="chevron" :size="16" class="previous-segment" /></button>
         <button type="button" aria-label="查看下一段流程" title="下一段流程" @click="panSegment(1)"><TraceIcon name="chevron" :size="16" /></button>
         <span />

@@ -3,7 +3,16 @@ import assert from 'node:assert/strict'
 import { buildTracePresentation, buildTraceOverview, cardHighlight, cardSummary, preparationDetails, executionFacts, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails } from '../src/trace/trace-presentation.mjs'
 import { demoFiles } from '../src/trace/demo-trace.mjs'
 import { parseTraceFile } from '../src/trace/trace-data.mjs'
-import { recordDetails, traceDetailSources } from '../src/trace/trace-presentation.mjs'
+import { recordDetails, traceDetailSources, visibleTraceEdges } from '../src/trace/trace-presentation.mjs'
+
+test('run overview excludes descendant facts and can reveal recorded ownership edges',()=>{
+  const root=node('run','agent.run','STAGE',0,20),a=node('a','feedback.prepare','STAGE',1,1,{parentId:'run',attributes:{'analysis.phase':'SNAPSHOT','video.frame_count':12}}),b=node('b','feedback.prepare','STAGE',3,1,{parentId:'run',attributes:{'analysis.phase':'COMMENT','analysis.predecessor_span_ids':['a']}})
+  const p=buildTracePresentation([root,a,b]), run=p.cards.find(c=>c.cardKind==='run'),g=layoutPresentation(p)
+  assert.equal(run.durationMs,20);assert.deepEqual(executionFacts(run,p),[])
+  assert.equal(visibleTraceEdges(g).filter(e=>e.source==='run').length,1)
+  assert.ok(visibleTraceEdges(g).some(e=>e.source==='a'&&e.target==='b'&&e.relation==='dependency'))
+  assert.equal(visibleTraceEdges(g,true).filter(e=>e.source==='run').length,2)
+})
 
 test('materials join links only recorded calls in the same native group and run',()=>{
   const raw=[

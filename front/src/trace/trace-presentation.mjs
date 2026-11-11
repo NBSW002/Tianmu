@@ -68,6 +68,7 @@ export function executionFacts(node, presentation) {
   if (!node) return []
   const byId = presentation.rawById, ids = new Set([node.sourceId || node.id, ...(node.memberIds || [])])
   const descendants = [...byId.values()].filter(candidate => {
+    if (node.cardKind === 'run') return candidate.id === (node.sourceId || node.id)
     let current = candidate; const seen = new Set()
     while (current && !seen.has(current.id)) { if (ids.has(current.id)) return true; seen.add(current.id); current = byId.get(current.parentId) }
     return false
@@ -439,7 +440,7 @@ export function buildTracePresentation(raw) {
   // Keep the real root visible: sibling stages share this parent rather than
   // being connected to one another based on their timestamps.
   for (const root of raw.filter(n=>n.name==='agent.run')) {
-    cards.push({...presentNode(root),cardKind:'run',cardTitle:'本次运行',summary:'运行根节点',summaryOnly:true,durationMs:null,memberIds:[root.id]})
+    cards.push({...presentNode(root),cardKind:'run',cardTitle:'本次运行',summary:'运行根节点',summaryOnly:true,memberIds:[root.id]})
   }
   cards.sort(compare)
   const notices = []
@@ -490,6 +491,19 @@ export function buildTraceOverview(presentation) {
 // Keep the agent loop visible while retaining the compact background groups.
 export function defaultExpandedStages(presentation) {
   return new Set(presentation.cards.filter(card => card.cardKind === 'execution').map(card => card.id))
+}
+
+// Root ownership can span the whole graph; retain the recorded edges for inspection.
+export function visibleTraceEdges(graph, showRootOwnership = false) {
+  if (showRootOwnership) return graph.edges
+  const roots = new Set(graph.nodes.filter(node => node.data.cardKind === 'run').map(node => node.id))
+  const firstByRoot = new Set()
+  return graph.edges.filter(edge => {
+    if (!roots.has(edge.source) || !['parent', 'ancestor'].includes(edge.relation)) return true
+    if (firstByRoot.has(edge.source)) return false
+    firstByRoot.add(edge.source)
+    return true
+  })
 }
 
 // Time controls placement only. Edges are rebuilt from recorded parent IDs and
