@@ -117,6 +117,21 @@ class LikeServiceImplTest {
         verify(service).save(argThat((Like value) -> value.getUserId() == 1L && value.getVideoId() == 99L));
     }
 
+    @Test void uniqueConflictReturnsAlreadyLikedWithoutChangingCounters() {
+        var usersQuery = mock(LambdaQueryChainWrapper.class, RETURNS_SELF);
+        doReturn(usersQuery).when(usersQuery).eq(any(), any());
+        when(users.lambdaQuery()).thenReturn(usersQuery);
+        when(usersQuery.exists()).thenReturn(true);
+        var likesQuery = mock(LambdaQueryChainWrapper.class, RETURNS_SELF);
+        doReturn(likesQuery).when(likesQuery).eq(any(), any());
+        doReturn(likesQuery).when(service).lambdaQuery();
+        when(likesQuery.exists()).thenReturn(false);
+        doThrow(new org.springframework.dao.DuplicateKeyException("duplicate")).when(service).save(any(Like.class));
+        var request = new VideoActionRequest(); request.setVideoId(99L);
+        assertCode(ErrorCode.VIDEO_LIKED_ERROR, () -> service.likeVideo(request));
+        verifyNoInteractions(stats);
+    }
+
     private LambdaUpdateChainWrapper update(boolean success) {
         var update = mock(LambdaUpdateChainWrapper.class, RETURNS_SELF);
         doReturn(update).when(update).setSql(anyString(), any(Object[].class));

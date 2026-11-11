@@ -24,6 +24,8 @@ import cn.hutool.core.lang.Snowflake;
 import cn.hutool.core.util.IdUtil;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
+import com.orangecode.tianmu.exception.BusinessException;
 import org.springframework.transaction.annotation.Transactional;
 
 
@@ -76,7 +78,12 @@ public class LikeServiceImpl extends ServiceImpl<LikeMapper, Like>
         likeVideo.setUserId(userId);
         Snowflake snowflake = IdUtil.getSnowflake(SnowflakeConstant.WORKER_ID, SnowflakeConstant.DATA_CENTER_ID);
         likeVideo.setLikeId(snowflake.nextId());
-        boolean save = this.save(likeVideo);
+        boolean save;
+        try {
+            save = this.save(likeVideo);
+        } catch (DuplicateKeyException duplicate) {
+            throw new BusinessException(ErrorCode.VIDEO_LIKED_ERROR);
+        }
         ThrowUtils.throwIf(!save, ErrorCode.SYSTEM_ERROR);
 
         // 视频点赞数+1

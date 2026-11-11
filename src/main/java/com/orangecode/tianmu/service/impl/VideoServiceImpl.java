@@ -30,6 +30,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 
 
@@ -134,6 +135,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
         Video video = new Video();
         video.setUserId(userId);
         video.setTitle(title);
+        video.setDescription(videoSubmitRequest.getDescription());
         video.setType(type);
         video.setDuration(duration);
         video.setCategoryId(categoryId);
@@ -373,7 +375,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
             like.setVideoId(vid);
             like.setUserId(uid);
             like.setLikeId(snowflake.nextId());
-            ThrowUtils.throwIf(!likeService.save(like), ErrorCode.SYSTEM_ERROR);
+            try {
+                ThrowUtils.throwIf(!likeService.save(like), ErrorCode.SYSTEM_ERROR);
+            } catch (DuplicateKeyException duplicate) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "互动状态已变化，请刷新后重试");
+            }
             response.setLikeId(like.getLikeId());
             statsUpdate.setSql("like_count = like_count + 1");
         }
@@ -384,7 +390,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
             favorite.setVideoId(vid);
             favorite.setUserId(uid);
             favorite.setFavoriteId(snowflake.nextId());
-            ThrowUtils.throwIf(!favoriteService.save(favorite), ErrorCode.SYSTEM_ERROR);
+            try {
+                ThrowUtils.throwIf(!favoriteService.save(favorite), ErrorCode.SYSTEM_ERROR);
+            } catch (DuplicateKeyException duplicate) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "互动状态已变化，请刷新后重试");
+            }
             response.setFavoriteId(favorite.getFavoriteId());
             statsUpdate.setSql("favorite_count = favorite_count + 1");
         }
@@ -395,7 +405,11 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
             coin.setVideoId(vid);
             coin.setUserId(uid);
             coin.setCoinId(snowflake.nextId());
-            ThrowUtils.throwIf(!coinService.save(coin), ErrorCode.SYSTEM_ERROR);
+            try {
+                ThrowUtils.throwIf(!coinService.save(coin), ErrorCode.SYSTEM_ERROR);
+            } catch (DuplicateKeyException duplicate) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "互动状态已变化，请刷新后重试");
+            }
 
             boolean coinDeducted = userStatsService.lambdaUpdate().setSql("coin_count = coin_count - 1")
                     .eq(UserStats::getUserId, uid).gt(UserStats::getCoinCount, 0).update();

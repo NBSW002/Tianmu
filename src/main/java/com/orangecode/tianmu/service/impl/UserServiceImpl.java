@@ -37,7 +37,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.DigestUtils;
+import com.orangecode.tianmu.application.PasswordHashes;
 
 /**
  * 用户服务实现类
@@ -53,7 +53,7 @@ import org.springframework.util.DigestUtils;
  * - 事务管理：注册接口添加@Transactional保证数据一致性；
  * - 并发安全：注册环节使用synchronized锁避免重复注册；
  * - 数据校验：全链路参数校验，抛出标准化BusinessException；
- * - 安全加密：密码采用MD5+盐值加密，避免明文存储；
+ * - 安全加密：新密码使用随机盐PBKDF2，旧密码在成功登录时升级；
  * - 缓存管理：Redis存储验证码、JWT令牌，设置过期时间。
  *
  * @author orangecode
@@ -154,7 +154,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * 密码登录接口
      * <p>
      * 核心逻辑：账号格式校验 → 查询用户 → 密码加密校验 → 组装登录响应 → 生成并存储JWT令牌。
-     * 密码加密规则：MD5(盐值+明文密码)，盐值固定为UserConstant.PASSWORD_SALT。
+     * 密码使用版本化哈希校验，成功登录时按原值条件升级旧哈希。
      *
      * @param loginPasswordRequest 密码登录请求参数（含账号、明文密码）
      * @param request              HTTP请求对象（暂未使用，预留扩展）
@@ -175,9 +175,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 2. 查询用户（按邮箱/手机号匹配）
         User user = getCurrentUser(account);
 
-        // 3. 密码校验：明文密码+盐值MD5加密后比对数据库中的密文
-        String encryptedPassword = DigestUtils.md5DigestAsHex((UserConstant.PASSWORD_SALT + password).getBytes());
-        ThrowUtils.throwIf(!encryptedPassword.equals(user.getPassword()), ErrorCode.LOGIN_ERROR);
+        // Upgrade only the hash that was verified, preserving concurrent credential changes.
+        String stored = user.getPassword();
+        ThrowUtils.throwIf(!PasswordHashes.matches(password, stored), ErrorCode.LOGIN_ERROR);
+        if (PasswordHashes.legacy(stored)) {
+            String replacement = PasswordHashes.encode(password);
+            if (baseMapper.upgradePassword(user.getUserId(), stored, replacement) == 0) {
+                User current = getById(user.getUserId());
+                ThrowUtils.throwIf(current == null || !PasswordHashes.matches(password, current.getPassword()), ErrorCode.LOGIN_ERROR);
+                user = current;
+            }
+        }
 
         // 4. 组装登录响应VO（用户基础信息+统计信息）
         LoginResponse loginResponse = new LoginResponse();
@@ -366,7 +374,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * 核心逻辑：
      * 1. 生成雪花算法用户ID；
      * 2. 赋值昵称、邮箱（手机号置空避免非空报错）；
-     * 3. 密码加密：MD5(盐值+明文密码)。
+     * 3. 密码采用随机盐PBKDF2哈希。
      *
      * @param request 注册请求参数
      * @return User 组装好的用户实体
@@ -384,9 +392,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             user.setPhone("");
         }
 
-        // 密码加密：盐值+明文密码 MD5加密
-        String encryptedPassword = DigestUtils.md5DigestAsHex((UserConstant.PASSWORD_SALT + request.getPassword()).getBytes());
-        user.setPassword(encryptedPassword);
+        user.setPassword(PasswordHashes.encode(request.getPassword()));
 
         return user;
     }

@@ -14,6 +14,8 @@ import cn.hutool.core.lang.Snowflake;
 import cn.hutool.core.util.IdUtil;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
+import com.orangecode.tianmu.exception.BusinessException;
 import org.springframework.transaction.annotation.Transactional;
 
 
@@ -69,7 +71,12 @@ public class CoinServiceImpl extends ServiceImpl<CoinMapper, Coin> implements Co
         coin.setUserId(userId);
         Snowflake snowflake = IdUtil.getSnowflake(SnowflakeConstant.WORKER_ID, SnowflakeConstant.DATA_CENTER_ID);
         coin.setCoinId(snowflake.nextId());
-        boolean save = this.save(coin);
+        boolean save;
+        try {
+            save = this.save(coin);
+        } catch (DuplicateKeyException duplicate) {
+            throw new BusinessException(ErrorCode.VIDEO_COIN_ERROR);
+        }
         ThrowUtils.throwIf(!save, ErrorCode.SYSTEM_ERROR);
 
 

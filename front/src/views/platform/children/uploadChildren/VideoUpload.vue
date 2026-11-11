@@ -73,6 +73,7 @@
               <div class="file-status-text" v-else-if="isFailed">
                 <i class="iconfont icon-shibai failed"></i>
                 <span class="failed">上传失败</span>
+                <button v-if="fileHash" type="button" @click="upload">重试上传</button>
               </div>
               <div
                 class="file-status-text"
@@ -84,7 +85,6 @@
               </div>
               <div
                 class="file-status-manage refresh"
-                v-if="uploadProgress >= 100 || isFailed"
                 @click.stop="selectVideo"
               >
                 <i class="iconfont icon-genghuan"></i>
@@ -278,14 +278,8 @@
 import { ElMessage } from "element-plus";
 import SparkMD5 from "spark-md5";
 import TagInput from "@/components/tagInput/TagInput.vue";
-import {
-  checkUploadFile,
-  getUploadFileProgress,
-  getUploadFileUrl,
-  uploadFileChunk,
-  mergeFileChunk,
-  submitFile,
-} from "@/api/platform";
+import { uploadApi, submitFile } from "@/api/platform";
+import { uploadVideo } from '@/lib/upload-video.mjs';
 import { mapState, mapActions } from "pinia";
 import { useUserStore } from "@/store/user";
 import { useVideoStore } from "@/store/video";
@@ -299,6 +293,8 @@ export default {
   emits: ["changeNavBarShow"],
   data() {
     return {
+      uploadActive: false,
+      uploadController: null,
       selectedVideo: null, // 选择的视频文件
       fileHash: null, // 当前视频文件的hash值
       videoURL: null, // 上传的视频的内存地址
@@ -367,6 +363,10 @@ export default {
   created() {
     this.getCategoryList();
   },
+  beforeUnmount() {
+    this.uploadController?.abort();
+    if (this.videoURL) URL.revokeObjectURL(this.videoURL);
+  },
   computed: {
     ...mapState(useUserStore, ["user", "isLogin"]),
     ...mapState(useVideoStore, ["categoryList"]),
@@ -377,6 +377,10 @@ export default {
 
     // 初始化内容
     init() {
+      this.uploadController?.abort();
+      this.uploadController = null;
+      this.uploadActive = false;
+      if (this.videoURL) URL.revokeObjectURL(this.videoURL);
       this.selectedVideo = null;
       this.fileHash = null;
       this.videoURL = null;
@@ -411,43 +415,40 @@ export default {
     },
     // 处理文件选择事件
     async handleVideoChange(event) {
-      this.init(); // 清除先前的视频URL，防止新视频还没加载出来就画黑屏
-
       const file = event.target.files[0];
-      // 在 Vue 中，<input type="file"> 的 @change 事件只有在所选文件发生变化时才会触发。如果用户选择了同一个文件，change 事件不会再次触发，因为浏览器认为文件并没有真正改变。
-      // 清空 input 的值，确保下次选择相同文件时仍能触发 change 事件。或者使用v-if控制input的渲染，这样就会让Input重回初始状态
-      event.target.value = "";
-
-      const maxSizeInBytes = 3 * 1024 * 1024 * 1024; // 3GB
-      if (!file || file.size > maxSizeInBytes) {
-        return ElMessage.warning("视频大小最大为3GB~");
-      }
-      // 文件大小符合要求，可以继续处理上传逻辑
-      if (file.size <= maxSizeInBytes) {
-        // 生成hash作为文件的唯一标识
+      event.target.value = '';
+      if (!file) return;
+      this.init();
+      const controller = new AbortController();
+      this.uploadController = controller;
+      try {
+        if (!file.size || file.size > 3 * 1024 ** 3 || !/\.(mp4|mov|avi|webm)$/i.test(file.name)) {
+          throw new Error('请选择 MP4、MOV、AVI 或 WebM 视频，大小不超过3GB');
+        }
         this.selectedVideo = file;
-        this.fileHash = await this.calculateFileHash(file);
-        // 隐藏导航切换栏
-        this.$emit("changeNavBarShow", false);
-
-        // 获取视频时长
+        const hash = await this.calculateFileHash(file, controller.signal);
+        controller.signal.throwIfAborted();
+        this.fileHash = hash;
+        this.$emit('changeNavBarShow', false);
         const videoElement = this.$refs.videoElement;
-        videoElement.src = URL.createObjectURL(file);
-        videoElement.addEventListener("loadedmetadata", () => {
-          this.videoForm.duration = videoElement.duration;
-        });
-
-        // 获取视频原始名称
+        this.videoURL = URL.createObjectURL(file);
+        videoElement.onloadedmetadata = () => {
+          if (!controller.signal.aborted) this.videoForm.duration = videoElement.duration;
+        };
+        videoElement.src = this.videoURL;
         this.videoName = file.name;
-        this.videoForm.title = this.videoName.split(".mp4")[0];
-
-        // 上传文件
-        this.upload();
+        this.videoForm.title = file.name.replace(/\.[^.]+$/, '');
+        await this.upload();
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          this.isFailed = true;
+          ElMessage.error(error.message || String(error));
+        }
       }
     },
     // **计算文件的唯一 hash（MD5）**
-    calculateFileHash(file) {
-      return new Promise((resolve) => {
+    calculateFileHash(file, signal) {
+      return new Promise((resolve, reject) => {
         const spark = new SparkMD5.ArrayBuffer();
         const reader = new FileReader();
         const chunkSize = this.chunkSize;
@@ -458,12 +459,18 @@ export default {
           reader.readAsArrayBuffer(blob);
         }
 
+        const abort = () => reader.abort();
+        signal.addEventListener('abort', abort, { once: true });
+        const cleanup = () => signal.removeEventListener('abort', abort);
+        reader.onerror = () => { cleanup(); reject(new Error('读取视频文件失败，请重新选择')); };
+        reader.onabort = () => { cleanup(); reject(new DOMException('已取消', 'AbortError')); };
         reader.onload = (e) => {
           spark.append(e.target.result);
           offset += chunkSize;
           if (offset < file.size) {
             loadNext();
           } else {
+            cleanup();
             resolve(spark.end()); // 计算最终的 MD5
           }
         };
@@ -472,149 +479,26 @@ export default {
       });
     },
 
-    // 处理上传视频
     async upload() {
-      if (!this.selectedVideo) {
-        ElMessage.error("未选择文件");
-        return;
-      }
-
+      if (!this.selectedVideo || !this.fileHash || this.uploadActive) return;
+      this.uploadActive = true;
+      const controller = this.uploadController?.signal.aborted === false
+        ? this.uploadController : new AbortController();
+      this.uploadController = controller;
+      this.isFailed = false;
+      this.videoForm.fileUrl = '';
       try {
-        //   检查文件是否已经上传过
-        const existenceRes = await checkUploadFile(this.fileHash);
-        // 视频没有上传过
-        if (existenceRes.code === 60000) {
-          // 生成分片
-          const chunks = this.createChunks(this.selectedVideo);
-          // 检查分片是否已经全部上传过
-          const progressRes = await getUploadFileProgress(this.fileHash);
-          // 分片没有全部上传过，progressRes.data是已经上传过的分片索引数组，progressRes.data.length是已经上传的分片数量，chunks.length !== progressRes.data.length，
-          if (
-            progressRes.code === 200 &&
-            chunks.length !== progressRes.data.length
-          ) {
-            // 获取后缀名，不包括 .
-            const suffixName = this.selectedVideo.type.split("/")[1];
-            const uploadUrlRes = await getUploadFileUrl(
-              chunks.length,
-              this.fileHash,
-              suffixName
-            );
-            if (uploadUrlRes.code === 200) {
-              const uploadUrls = uploadUrlRes.data;
-              // 并发上传视频分片
-              const uploadChunkRes = await this.uploadChunksWithLimit(
-                chunks,
-                uploadUrls,
-                progressRes.data,
-                15
-              );
-              // 判断是否所有分片都上传成功
-              if (uploadChunkRes.code === 200) {
-                // 请求合并分片接口
-                const mergeChunkRes = await mergeFileChunk(
-                  chunks.length,
-                  this.fileHash,
-                  suffixName
-                );
-                ElMessage.success("上传分片成功");
-                if (mergeChunkRes.code === 200) {
-                  console.log("合并视频分片成功");
-                  // 获取视频url
-                  this.videoForm.fileUrl = mergeChunkRes.data;
-                } else if (mergeChunkRes.code === 70019) {
-                  this.upload();
-                } else {
-                  ElMessage.error("合并视频分片失败");
-                }
-              } else {
-                this.isFailed = true;
-                ElMessage.error("上传分片失败");
-              }
-            }
-          } else {
-            ElMessage.error("查询分片进度失败");
-          }
-        } else if (existenceRes.code === 200) {
-          // 视频已经上传过，后端直接返回视频fileUrl
-          this.videoForm.fileUrl = existenceRes.data;
-          this.uploadProgress = 100;
-        }
+        const url = await uploadVideo(this.selectedVideo, this.fileHash, uploadApi, controller.signal,
+          progress => { this.uploadProgress = progress; });
+        if (!controller.signal.aborted) this.videoForm.fileUrl = url;
       } catch (error) {
-        ElMessage.error(error);
-      }
-    },
-    // 生成切片，每个分片大小为5MB
-    createChunks(file) {
-      const chunks = [];
-      for (let i = 0; i < file.size; i += this.chunkSize) {
-        const chunk = file.slice(i, i + this.chunkSize);
-        chunks.push(chunk);
-      }
-      return chunks;
-    },
-
-    // 并发上传视频分片
-    async uploadChunksWithLimit(
-      chunks,
-      uploadUrls,
-      progressResData,
-      maxConcurrent = 10
-    ) {
-      const queue = []; // 当前正在执行的任务
-      const results = []; // 存放上传结果
-      let uploadedCount = 0; // 存放当前已上传分片数量
-      const unUploaedCount = chunks.length - progressResData.length; // 存放未上传分片数量
-      for (let index = 0; index < chunks.length; index++) {
-        // 如果当前分片已经上传过，则跳过，没上传的才上传
-        if (!progressResData.includes(index)) {
-          const chunk = chunks[index];
-          const uploadUrl = uploadUrls[index];
-
-          // 创建上传 Promise
-          const uploadPromise = uploadFileChunk(
-            chunk,
-            uploadUrl,
-            this.selectedVideo.type
-          ).then((res) => {
-            // 当一个分片上传成功后，更新已上传分片数量和更新进度
-            uploadedCount++;
-            this.uploadProgress = Math.floor(
-              (uploadedCount / unUploaedCount) * 100
-            );
-            queue.splice(queue.indexOf(uploadPromise), 1); // 上传完成后移除
-            return res;
-          });
-
-          queue.push(uploadPromise);
-          results.push(uploadPromise);
-
-          // 限制最大并发数
-          if (queue.length >= maxConcurrent) {
-            await Promise.race(queue); // 等待其中一个上传完成后再添加新的任务
-          }
+        if (!controller.signal.aborted) {
+          this.isFailed = true;
+          ElMessage.error(error.message || String(error));
         }
+      } finally {
+        if (this.uploadController === controller) this.uploadActive = false;
       }
-
-      // 使用 Promise.allSettled() 等待所有上传任务完成
-      const uploadResults = await Promise.allSettled(results);
-      // 统计成功和失败的任务
-      const successList = uploadResults.filter(
-        (res) => res.status === "fulfilled"
-      );
-      const failedList = uploadResults.filter(
-        (res) => res.status === "rejected"
-      );
-      if (failedList.length > 0) {
-        return Promise.reject({
-          code: 500,
-          message: "部分分片上传失败",
-          successList,
-          failedList,
-        });
-      }
-
-      return Promise.resolve({ code: 200, message: "ok" });
     },
 
     // 处理上传封面
@@ -681,6 +565,8 @@ export default {
     },
   },
   watch: {
+    'user.userId'() { this.init(); },
+    isLogin(value) { if (!value) this.init(); },
     categoryList(val) {
       if (val && val.length > 0) {
         this.videoForm.categoryId = val[0].id;

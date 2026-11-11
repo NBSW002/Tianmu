@@ -25,6 +25,8 @@ import cn.hutool.core.lang.Snowflake;
 import cn.hutool.core.util.IdUtil;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
+import com.orangecode.tianmu.exception.BusinessException;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -85,7 +87,12 @@ public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> i
         favoriteVideo.setUserId(userId);
         Snowflake snowflake = IdUtil.getSnowflake(SnowflakeConstant.WORKER_ID, SnowflakeConstant.DATA_CENTER_ID);
         favoriteVideo.setFavoriteId(snowflake.nextId());
-        boolean save = this.save(favoriteVideo);
+        boolean save;
+        try {
+            save = this.save(favoriteVideo);
+        } catch (DuplicateKeyException duplicate) {
+            throw new BusinessException(ErrorCode.VIDEO_FAVORITE_ERROR);
+        }
         ThrowUtils.throwIf(!save, ErrorCode.SYSTEM_ERROR, "收藏记录保存失败");
 
         // 3. 优化：先初始化VideoStats记录（避免无记录时更新失败），再更新收藏数

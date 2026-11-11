@@ -60,10 +60,16 @@ export function linkify(text) {
  * @param {String} inputString 要转换的文本
  */
 export function highlightKeyword(keyword, inputString) {
-    // 使用正则表达式创建一个匹配关键词的模式
-    const regex = new RegExp(`(${keyword.split('').join('|')})`, 'gi');
-    // 使用字符串替换函数进行替换，添加高亮标签
-    return inputString.replace(regex, '<em class="suggest_high_light">$1</em>');
+    const text = String(inputString ?? '');
+    const escape = value => value.replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[character]));
+    const characters = [...new Set(Array.from(String(keyword ?? '')))];
+    if (!characters.length) return escape(text);
+    const pattern = characters.map(character => character.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    return text.split(new RegExp('(' + pattern + ')', 'giu'))
+        .map((part, index) => index % 2 ? '<em class="suggest_high_light">' + escape(part) + '</em>' : escape(part))
+        .join('');
 }
 
 

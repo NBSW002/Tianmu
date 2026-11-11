@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS `coin` (
   `coin_id` BIGINT PRIMARY KEY,
   `video_id` BIGINT NOT NULL DEFAULT 0,
   `user_id` BIGINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_coin_user_video (`user_id`, `video_id`),
   `create_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS `favorite` (
   `favorite_id` BIGINT PRIMARY KEY,
   `video_id` BIGINT NOT NULL DEFAULT 0,
   `user_id` BIGINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_favorite_user_video (`user_id`, `video_id`),
   `create_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
@@ -64,6 +66,7 @@ CREATE TABLE IF NOT EXISTS `like` (
   `like_id` BIGINT PRIMARY KEY,
   `video_id` BIGINT NOT NULL DEFAULT 0,
   `user_id` BIGINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_like_user_video (`user_id`, `video_id`),
   `create_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 

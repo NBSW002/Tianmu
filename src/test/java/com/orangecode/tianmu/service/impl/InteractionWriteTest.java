@@ -20,6 +20,101 @@ import static org.mockito.Mockito.*;
 
 @SuppressWarnings({"rawtypes", "unchecked"})
 class InteractionWriteTest {
+    @Test void deploymentSchemaRejectsDuplicateUserVideoPairs() throws Exception {
+        var source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                "jdbc:h2:mem:" + java.util.UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
+        var db = new org.springframework.jdbc.core.JdbcTemplate(source);
+        String schema = java.nio.file.Files.readString(java.nio.file.Path.of("deploy/site/business-schema.sql"));
+        try {
+            for (String table : java.util.List.of("like", "favorite", "coin")) {
+                int start = schema.indexOf("CREATE TABLE IF NOT EXISTS `" + table + "`");
+                int end = schema.indexOf(") ENGINE", start);
+                db.execute(schema.substring(start, end) + ")");
+                String insert = "INSERT INTO `" + table + "` (`" + table + "_id`,user_id,video_id) VALUES(?,?,?)";
+                db.update(insert, 1L, 1L, 99L);
+                assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> db.update(insert, 2L, 1L, 99L));
+                db.update(insert, 3L, 2L, 99L);
+                db.update(insert, 4L, 1L, 100L);
+            }
+        } finally { db.execute("SHUTDOWN"); }
+    }
+    @Test void concurrentCoinRequestsSpendAndCountOnlyTheUniqueWinner() throws Exception {
+        fixture(false, false, false, 1);
+        var source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                "jdbc:h2:mem:" + java.util.UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
+        var db = new org.springframework.jdbc.core.JdbcTemplate(source);
+        db.execute("CREATE TABLE coin (id BIGINT PRIMARY KEY, user_id BIGINT, video_id BIGINT, UNIQUE(user_id,video_id))");
+        db.execute("CREATE TABLE wallet (balance INT)"); db.update("INSERT INTO wallet VALUES(1)");
+        db.execute("CREATE TABLE counts (coins INT)"); db.update("INSERT INTO counts VALUES(0)");
+        var barrier = new java.util.concurrent.CyclicBarrier(2);
+        doAnswer(call -> {
+            Coin value = call.getArgument(0);
+            barrier.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return db.update("INSERT INTO coin VALUES(?,?,?)", value.getCoinId(), value.getUserId(), value.getVideoId()) == 1;
+        }).when(coins).save(any(Coin.class));
+        when(statsUpdate.update()).thenAnswer(call -> db.update("UPDATE counts SET coins=coins+1") == 1);
+        when(balanceUpdate.update()).thenAnswer(call -> db.update("UPDATE wallet SET balance=balance-1 WHERE balance>0") == 1);
+        var factory = new org.springframework.aop.framework.ProxyFactory(coins);
+        factory.setProxyTargetClass(true);
+        factory.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(source),
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        var entry = (CoinServiceImpl) factory.getProxy();
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Callable<Integer> request = () -> {
+            try { entry.coinVideo(action(1L)); return 200; }
+            catch (BusinessException rejected) { return rejected.getCode(); }
+        };
+        try {
+            var first = pool.submit(request); var second = pool.submit(request);
+            var outcomes = java.util.List.of(first.get(10, java.util.concurrent.TimeUnit.SECONDS), second.get(10, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(outcomes.contains(200)); assertTrue(outcomes.contains(ErrorCode.VIDEO_COIN_ERROR.getCode()));
+            assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM coin", Integer.class));
+            assertEquals(1, db.queryForObject("SELECT coins FROM counts", Integer.class));
+            assertEquals(0, db.queryForObject("SELECT balance FROM wallet", Integer.class));
+        } finally { pool.shutdownNow(); db.execute("SHUTDOWN"); }
+    }
+    @Test void duplicateFavoriteAndCoinReturnBusinessErrorsBeforeCountersOrSpending() {
+        fixture(false, false, false, 1);
+        doThrow(new org.springframework.dao.DuplicateKeyException("duplicate")).when(favorites).save(any(Favorite.class));
+        assertCode(ErrorCode.VIDEO_FAVORITE_ERROR, () -> favorites.favoriteVideo(action(1L)));
+        doThrow(new org.springframework.dao.DuplicateKeyException("duplicate")).when(coins).save(any(Coin.class));
+        assertCode(ErrorCode.VIDEO_COIN_ERROR, () -> coins.coinVideo(action(1L)));
+        verify(stats, never()).lambdaUpdate();
+        verify(balances, never()).lambdaUpdate();
+    }
+
+    @Test void tripleUniqueConflictRollsBackEarlierWritesThroughTransactionalEntry() {
+        fixture(false, false, false, 1);
+        var source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                "jdbc:h2:mem:" + java.util.UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
+        var db = new org.springframework.jdbc.core.JdbcTemplate(source);
+        db.execute("CREATE TABLE favorite (id BIGINT PRIMARY KEY, user_id BIGINT, video_id BIGINT, UNIQUE(user_id,video_id))");
+        db.execute("CREATE TABLE liked (id BIGINT PRIMARY KEY, user_id BIGINT, video_id BIGINT, UNIQUE(user_id,video_id))");
+        db.update("INSERT INTO favorite VALUES(7,1,99)");
+        doAnswer(call -> {
+            Like value = call.getArgument(0);
+            return db.update("INSERT INTO liked VALUES(?,?,?)", value.getLikeId(), value.getUserId(), value.getVideoId()) == 1;
+        }).when(likes).save(any(Like.class));
+        doAnswer(call -> {
+            Favorite value = call.getArgument(0);
+            return db.update("INSERT INTO favorite VALUES(?,?,?)", value.getFavoriteId(), value.getUserId(), value.getVideoId()) == 1;
+        }).when(favorites).save(any(Favorite.class));
+        var factory = new org.springframework.aop.framework.ProxyFactory(videos);
+        factory.setProxyTargetClass(true);
+        factory.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(source),
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        var entry = (VideoServiceImpl) factory.getProxy();
+        try {
+            assertCode(ErrorCode.OPERATION_ERROR, () -> entry.tripleAction(action(1L)));
+            assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM liked", Integer.class));
+            assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM favorite", Integer.class));
+            verify(coins, never()).save(any(Coin.class));
+            verify(balances, never()).lambdaUpdate();
+            verify(stats, never()).update(any(Wrapper.class));
+        } finally { db.execute("SHUTDOWN"); }
+    }
     private FavoriteServiceImpl favorites;
     private CoinServiceImpl coins;
     private VideoServiceImpl videos;
