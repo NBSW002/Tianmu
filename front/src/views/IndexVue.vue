@@ -87,7 +87,7 @@ export default {
     pagedCards() { return this.homeFeed.cards.slice((this.feedPage - 1) * this.feedPageSize, this.feedPage * this.feedPageSize); },
     assistantOpen() { return useAssistantStore().open; },
     homeFeed() {
-      return splitHomeFeed(this.recmVideoList, this.recommendationOffset);
+      return splitHomeFeed(this.recmVideoList, this.recommendationOffset, this.feedPageSize);
     },
   },
   methods: {

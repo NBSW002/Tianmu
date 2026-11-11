@@ -28,3 +28,13 @@ test('small catalogues retain ordinary cards without inventing or losing videos'
     if (count >= 7) assert.ok(cards.length >= 6);
   }
 });
+
+test('twenty real videos reach a fourth row at five and six columns', () => {
+  for (const columns of [5, 6]) {
+    const capacity = columns * 4 - 4;
+    const { featured, cards } = splitHomeFeed(videos(20), 0, capacity);
+    assert.equal(new Set([...featured, ...cards].map(video => video.videoId)).size, 20);
+    assert.ok(cards.length > columns * 3 - 4);
+    assert.ok(featured.length >= 1);
+  }
+});
