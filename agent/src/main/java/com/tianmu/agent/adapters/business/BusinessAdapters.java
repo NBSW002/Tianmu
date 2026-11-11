@@ -203,6 +203,12 @@ final class RemoteBusinessAdapter implements IdentityPort, BusinessQueryPort, co
         accessible.addAll(allowed(current,history,false,true));
         return grant(current,accessible,true);
     }
+    @Override public com.tianmu.agent.query.VideoPagePort.Page reportPage(long videoId,AccessScope scope) {
+        if (!scope.readableVideoIds().contains(videoId)) throw new AgentException("FORBIDDEN","Current page outside scope");
+        JsonNode data=request("GET","/internal/agent/video-context?videoId="+videoId+"&includeCover=true",credentials.token(scope.authorizationRef()),null,null,524288,Math.max(config.timeoutMillis(),15000));
+        try{return json.treeToValue(data,com.tianmu.agent.query.VideoPagePort.Page.class);}
+        catch(Exception e){throw new AgentException("BUSINESS_UNAVAILABLE","Invalid report metadata");}
+    }
     @Override public com.tianmu.agent.query.VideoPagePort.Page page(long videoId,AccessScope scope) {
         if (!scope.readableVideoIds().contains(videoId)) throw new AgentException("FORBIDDEN","Current page outside scope");
         JsonNode data = request("GET","/internal/agent/video-context?videoId="+videoId,credentials.token(scope.authorizationRef()),null,null);

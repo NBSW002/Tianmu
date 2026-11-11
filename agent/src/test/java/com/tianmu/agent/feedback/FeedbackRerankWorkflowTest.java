@@ -30,7 +30,11 @@ class FeedbackRerankWorkflowTest {
     @Test void directReadingUsesOneModelCallAndNoEmbeddingOrRerank() throws Exception {
         verifyWorkflow(true);
     }
-    private void verifyWorkflow(boolean direct) throws Exception {
+    @Test void providerFailureCannotDeliverASuccessfulEmptyReport() throws Exception {
+        verifyWorkflow(false,true);
+    }
+    private void verifyWorkflow(boolean direct) throws Exception { verifyWorkflow(direct,false); }
+    private void verifyWorkflow(boolean direct,boolean failProvider) throws Exception {
         var json=new ObjectMapper().findAndRegisterModules();
         var qwenCalls=new AtomicInteger();
         var deepseekCalls=new AtomicInteger();
@@ -50,13 +54,14 @@ class FeedbackRerankWorkflowTest {
         server.createContext("/chat/completions",exchange->{
             try(exchange){
                 int attempt=deepseekCalls.incrementAndGet();
+                if(failProvider){exchange.sendResponseHeaders(503,-1);return;}
                 var input=json.readTree(exchange.getRequestBody());
                 var payload=json.readTree(input.path("messages").get(1).path("content").asText());
                 var evidence=payload.path("evidence");
                 sentEvidence.set(evidence.size());
                 var edges=new ArrayList<Map<String,String>>();
                 for(int i=0;i<2;i++)edges.add(Map.of("groupId",evidence.get(i).path("groupId").asText(),"expressionId",evidence.get(i).path("expressionId").asText()));
-                var topic=Map.of("title","反馈主题","observation","观众描述了实际体验。","recommendation","复查相关片段。",
+                var topic=Map.of("title","反馈主题","observation","观众描述了实际体验。","recommendation","",
                         "evidence",edges,"quotes",List.of(attempt==1?evidence.get(0).path("text").asText():edges.get(0).get("expressionId")));
                 var content=json.writeValueAsString(Map.of("topics",List.of(topic)));
                 byte[] body=json.writeValueAsBytes(Map.of("choices",List.of(Map.of("finish_reason","stop","message",Map.of("content",content))),
@@ -113,6 +118,12 @@ class FeedbackRerankWorkflowTest {
             assertEquals(0,deepseekCalls.get());
             prep.startCompressedReport(job.id(),owner,null,control);
             for(int n=0;n<8 && jobs.get(job.id()).phase()!=Phase.READY;n++)service.advance(job.id());
+            if(failProvider){
+                assertEquals(Phase.FAILED,jobs.get(job.id()).phase());
+                assertEquals(1,deepseekCalls.get(),"A one-shot confirmation cannot silently retry the provider");
+                assertThrows(AgentException.class,()->prep.reportJson(job.id(),owner,control));
+                return;
+            }
             assertEquals(Phase.READY,jobs.get(job.id()).phase(),()->String.valueOf(jobs.get(job.id()).errorCode()));
             assertEquals(1,deepseekCalls.get());
             assertEquals(direct?30:15,sentEvidence.get());
@@ -153,9 +164,10 @@ class FeedbackRerankWorkflowTest {
             while(Instant.now().isBefore(first.leaseUntil()))Thread.sleep(2);
             assertFalse(jobs.transitionClaim(first,Phase.WAITING_AUTH,null));
             for(int n=0;n<8 && jobs.get(recovered.id()).phase()!=Phase.READY;n++)service.advance(recovered.id());
-            assertEquals(Phase.READY,jobs.get(recovered.id()).phase());
+            assertEquals(Phase.FAILED,jobs.get(recovered.id()).phase());
+            assertEquals("ANALYSIS_CONFIRMATION_UNAVAILABLE",jobs.get(recovered.id()).errorCode());
             assertEquals(2,deepseekCalls.get(),"A reclaimed confirmation must not send another request");
-            assertTrue(prep.reportJson(recovered.id(),owner,control).topics().isEmpty());
+            assertThrows(AgentException.class,()->prep.reportJson(recovered.id(),owner,control));
 
             var beforeReservation=prep.requestMaterials(UUID.randomUUID(),owner,request,control.deadline());
             for(int n=0;n<10 && !prep.materialsReady(beforeReservation.id());n++)

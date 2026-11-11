@@ -58,31 +58,50 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
         FeedbackCompressionProperties reportPolicy=material.policy();var v=asset.video();var videoDetails=v==null?null:new VideoDetails(v.startMs(),v.endMs(),v.sampledAtMs(),v.moments(),!v.transcript().isBlank(),reportPolicy.momentMatchMaxGapMs());
         return new FeedbackReportJson("feedback-report-json-v1","观众反馈报告",summary,cards.stream().limit(5).toList(),cards.stream().skip(5).toList(),method,v==null?null:v.summary(),scope,asset.snapshot().dataAsOf(),v==null?null:v.coverage(),material.unclassifiedExamples(),stats==null?Map.of():stats.daily(),playback,videoDetails);
     }
+    public FeedbackReportJson withVideoTitle(String value){return withVideoMetadata(value,Objects.toString(scope.get("video_cover"),""));}
+    public FeedbackReportJson withVideoMetadata(String value,String cover){
+        var metadata=new LinkedHashMap<String,Object>(scope);
+        if(value!=null && !value.isBlank())metadata.put("video_title",value);
+        if(cover!=null && cover.length()<=350000 && cover.matches("data:image/(?:jpeg|png|gif|webp|avif);base64,[A-Za-z0-9+/=]+"))metadata.put("video_cover",cover);
+        return new FeedbackReportJson(schemaVersion,title,summary,topics,otherTopics,method,videoSummary,metadata,dataAsOf,videoCoverage,unclassifiedExamples,daily,playback,videoDetails);
+    }
     private boolean reranked(){return FeedbackCompression.RERANK_VERSION.equals(method.get("method"));}
     public byte[] html(){
         String videoId=Objects.toString(scope.get("video_id"),"");
         String videoTitle=Objects.toString(scope.get("video_title"),"").strip();
+        String cover=Objects.toString(scope.get("video_cover"),"");
+        if(cover.length()>350000 || !cover.matches("data:image/(?:jpeg|png|gif|webp|avif);base64,[A-Za-z0-9+/=]+"))cover="";
         if(videoTitle.isEmpty())videoTitle="这条视频，观众怎么说";
-        var h=new StringBuilder("<!doctype html><html lang='zh-CN'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>")
+        var h=new StringBuilder("<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>")
                 .append(escape(videoTitle)).append(" · 观众反馈报告</title><style>").append(FeedbackReportRenderer.styles())
-                .append(FeedbackReportCharts.STYLE).append(READER_STYLE).append("</style><main><header>");
-        h.append("<p class='eyebrow'>观众反馈报告</p><h1>").append(escape(videoTitle)).append("</h1>");
+                .append(FeedbackReportCharts.STYLE).append(READER_STYLE).append(EDITORIAL_STYLE).append("</style></head><body data-report-layout='editorial-v2'><main><div class='masthead'><span>EchoFrame</span><span>反馈报告</span></div><header>");
+        h.append("<div class='report-heading'><p class='eyebrow'>观众反馈报告</p><h1>").append(escape(videoTitle)).append("</h1>");
+        if(!cover.isBlank())h.append("<figure class='video-cover'><img src='").append(escape(cover)).append("' alt='").append(escape(videoTitle)).append("的视频封面' width='640' height='360'></figure>");
+        h.append("<div class='report-meta'><span>").append(escape(readableRange())).append("</span>");
         if(videoId.matches("[1-9][0-9]{0,18}"))h.append("<a href='/video/").append(videoId).append("'>查看视频 ↗</a>");
-        h.append("<p class='muted'>").append(escape(readableRange())).append("</p>");
-        if(videoSummary!=null)h.append("<p class='video-intro'>").append(escape(videoSummary)).append("</p>");
-        h.append("<p class='report-lead'>").append(escape(summary)).append("</p>");
-        h.append("<p class='coverage-line'>采集 ").append(method.get("raw")).append(" 条 · 纳入分析 ")
-                .append(method.get("eligible")).append(" 条 · 归纳 ").append(method.getOrDefault("topics",method.get("clusters"))).append(" 个话题</p></header>");
-        if(playback!=null){h.append("<section>");FeedbackReportCharts.playback(h,playback);h.append("</section>");}
-        h.append("<section>");
-        if(videoSummary!=null){h.append("<details><summary>查看视频片段说明</summary>");if(videoDetails!=null){h.append("<p>画面说明来自视频中的 ").append(videoDetails.sampledAtMs().size()).append(" 个位置。");if(!videoDetails.transcriptAvailable())h.append("声音相关评价来自观众反馈，尚未独立核实。");h.append("</p>");for(var moment:videoDetails.moments())h.append("<p>").append(moment.atMs()/1000.0).append(" 秒：").append(escape(moment.observation())).append("</p>");}h.append("</details>");}
-        if(!topics.isEmpty())h.append("<h2>观众关注的 ").append(topics.size()).append(" 个话题</h2>");for(var topic:topics)card(h,topic);
+        h.append("</div><p class='report-lead'>").append(escape(summary)).append("</p></div>");
+
+        h.append("</header><div class='report-source'><span>共采集 ").append(number(method.get("raw"))).append(" 条评论与弹幕</span><span>")
+                .append(number(method.getOrDefault("topics",method.get("clusters")))).append(" 个讨论话题</span></div>");
+        h.append("<div class='report-layout'><div class='report-body'><section class='report-topics'>");
+        if(videoDetails!=null){h.append("<details><summary>查看视频片段说明</summary>");if(videoDetails!=null){h.append("<p>画面说明来自视频中的 ").append(videoDetails.sampledAtMs().size()).append(" 个位置。");if(!videoDetails.transcriptAvailable())h.append("声音相关评价来自观众反馈，尚未独立核实。");h.append("</p>");for(var moment:videoDetails.moments())h.append("<p>").append(moment.atMs()/1000.0).append(" 秒：").append(escape(moment.observation())).append("</p>");}h.append("</details>");}
+        if(!topics.isEmpty())h.append("<h2>观众关注的 ").append(topics.size()).append(" 个话题</h2>");for(int i=0;i<topics.size();i++)card(h,topics.get(i),i+1);
         if(!unclassifiedExamples.isEmpty()){h.append("<details><summary>其他反馈摘录</summary>");for(var item:unclassifiedExamples)h.append("<blockquote>").append(escape(item.text())).append("</blockquote>");h.append("</details>");}
-        if(!otherTopics.isEmpty()){h.append("<details><summary>其他话题</summary>");otherTopics.forEach(t->card(h,t));h.append("</details>");}
-        h.append("</section><footer class='report-footer'>根据本次已采集的反馈归纳，所列原话为部分摘录。</footer></main></html>");return h.toString().getBytes(StandardCharsets.UTF_8);
+        if(!otherTopics.isEmpty()){h.append("<details><summary>其他话题</summary>");for(int i=0;i<otherTopics.size();i++)card(h,otherTopics.get(i),topics.size()+i+1);h.append("</details>");}
+        h.append("</section>");
+        if(playback!=null){h.append("<section id='playback'>");FeedbackReportCharts.playback(h,playback);h.append("</section>");}
+        var actions=topics.stream().filter(t->t.recommendation()!=null && !t.recommendation().isBlank()).toList();
+        if(!actions.isEmpty()){
+            h.append("<section id='creation'><h2>创作建议</h2>");
+            for(var topic:actions)h.append("<div class='advice-row'><h3>").append(escape(topic.title())).append("</h3><p>").append(escape(topic.recommendation())).append("</p></div>");
+            h.append("</section>");
+        }
+        h.append("<details class='report-method'><summary>关于本次分析</summary><p>共采集 ").append(number(method.get("raw"))).append(" 条反馈，去除纯表情、刷屏等低信息互动后，保留 ")
+                .append(number(method.get("eligible"))).append(" 条；报告依据其中选取的代表原话归纳。筛选不改变弹幕时间图的原始计数。</p>");
+        h.append("<p>根据本次已采集的反馈归纳，所列原话为部分摘录；不代表逐条阅读全部反馈，也不据此推断全体观众的观点比例。弹幕时间分布统计包含未进入主题分析的刷屏等互动，不代表观众留存率。</p></details><footer class='report-footer'>EchoFrame · 观众反馈报告</footer></div></div></main></body></html>");return h.toString().getBytes(StandardCharsets.UTF_8);
     }
-    private void card(StringBuilder h,TopicView topic){
-        h.append("<article class='topic'><div class='topic-head'><h3>").append(escape(topic.title()))
+    private void card(StringBuilder h,TopicView topic,int ordinal){
+        h.append("<article id='topic-").append(ordinal).append("' class='topic'><div class='topic-head'><span class='topic-number'>").append(String.format(java.util.Locale.ROOT,"%02d",ordinal)).append("</span><h3>").append(escape(topic.title()))
                 .append("</h3></div><p class='observation'>").append(escape(topic.observation())).append("</p>");
         if(!topic.representatives().isEmpty())quote(h,topic.representatives().get(0));
         h.append("<p class='evidence-note'>本节引用：");
@@ -90,13 +109,11 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
         if(topic.commentCount()>0 && topic.danmakuCount()>0)h.append(" · ");
         if(topic.danmakuCount()>0)h.append("弹幕 ").append(topic.danmakuCount()).append(" 条");
         h.append("</p>");
-        h.append("<details class='topic-detail'><summary>更多原话与片段依据</summary>");
-        for(int i=1;i<topic.representatives().size();i++)quote(h,topic.representatives().get(i));
-        appendMoments(h,topic);
-        h.append("</details>");
-        if(topic.recommendation()!=null && !topic.recommendation().isBlank())
-            h.append("<div class='action'><p class='label'>创作建议</p><p>")
-                    .append(escape(topic.recommendation())).append("</p></div>");
+        var more=new StringBuilder();
+        for(int i=1;i<topic.representatives().size();i++)quote(more,topic.representatives().get(i));
+        appendMoments(more,topic);
+        if(!more.isEmpty())h.append("<details class='topic-detail'><summary>更多原话与片段依据</summary>").append(more).append("</details>");
+
         h.append("</article>");
     }
     private void quote(StringBuilder h,FeedbackCompression.Representative quote){
@@ -153,6 +170,54 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
             .x-axis,.y-axis{font-size:12px}
             @media(max-width:600px){h1{font-size:25px}.report-lead{font-size:18px}.topic h3{font-size:21px}
             header,section,.method{border-radius:8px}.trend-chart{padding:0 8px}}
+            """;
+    private static String number(Object value){
+        return value instanceof Number n?java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(n.longValue()):"—";
+    }
+    private static final String EDITORIAL_STYLE="""
+            body{background:#faf9f5;color:#262922;letter-spacing:.015em;line-height:1.85}
+            main{max-width:1080px;padding:28px 40px 48px;margin:auto}
+            .masthead{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:20px;border-bottom:1px solid #d9d8ce;font-size:12px;color:#72766b;letter-spacing:.04em}
+            .masthead>span:first-child{font:25px Georgia,serif;color:#354332;letter-spacing:-.02em}
+            header{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:40px;background:transparent;border:0;border-radius:0;padding:36px 0 32px;margin:0;border-bottom:1px solid #d9d8ce;align-items:start}
+            header .eyebrow{font-size:12px;letter-spacing:.08em;margin:0 0 16px;color:#a25339}
+            h1{font-size:34px;line-height:1.42;font-weight:500;max-width:22em;letter-spacing:0;margin:0 0 20px;color:#283226}
+            .report-meta{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 20px;font-size:12px;line-height:1.7;color:#797c73}
+            .report-meta a{color:#72766b;text-decoration:none;white-space:nowrap}.report-meta a:hover{color:#a25339;text-decoration:underline}
+            .report-lead{font-size:16px;line-height:1.85;font-weight:400;max-width:37em;color:#535b4d;margin:24px 0 0;padding-left:16px;border-left:2px solid #abb39e}
+            .video-cover{max-width:480px;margin:24px 0;align-self:start}
+            .video-cover img{width:100%;height:auto;object-fit:contain;display:block;border-radius:6px;background:#e9e9df}
+            header{display:block;border-bottom:0;padding-bottom:28px}
+            header:has(.video-cover){display:block}
+            .report-source{display:flex;gap:24px;flex-wrap:wrap;padding:16px 0;border-top:1px solid #deded4;border-bottom:1px solid #deded4;font-size:12px;color:#73796b;line-height:1.6}
+            .report-method{font-size:12px;color:#73796b;margin:0 0 20px}.report-method summary{color:#73796b;font-size:12px}.report-method p{max-width:48em;line-height:1.9}
+            .report-layout{max-width:760px;margin:0 auto;padding-top:32px}
+            .report-toc{position:sticky;top:28px;display:grid;gap:4px;font-size:12px;line-height:1.65;padding-right:16px}
+            .report-toc .label{font-size:11px;color:#92958b;margin:0 0 12px;font-weight:400}
+            .report-toc a{color:#73786b;text-decoration:none;display:flex;gap:12px;padding:8px 0}
+            .report-toc a:hover{color:#a25339}.report-toc a span{font-size:10px;font-variant-numeric:tabular-nums;color:#a4a79c;min-width:16px;padding-top:2px}
+            .report-toc a[href='#creation']{margin-top:12px;border-top:1px solid #e4e4da;padding-top:16px;color:#a25339}
+            .report-body{min-width:0}.report-body>section{padding:0 0 28px;margin:0 0 32px;background:transparent;border:0;border-radius:0;border-bottom:1px solid #d9d8ce}
+            .report-body h2{font-size:13px;font-weight:400;color:#808577;margin:0 0 24px;line-height:1.6;letter-spacing:.035em}
+            .topic{padding:28px 0;scroll-margin-top:28px;border-color:#e3e4da}
+            .topic:first-of-type{padding-top:0}.topic:last-child{padding-bottom:4px}
+            .topic-head{display:flex;align-items:baseline;gap:14px;flex-wrap:nowrap}
+            .topic-number{font:18px Georgia,serif;color:#b3b8a8;font-variant-numeric:tabular-nums;flex-shrink:0}
+            .topic h3{font-size:24px;line-height:1.5;color:#293326;font-weight:500}
+            .topic .observation{font-size:15px;line-height:1.95;color:#555d4f;margin:16px 0 20px;max-width:40em}
+            blockquote{background:transparent;border-left:2px solid #b07857;border-radius:0;padding:4px 0 4px 20px;margin:20px 0 12px;font-size:18px;line-height:1.8;color:#384331;max-width:36em}
+            blockquote footer{margin-top:8px;font-size:11px;color:#73796b;line-height:1.6}
+            .evidence-note{margin:10px 0 0;font-size:11px;color:#73796b;line-height:1.6}
+            .topic-detail{margin-top:16px}.topic-detail>summary,.reply-context>summary{font-size:12px;color:#8a8f81}
+            .reply-context p{font-size:13px;color:#73786b}.report-body>section>details{font-size:13px;margin-bottom:24px;color:#72796b}
+            #creation{background:#f0f1e8;border:0;padding:24px 28px 12px;border-radius:4px}
+            #creation h2{font-size:18px;color:#354332;letter-spacing:0;margin:0 0 16px;font-weight:500}
+            .advice-row{display:grid;grid-template-columns:144px minmax(0,1fr);gap:24px;padding:20px 0;border-top:1px solid #dce0d2}
+            .advice-row h3{font-size:13px;font-weight:500;color:#57634d;line-height:1.8}.advice-row p{margin:0;font-size:14px;line-height:1.9;color:#515c49}
+            .report-body .trend-chart{padding:0}.report-body .trend-chart h3{font-size:20px;color:#354332}
+            .report-footer{font-size:11px;line-height:1.85;color:#73796b;padding:0;max-width:58em}
+            #creation,#playback{scroll-margin-top:28px}
+            @media(max-width:760px){main{padding:20px 24px 32px}.masthead{gap:20px;padding-bottom:16px}.masthead>span:first-child{font-size:23px}header,header:has(.video-cover){display:flex;flex-direction:column;gap:24px;align-items:stretch;padding:28px 0}.video-cover{width:100%}h1{font-size:27px;line-height:1.45}.report-lead{font-size:15px;margin-top:20px}.report-source{font-size:11px;gap:8px 20px}.report-layout{display:block;padding-top:24px}.report-toc{position:static;grid-template-columns:repeat(2,minmax(0,1fr));padding:0 0 20px;margin-bottom:28px;border-bottom:1px solid #e1e2d7;gap:4px 20px}.report-toc>.label{grid-column:1/-1;margin-bottom:8px}.report-toc a{padding:6px 0;font-size:12px}.report-toc a[href='#creation']{margin:0;padding:6px 0;border:0}.report-body h2{font-size:12px;margin-bottom:20px}.topic h3{font-size:21px}.topic-head{gap:12px}.topic-number{font-size:16px}.topic{padding:24px 0}.topic .observation{font-size:15px;line-height:1.95;margin:12px 0 16px}blockquote{padding-left:16px;font-size:17px;line-height:1.85;margin:16px 0 10px}.advice-row{grid-template-columns:1fr;gap:8px;padding:16px 0}#creation{padding:20px 20px 8px}.report-meta{font-size:12px;gap:8px 16px}.report-footer{font-size:11px}}
             """;
     private void appendMoments(StringBuilder h,TopicView topic){
         if(videoDetails==null || videoDetails.moments().isEmpty())return;

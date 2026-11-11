@@ -214,12 +214,17 @@ public final class FeedbackAnalysisService {
                         "MODEL_TOKEN_BUDGET_EXCEEDED","MODEL_CALL_BUDGET_EXCEEDED","MODEL_QUOTA_EXHAUSTED","MODEL_DISPATCH_ALREADY_RESERVED",
                         "INVALID_ANALYSIS").contains(failure.code()))throw failure;
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.validation_issue",failure.code()));
+                throw failure; // A provider failure must not become a successful empty report.
             }
+        } else if(!input.groups().isEmpty()) {
+            throw new AgentException("ANALYSIS_CONFIRMATION_UNAVAILABLE","Confirmation has no durable result; report generation did not complete");
         }
         var completion=new CallControl(job.deadline(),token)
                 .withDispatchBarrier(()->source.authorize(job.owner(),job.request().query().videoId()));
         reductionBarrier(completion);
         var result=FeedbackRerankConfirmation.validate(work.id().toString(),input,proposals);
+        if(!proposals.isEmpty() && result.topics().isEmpty())
+            throw new AgentException("INVALID_ANALYSIS","No proposed topics passed evidence validation; no report was delivered");
         boolean completed=store.complete(work,objects.put(job.id(),result,completion));
         if(completed && cached==null && key!=null && !result.topics().isEmpty() && result.topics().size()==proposals.size())
             resultCache.put(key,job,input,proposals);

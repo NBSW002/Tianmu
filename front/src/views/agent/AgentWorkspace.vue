@@ -423,6 +423,8 @@ function failureLabel(code) {
       DEADLINE_EXCEEDED: '这次回复耗时较长，请稍后重试。',
       MODEL_UNAVAILABLE: '模型服务暂时不可用，请稍后重试。',
       MODEL_OUTPUT_LIMIT: '模型输出已达上限，结果未完整生成。',
+      ANALYSIS_CONFIRMATION_UNAVAILABLE: '本次分析未能保存完整结果，报告未生成。请重新发起分析。',
+      INVALID_ANALYSIS: '分析结果未通过原话与引用核对，报告未生成。请重新发起分析。',
       MATERIAL_BUDGET_EXCEEDED: '反馈差异较多，当前代表材料预算无法完整覆盖。请缩小时间范围后重试。',
       REPRESENTATIVE_SELECTION_FAILED: '部分反馈没有选出合适的代表，已停止生成报告，请调整分析范围。',
       VECTOR_REQUIRED: '向量处理服务尚未就绪，本次报告未开始模型分析。',

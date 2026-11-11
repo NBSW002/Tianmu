@@ -22,8 +22,8 @@ public final class AgentBridgeController {
         return authentication.authenticate(auth);
     }
     @GetMapping("/video-context")
-    public BusinessMetrics.Page page(@RequestHeader(value="Authorization",required=false) String auth,@RequestParam long videoId) {
-        return metrics.page(authentication.authenticate(auth),videoId);
+    public BusinessMetrics.Page page(@RequestHeader(value="Authorization",required=false) String auth,@RequestParam long videoId,@RequestParam(defaultValue="false") boolean includeCover) {
+        return metrics.page(authentication.authenticate(auth),videoId,includeCover);
     }
     @GetMapping("/my-videos")
     public BusinessMetrics.VideoMatches searchVideos(@RequestHeader(value="Authorization",required=false) String auth,

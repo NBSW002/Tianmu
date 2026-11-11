@@ -21,6 +21,7 @@ blockquote{background:var(--report-surface)!important;border-left-color:var(--re
 `;
 
 export function themeReportHtml(html) {
+  if (/data-report-layout=["']editorial-v2["']/i.test(html)) return html;
   const style = `<style data-echoframe-report-theme>${reportTheme}</style>`;
   return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, style + '</head>') : html + style;
 }

@@ -28,8 +28,9 @@ public final class FeedbackRerankConfirmation {
                     || selection==null || selection.representativeIds().isEmpty() || selection.representativeIds().size()>3
                     || new HashSet<>(selection.representativeIds()).size()!=selection.representativeIds().size()
                     || !ids.containsAll(selection.representativeIds())
-                    || !within(proposal.title(),24) || !within(proposal.observation(),120) || !within(proposal.recommendation(),80)
+                    || !within(proposal.title(),24) || !within(proposal.observation(),120) || !optional(proposal.recommendation(),80)
                     || accepted.stream().anyMatch(previous->previous.containsAll(ids) || ids.containsAll(previous))
+                    || ids.stream().allMatch(id->FeedbackTextQuality.lowInformation(groups.get(id).text()))
                     || !titles.add(proposal.title().strip()))continue;
             long count=ids.stream().flatMap(id->groups.get(id).originalIds().stream()).distinct().count();
             topics.add(new Topic(workId+":T"+(topics.size()+1),proposal.title().strip(),proposal.observation(),proposal.recommendation(),
@@ -39,6 +40,9 @@ public final class FeedbackRerankConfirmation {
         return new ResultNode(workId,WorkKind.CLASSIFY,topics,topics.stream().mapToLong(Topic::messages).sum(),0);
     }
 
+    private static boolean optional(String value,int limit){
+        return value!=null && value.codePointCount(0,value.length())<=limit;
+    }
     private static boolean within(String value,int limit){
         return value!=null && !value.isBlank() && value.codePointCount(0,value.length())<=limit;
     }

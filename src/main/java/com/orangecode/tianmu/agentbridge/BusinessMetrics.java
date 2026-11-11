@@ -24,13 +24,18 @@ public final class BusinessMetrics {
                 (rs,n)->new VideoCandidate(Long.toString(rs.getLong("video_id")),Objects.toString(rs.getString("title"),""),Math.max(0,Math.round(rs.getDouble("duration")*1000)),rs.getTimestamp("create_time",Calendar.getInstance(TimeZone.getTimeZone(storage))).toInstant()),args.toArray());
         boolean more=found.size()>limit;var items=List.copyOf(found.subList(0,Math.min(limit,found.size())));return new VideoMatches(items,offset+items.size(),more);
     }
-    public record Page(String videoId,String title,long durationMs) {}
-    public Page page(BusinessAuthentication.Principal principal,long videoId) {
-        var rows = db.queryForList("SELECT title,duration FROM video WHERE video_id=? AND (status=2 OR user_id=?) AND is_delete=0",videoId,Long.parseLong(principal.userId()));
+    public record Page(String videoId,String title,long durationMs,String coverDataUrl) {}
+    private java.util.function.Function<String,String> coverImages=url->"";
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    public void reportCovers(com.orangecode.tianmu.application.ReportCoverImages images){coverImages=images::read;}
+
+    public Page page(BusinessAuthentication.Principal principal,long videoId) {return page(principal,videoId,false);}
+    public Page page(BusinessAuthentication.Principal principal,long videoId,boolean includeCover) {
+        var rows = db.queryForList("SELECT title,duration,cover_url FROM video WHERE video_id=? AND (status=2 OR user_id=?) AND is_delete=0",videoId,Long.parseLong(principal.userId()));
         if (rows.size()!=1) throw new BridgeException("FORBIDDEN",403);
         var row = rows.get(0);
         long duration = row.get("duration") instanceof Number number && Double.isFinite(number.doubleValue()) ? Math.max(0,Math.round(number.doubleValue()*1000)) : 0;
-        return new Page(Long.toString(videoId),Objects.toString(row.get("title"),""),duration);
+        return new Page(Long.toString(videoId),Objects.toString(row.get("title"),""),duration,includeCover?coverImages.apply(Objects.toString(row.get("cover_url"),"")):"");
     }
     public record Metric(long videoId, LocalDate date, String metric, long value, String metricVersion,
             String source, Instant dataAsOf, String timezone, boolean complete, boolean demo) {}

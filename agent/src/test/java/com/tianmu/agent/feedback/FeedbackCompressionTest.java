@@ -46,6 +46,52 @@ class FeedbackCompressionTest {
         }
     }
 
+    @Test void filtersPureCheersBeforeAnalysisWhileRetainingPlaybackCounts(){
+        var compression=new FeedbackCompression(null,null,FeedbackCompressionProperties.defaults(),json);
+        var rows=List.of(unit(1,Source.DANMAKU,"666666",1000L),
+                unit(2,Source.DANMAKU,"６６６！！！[笑哭]",2000L),
+                unit(3,Source.DANMAKU,"哈哈哈哈",3000L),
+                unit(4,Source.DANMAKU,"233333",4000L),
+                unit(5,Source.DANMAKU,"666，这段转音太稳了",5000L),
+                unit(6,Source.DANMAKU,"02:30的字幕错了",6000L));
+        var part=compression.prepare(Source.DANMAKU,rows,control());
+        assertEquals(List.of("D:5","D:6"),part.eligible().stream().map(Unit::id).toList());
+        assertEquals(4,part.excluded().size());
+        assertTrue(part.excluded().stream().allMatch(e->e.reason().equals("LOW_INFORMATION")));
+        assertEquals(6L,part.stats().playback().values().stream().mapToLong(Long::longValue).sum());
+    }
+    @Test void keepsEvidenceWithoutInventingAnActionAndRejectsCheerOnlyTopics(){
+        var compression=new FeedbackCompression(null,null,FeedbackCompressionProperties.defaults(),json);
+        compression.tieredPolicy(new FeedbackTieredProperties(true,32768));
+        var rows=List.of(unit(1,Source.COMMENT,"声音和形象有反差",0L));
+        var material=compression.directMaterial(new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
+                new Counts(1,0,0,0,1),List.of(compression.prepare(Source.COMMENT,rows,control())),control());
+        var input=material.inputs().get(0);
+        var proposal=new FeedbackModels.Proposal("T1","形象反差","观众提到了声音与形象的反差。","",
+                List.of("C:1"),new Selection(List.of("C:1"),List.of(),"COHERENT",true,"直接证据"));
+        assertEquals(1,FeedbackRerankConfirmation.validate("test",input,List.of(proposal)).topics().size());
+        var cheer=new FeedbackModels.Group("C:1",Source.COMMENT,"666666","",false,null,1,List.of("C:1"),"D1");
+        var cheerInput=new FeedbackModels.Input(WorkKind.CLASSIFY,List.of(cheer),List.of(),null,null);
+        assertTrue(FeedbackRerankConfirmation.validate("test",cheerInput,List.of(proposal)).topics().isEmpty());
+    }
+
+    @Test void repeatedTextAtDifferentTimesConsumesOnlyOneCandidateSlot(){
+        var embedding=mock(FeedbackEmbedding.class);var vectors=mock(FeedbackVectorIndex.class);
+        when(embedding.dimension()).thenReturn(3);when(embedding.version()).thenReturn("dedup-fixture");
+        when(vectors.dimension()).thenReturn(3);when(vectors.fetchEntries(any(),anyList(),any())).thenReturn(Map.of());
+        when(embedding.embed(anyList(),any())).thenAnswer(inv -> inv.<List<String>>getArgument(0).stream().map(t->List.of(1f,0f,0f)).toList());
+        var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
+        var rows=List.of(unit(1,Source.DANMAKU,"人声太小听不清",1000L),unit(2,Source.DANMAKU,"人声太小听不清",20000L),
+                unit(3,Source.DANMAKU,"背景音乐太响了",40000L),unit(4,Source.DANMAKU,"背景音乐太响了",60000L));
+        var c=control();var scope=new Request(request.query(),Set.of(Source.DANMAKU),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.RERANK_VERSION);
+        var plan=compression.planRerank(owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
+                new Counts(0,4,0,0,4),List.of(compression.prepare(Source.DANMAKU,rows,c)),c,()->{});
+        assertEquals(1,plan.buckets().size());var bucket=plan.buckets().get(0);
+        assertEquals(1,bucket.candidates().size());
+        assertNotEquals(bucket.anchor().text(),bucket.candidates().get(0).representative().text());
+        assertEquals(4,plan.material().clusters().get(0).members().size());
+    }
+
     @Test void filteringSeparatesPureInteractionsFromSubstantiveFeedback(){
         var compression=new FeedbackCompression(null,null,FeedbackCompressionProperties.defaults(),json);
         var rows=List.of(unit(1,Source.COMMENT,"[星星眼][星星眼]",0L),

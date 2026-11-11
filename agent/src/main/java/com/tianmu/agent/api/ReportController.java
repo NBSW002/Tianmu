@@ -21,7 +21,7 @@ public final class ReportController {
         var owner = identity.forRun(auth.substring(7), runId);
         byte[] body = reports.report(runId, owner, artifactId);
         return ResponseEntity.ok().contentType(new MediaType("text", "html", java.nio.charset.StandardCharsets.UTF_8)).cacheControl(CacheControl.noStore())
-                .header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'")
                 .header("X-Content-Type-Options", "nosniff").body(body);
     }
     @GetMapping("/{artifactId}/json")

@@ -15,6 +15,7 @@ public final class FeedbackPreparationService {
     public record Prepared(Source source,Blob manifest,FeedbackPlanner.Planned plan,int exactExpressions,int clusters,String method) {}
     private final FeedbackAnalysisService analysis;private final FeedbackPreparationStore store;private final FeedbackObjects objects;
     private final SharedFeedbackSnapshot snapshots;private final FeedbackPlanner planner;private final FeedbackClusters clusters;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tianmu.agent.query.VideoPagePort videoPages;
     private FeedbackCompression compression;
     private FeedbackRerankPreparation rerank;
     private boolean rerankEnabled;
@@ -47,7 +48,11 @@ public final class FeedbackPreparationService {
         if(existing.state().equals("COMPLETE"))return objects.get(existing.result(),FeedbackReportJson.class);
         var claim=store.claim(id,Step.REPORT_JSON,Instant.now(),Duration.ofSeconds(governance.preparationLeaseSeconds()));
         if(claim==null)throw new AgentException("STORAGE_UNAVAILABLE","Report JSON persistence is in progress");
-        try{var asset=analysis.asset(id,owner,job.request());var value=analysis.compressedReport(asset,materials(id,owner,control));control.checkpoint();analysis.owned(id,owner);
+        try{var asset=analysis.asset(id,owner,job.request());var value=analysis.compressedReport(asset,materials(id,owner,control));
+            if(videoPages!=null){var page=videoPages.reportPage(job.request().query().videoId(),owner);
+                if(page!=null){if(!Long.toString(job.request().query().videoId()).equals(page.videoId()))throw new AgentException("INVALID_EVIDENCE","Video metadata identity mismatch");
+                    value=value.withVideoMetadata(page.title(),page.coverDataUrl());}}
+            control.checkpoint();analysis.owned(id,owner);
             if(!store.complete(claim,objects.put(id,value,control)))throw new AgentException("STORAGE_UNAVAILABLE","Report JSON acceptance failed");return value;
         }catch(RuntimeException failure){store.release(claim);throw failure;}
     }

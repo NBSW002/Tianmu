@@ -78,10 +78,10 @@ class RepresentativeReportPipelineTest {
             assertEquals(report,preparation.storedReportJson(job.id(),owner));var html=new String(report.html(),java.nio.charset.StandardCharsets.UTF_8);assertTrue(html.contains("根据本次已采集的反馈归纳"));assertTrue(html.contains("/video/1001?t=1.0"));assertTrue(html.contains("更多原话与片段依据"));
             assertFalse(html.contains("阅读说明"));assertFalse(html.contains("按发送日期查看反馈"));
             assertTrue(html.contains("创作建议"));assertFalse(html.contains("可以尝试"));assertTrue(html.contains("ReportSans"));
-            assertTrue(html.indexOf("弹幕集中在哪些片段")<html.indexOf("观众关注的"));
-            int topicStart=html.indexOf("<article class='topic'>");
+            assertTrue(html.indexOf("观众关注的")<html.indexOf("弹幕集中在哪些片段"));
+            int topicStart=html.indexOf("<article id='topic-1'");
             assertTrue(html.indexOf("<blockquote>",topicStart)<html.indexOf("<details class='topic-detail'>",topicStart));
-            assertTrue(html.indexOf("<blockquote>",topicStart)<html.indexOf("<div class='action'>",topicStart));
+            assertTrue(html.indexOf("<blockquote>",topicStart)<html.indexOf("<section id='creation'>",topicStart));
             assertEquals(1,html.split("建议检查配乐和人声的平衡。",-1).length-1);
             assertTrue(html.contains("<rect class='playback-bar'"));assertFalse(html.contains("SAMPLED_FRAMES"));
             assertFalse(html.contains("2026-11-01T00:00"));

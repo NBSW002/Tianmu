@@ -67,7 +67,7 @@ public final class FeedbackCompression {
         if(embedding!=null && vectors!=null && embedding.dimension()!=vectors.dimension())throw new IllegalArgumentException("Compression vector dimension mismatch");
     }
     public FeedbackCompressionProperties policy(){return policy;}
-    public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1|substantive-feedback-v2").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1|substantive-feedback-v3").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v7").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String materialRevision(String version){
         if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top3-text256-context256-v2"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -85,6 +85,7 @@ public final class FeedbackCompression {
             boolean mentionOnly=clean.matches("^(?:@[^@\\s]+\\s*)+$");
             boolean emojiOnly=!clean.isEmpty() && substantive.codePoints().noneMatch(Character::isLetterOrDigit);
             String reason=clean.isEmpty()?"EMPTY":mentionOnly?"MENTION_ONLY":emojiOnly?"EMOJI_ONLY":
+                    FeedbackTextQuality.lowInformation(substantive)?"LOW_INFORMATION":
                     effective<policy.minEffectiveChars()?"SHORT_TEXT":null;
             // Author remarks remain source records but do not become audience representatives or statistics.
             if(u.author())reason="AUTHOR_CONTEXT";
@@ -256,8 +257,13 @@ public final class FeedbackCompression {
                 String id="B"+(clusters.size()+1);
                 var ordered=indices.stream().sorted(Comparator.<Integer>comparingDouble(n->cosine(rankingVectors.get(n),center))
                         .reversed().thenComparing(n->expressions.get(n).exemplar().id())).toList();
-                var anchor=expressions.get(ordered.get(0));
-                var candidates=ordered.stream().skip(1).limit(FeedbackReranker.CANDIDATES_PER_BUCKET).map(expressions::get)
+                // Playback times retain distinct source records, but cannot consume multiple evidence slots.
+                var distinct=new LinkedHashMap<Exact,Integer>();
+                for(int n:ordered){var row=expressions.get(n).exemplar();
+                    distinct.putIfAbsent(new Exact(row.source(),row.text(),row.replyContext(),row.author(),null),n);}
+                var unique=List.copyOf(distinct.values());
+                var anchor=expressions.get(unique.get(0));
+                var candidates=unique.stream().skip(1).limit(FeedbackReranker.CANDIDATES_PER_BUCKET).map(expressions::get)
                         .map(e->new Candidate(representative(e.exemplar(),e.members().size(),manifest.sha256(),256,256),
                                 e.members().stream().map(Unit::id).toList())).toList();
                 rerank.add(new RerankBucket(id,representative(anchor.exemplar(),anchor.members().size(),manifest.sha256(),256,256),candidates));
