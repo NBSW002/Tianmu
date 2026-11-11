@@ -1,6 +1,6 @@
 <template>
   <div class="agent-workspace" :class="{ embedded, 'history-open': navigationOpen, 'is-empty': !conversationTurns.length }" @keydown.esc="closeNavigation" @keydown.tab="cycleNavigation">
-    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航" :inert="embedded && !persistentHistory && !navigationOpen || undefined">
+    <aside ref="historyNavigation" id="assistant-conversations" class="workspace-sidebar" aria-label="会话导航" :inert="embedded && !navigationOpen || undefined">
       <button class="history-close" type="button" aria-label="关闭会话历史" @click="hideNavigation">×</button>
       <a class="workspace-brand" href="/">EchoFrame<span>个人助手</span></a>
       <button class="new-analysis" :disabled="busy" @click="newAnalysis">＋ 开启新对话</button>
@@ -44,15 +44,16 @@
           <button v-if="historyCursor" class="text-button" :disabled="loadingHistory" @click="loadOlderMessages">{{ loadingHistory ? '正在读取…' : '加载更早的消息' }}</button>
           <section v-if="!conversationTurns.length" class="workspace-intro">
             <div class="welcome-symbol" aria-hidden="true"><EchoMark /></div>
-            <h1>{{ form.videoId ? '这个视频，下一步怎么做？' : '今天想聊些什么？' }}</h1>
-            <p>{{ creator ? '分析自己的视频、整理观众反馈，或直接提问。' : '解释概念、整理思路，或一起制定计划。' }}</p>
-            <div class="suggestion-grid">
+            <h1>{{ form.videoId ? (creator ? '复盘这条视频' : '了解这条视频') : '把问题和想法理清楚' }}</h1>
+            <p>{{ form.videoId ? (creator ? '整理观众反馈、起草互动内容，或直接提问。' : '概括视频内容，或解释当前片段。') : '解释概念、整理思路，或一起制定计划。' }}</p>
+            <div class="suggestion-grid" :class="{ 'creator-suggestions': creator && form.videoId }">
               <button
-                v-for="item in suggestions"
+                v-for="(item,index) in suggestions"
                 :key="item.text"
+                :class="{ 'is-primary': creator && form.videoId && index === 0 }"
                 @click="useSuggestion(item)"
               >
-                <span class="suggestion-icon">{{ item.icon }}</span
+                <span class="suggestion-icon"><TraceIcon :name="item.icon" :size="16" /></span
                 ><strong>{{ item.title }}</strong
                 ><span>{{ item.description }}</span
                 ><i>↗</i>
@@ -211,11 +212,12 @@
             v-model="focus"
             :disabled="submitting || loadingRun"
             :maxlength="messageLimit"
+            title="Enter 发送，Shift + Enter 换行"
             rows="2"
             :placeholder="
               needsInput
-                ? '补充一下信息，我们接着聊…'
-                : form.videoId ? '问问这个视频的内容、某个片段，或聊聊观众反馈…' : '提问、整理想法，或一起制定计划…'
+                ? '补充信息…'
+                : form.videoId ? '问问这个视频的内容、某个片段，或聊聊观众反馈…' : '聊聊你的问题，或说说正在酝酿的想法…'
             "
             @compositionstart="compositionGuard.start"
             @compositionend="compositionGuard.end"
@@ -223,25 +225,22 @@
             @keydown.enter.exact="composerEnter"
           />
           <div class="composer-actions">
-            <span class="composer-hint"><i>✦</i><span>{{ paused ? '等待登录验证' : running ? '正在为你处理…' : form.videoId ? '当前视频' : '个人助手' }}</span></span>
             <div class="composer-controls">
               <ModelPicker v-if="modelChoices.length" v-model="selectedModel" :models="modelChoices" :disabled="submitting || running" :refreshing="modelsLoading" @refresh="refreshModels" />
-              <button v-if="running && !paused" type="button" class="send-button stop-button" aria-label="停止生成" :disabled="cancelling" @click="cancel">■</button>
+              <span v-if="paused || running" class="composer-status" role="status">{{ paused ? '等待登录验证' : '正在处理…' }}</span>
+              <button v-if="running && !paused" type="button" class="send-button stop-button" aria-label="停止生成" :disabled="cancelling" @click="cancel"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg></button>
               <button v-else
               type="submit"
               class="send-button"
               :disabled="!focus.trim() || submitting || loadingRun || (running && !isLogCommand(focus))"
               :aria-label="submitting ? '正在发送' : '发送消息'"
             >
-              {{ submitting ? '…' : '↑' }}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg>
               </button>
             </div>
           </div>
           <p v-if="modelError" class="model-error" role="alert">{{ modelError }} <button type="button" class="text-button" :disabled="modelsLoading" @click="refreshModels">重试加载</button></p>
         </form>
-        <p class="workspace-footnote">
-          Enter 发送 / Shift + Enter 换行 <span>AI 内容供参考，请结合实际判断</span>
-        </p>
       </div>
     </main>
   </div>
@@ -303,7 +302,6 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'expand']);
 const compositionGuard = createCompositionGuard();
-const persistentHistory = ref(window.matchMedia('(min-width:1000px)').matches);
 const navigationOpen = ref(false), historyToggle = ref(null), historyNavigation = ref(null);
 function toggleNavigation() { navigationOpen.value = !navigationOpen.value; if (navigationOpen.value) nextTick(() => historyNavigation.value?.querySelector('button')?.focus()); }
 function cycleNavigation(event) {
@@ -323,12 +321,9 @@ function resizeComposer() {
   const max = parseFloat(style.maxHeight) || 200, min = parseFloat(style.minHeight) || 56;
   input.style.height = Math.min(max, Math.max(min, input.scrollHeight)) + 'px';
 }
-let composerObserver, navigationMedia, historyMedia;
-function updateHistoryLayout(event) { persistentHistory.value = event.matches; if (event.matches) navigationOpen.value = false; }
+let composerObserver, navigationMedia;
 function resetWideNavigation(event) { if (!event.matches) navigationOpen.value = false; }
 onMounted(() => {
-  historyMedia = window.matchMedia('(min-width:1000px)');
-  historyMedia.addEventListener('change', updateHistoryLayout);
   navigationMedia = window.matchMedia('(max-width: 760px)');
   navigationMedia.addEventListener('change', resetWideNavigation);
   resizeComposer();
@@ -342,20 +337,20 @@ const composerInput = ref(null),
   conversationElement = ref(null), conversationContent = ref(null);
 const { showJump, fadeStyle, scroll: trackConversationScroll, intent: markConversationIntent, jumpToLatest } = useConversationViewport(conversationElement, conversationContent);
 const generalSuggestions = [
-  { icon: '✧', title: '你能帮我做什么', description: '先了解助手的能力', text: '你能做什么？' },
-  { icon: '↗', title: '整理思路', description: '把想法变成清晰的步骤', text: '我想学习一项新技能，你可以怎么帮助我制定计划？' },
-  { icon: '✎', title: '解释概念', description: '用容易理解的例子说明', text: '用日常生活的例子解释什么是机器学习。' },
-  { icon: '▷', title: '制定计划', description: '按时间和目标安排步骤', text: '帮我制定每天二十分钟的摄影入门学习计划。' },
+  { icon: 'question', title: '你能帮我做什么', description: '先了解助手的能力', text: '你能做什么？' },
+  { icon: 'list', title: '整理思路', description: '把想法变成清晰的步骤', text: '我想学习一项新技能，你可以怎么帮助我制定计划？' },
+  { icon: 'info', title: '解释概念', description: '用容易理解的例子说明', text: '用日常生活的例子解释什么是机器学习。' },
+  { icon: 'route', title: '制定计划', description: '按时间和目标安排步骤', text: '帮我制定每天二十分钟的摄影入门学习计划。' },
 ];
 const viewerSuggestions = [
-  { icon: '▷', title: '概括视频', description: '根据可用画面了解内容', text: '概括这个视频的画面内容。' },
-  { icon: '◷', title: '解释当前片段', description: '结合当前播放位置提问', text: '解释这个视频当前播放位置附近的画面。' },
+  { icon: 'play', title: '概括视频', description: '根据可用画面了解内容', text: '概括这个视频的画面内容。' },
+  { icon: 'clock', title: '解释当前片段', description: '结合当前播放位置提问', text: '解释这个视频当前播放位置附近的画面。' },
 ];
 const videoSuggestions = [
-  { icon: '▤', title: '观众反馈报告', description: '结合视频画面，分析全部弹幕与评论', text: '请分析这个视频全部的弹幕和评论，结合实际视频画面生成观众反馈报告，包含主要话题、观众原话和改进建议。' },
-  { icon: '✎', title: '智能评论', description: '生成作者评论草稿，预览确认后发送', text: '请为这个视频生成3条智能评论草稿，以作者身份补充说明或引导讨论，先给我预览。' },
-  { icon: '▷', title: '智能弹幕', description: '结合画面生成弹幕，核对内容与时间点', text: '请为这个视频生成5条智能弹幕草稿，以作者身份自然引导互动，标明播放时间点，先给我预览。' },
-  { icon: '◷', title: '互动统计', description: '查看弹幕、评论数量与活跃观众', text: '请统计这个视频全部的弹幕数量和评论数量，并列出互动最活跃的观众。' },
+  { icon: 'list', title: '观众反馈报告', description: '整理弹幕与评论，查看主要话题和观众原话', text: '请分析这个视频全部的弹幕和评论，结合实际视频画面生成观众反馈报告，包含主要话题、观众原话和改进建议。' },
+  { icon: 'stage', title: '起草评论', description: '生成作者评论草稿，确认后再发送', text: '请为这个视频生成3条智能评论草稿，以作者身份补充说明或引导讨论，先给我预览。' },
+  { icon: 'play', title: '起草弹幕', description: '结合画面起草，核对内容与时间点', text: '请为这个视频生成5条智能弹幕草稿，以作者身份自然引导互动，标明播放时间点，先给我预览。' },
+  { icon: 'token', title: '互动统计', description: '查看弹幕、评论数量与活跃观众', text: '请统计这个视频全部的弹幕数量和评论数量，并列出互动最活跃的观众。' },
 ];
 const modelChoices = ref([]), selectedModel = ref(''), modelError = ref(''), modelsLoading = ref(false);
 async function refreshModels() {
@@ -757,7 +752,6 @@ watch(focus, () => nextTick(resizeComposer));
 onBeforeUnmount(() => {
   composerObserver?.disconnect();
   navigationMedia?.removeEventListener('change', resetWideNavigation);
-  historyMedia?.removeEventListener('change', updateHistoryLayout);
   historyController?.abort();
   stopMonitoring();
   submitController?.abort();
@@ -946,7 +940,7 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   width: 32px;
   height: 32px;
-  font-size: 23px !important;
+  font-size: 13px;
   line-height: 1;
   color: var(--workbench-muted);
 }
@@ -1148,7 +1142,7 @@ onBeforeUnmount(() => {
   border-radius: 11px;
   color: white;
   background: var(--workbench-error);
-  font-size: 23px !important;
+  font-size: 13px;
   line-height: 1;
 }
 .send-button:hover {
@@ -1488,7 +1482,7 @@ onBeforeUnmount(() => {
 .agent-workspace {--ink:var(--workbench-ink);--muted:var(--workbench-muted);--line:var(--workbench-border);--accent:var(--workbench-accent);background:var(--workbench-paper);font-family:var(--workbench-ui);}
 .workspace-main,.conversation-scroll {background:var(--workbench-paper);}
 .workspace-sidebar {background:var(--workbench-sidebar);padding-top:32px;}
-.workspace-brand {font-family:var(--workbench-display);font-weight:500;letter-spacing:-.7px;font-size:28px;}
+.workspace-brand {font-family:var(--workbench-display);font-weight:500;letter-spacing:var(--workbench-brand-spacing);font-size:28px;}
 .workspace-brand span {font:11px/1.8 var(--workbench-ui);letter-spacing:3px;color:var(--workbench-muted);}
 .new-analysis {background:transparent;color:var(--workbench-ink);border-color:var(--workbench-border);border-radius:8px;box-shadow:none;}
 .new-analysis:hover {background:var(--workbench-raised);}
@@ -1502,7 +1496,7 @@ onBeforeUnmount(() => {
 .workspace-intro {text-align:left;padding:40px 0 20px;}
 .welcome-symbol {display:block;width:auto;height:auto;font-size:60px;margin:0 0 24px;border:0;border-radius:0;color:var(--workbench-accent);background:none;box-shadow:none;}
 .intro-tag {font-size:11px;letter-spacing:2px;color:var(--workbench-muted);}
-.workspace-intro h1,.embedded .workspace-intro h1 {font:500 clamp(25px,3.4vw,52px)/1.4 var(--workbench-heading);letter-spacing:0;margin:12px 0 16px;}
+.workspace-intro h1,.embedded .workspace-intro h1 {font:500 clamp(25px,3.4vw,52px)/1.4 var(--workbench-heading);letter-spacing:var(--workbench-letter-spacing);margin:12px 0 16px;}
 .workspace-intro p {color:var(--workbench-muted);font-size:14px;line-height:1.8;}
 .suggestion-grid {gap:0 24px;border-top:1px solid var(--workbench-border);margin-top:36px;}
 .suggestion-grid button {border:0;border-bottom:1px solid var(--workbench-border);border-radius:0;padding:22px 26px 22px 30px;background:transparent;transition:transform 250ms var(--workbench-ease);}
@@ -1622,13 +1616,17 @@ onBeforeUnmount(() => {
 .workspace-tools>summary span {display:none;}
 .composer-wrap,.embedded .composer-wrap {max-width:768px;padding:12px 24px 16px;box-sizing:border-box;}
 .chat-composer {padding:12px;border:1px solid var(--workbench-ring);box-shadow:0 2px 8px rgba(38,34,24,.025);}
-.chat-composer textarea {font-size:14px;line-height:1.6;min-height:60px;}
+.chat-composer textarea {font-size:14px;line-height:1.6;min-height:52px;}
 .composer-actions {gap:6px;}
 .composer-hint {white-space:nowrap;flex:none;}
 .composer-hint>span {display:inline;font-size:11px!important;}
-.composer-controls {gap:6px;}
-.composer-controls .model-select {font-size:12px;max-width:152px;min-height:32px;padding:4px;}
-.send-button {width:32px;height:32px;min-width:32px;font-size:24px;}
+.composer-controls {display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;width:100%;margin-left:0;}
+.composer-controls .model-picker {grid-column:1;justify-self:start;min-width:0;}
+.composer-controls .model-select {font-size:12px;max-width:152px;min-height:32px;padding:4px 0;}
+.composer-status {grid-column:2;color:var(--workbench-muted);font-size:12px;white-space:nowrap;}
+.composer-controls .send-button {grid-column:3;justify-self:end;display:grid;place-items:center;width:34px;height:34px;min-width:34px;padding:0;font-size:13px;border-radius:10px;background:var(--workbench-accent);color:#fff;}
+.composer-controls .send-button:hover:not(:disabled) {background:var(--workbench-accent-hover);}
+.composer-controls .send-button:disabled {background:color-mix(in srgb,var(--workbench-accent) 48%,var(--workbench-raised));color:#fff;opacity:1;cursor:default;}
 .stop-button {font-size:14px;}
 .workspace-footnote {display:flex;justify-content:space-between;gap:8px;margin:8px 0 0;font-size:11px!important;line-height:1.6;}
 .workspace-footnote>span {font-size:11px;}
@@ -1651,18 +1649,14 @@ onBeforeUnmount(() => {
  .workspace-footnote>span {display:none;}
  .composer-hint>span {font-size:11px!important;}
 }
-@media(pointer:coarse){.header-action,.workspace-header .history-toggle{width:44px;height:44px;}.send-button{width:44px;height:44px;}.chat-composer textarea{font-size:16px;}.composer-controls .model-select{min-height:44px;}}
-@media(min-width:1000px){
- .embedded .workspace-sidebar,.embedded.history-open .workspace-sidebar {display:flex!important;position:relative;inset:auto;flex:0 0 var(--assistant-history-width,208px);width:var(--assistant-history-width,208px);min-width:0;padding:28px 14px 18px;box-shadow:none;border-right:1px solid var(--workbench-border);z-index:auto;}
- .embedded .history-close,.embedded .history-scrim,.embedded .workspace-header .history-toggle {display:none!important;}
- .embedded .workspace-brand {font-size:24px;}
- .embedded .workspace-brand span {letter-spacing:1px;}
- .embedded .new-analysis {font-size:12px;padding:10px 8px;}
- .embedded .history-heading {padding:0 6px;}
- .embedded .history-list {min-height:0;overflow:auto;scrollbar-width:thin;}
- .embedded .history-list button {padding:12px 8px;}
- .embedded .history-meta {font-size:11px!important;gap:8px;}
- .embedded .workspace-sidebar .sidebar-footer {font-size:11px!important;}
-}
+@media(pointer:coarse){.header-action,.workspace-header .history-toggle{width:44px;height:44px;}.composer-controls .send-button{min-width:44px;width:44px;min-height:44px;height:44px;}.chat-composer textarea{font-size:16px;}.composer-controls .model-select{min-height:44px;}}
+.suggestion-grid.creator-suggestions {grid-template-columns:minmax(0,1fr);gap:8px;margin-top:20px;}
+.creator-suggestions button {min-height:56px;padding:10px 12px 10px 40px;border-color:transparent;background:transparent;border-radius:8px;}
+.creator-suggestions button:hover {background:var(--workbench-sidebar);}
+.creator-suggestions button.is-primary {min-height:80px;padding-top:16px;padding-bottom:16px;margin-bottom:4px;border-color:var(--workbench-ring);background:var(--workbench-raised);}
+.creator-suggestions button.is-primary strong {font-size:15px;}
+.creator-suggestions .suggestion-icon {left:12px;top:12px;display:flex;align-items:center;}
+.creator-suggestions .is-primary .suggestion-icon {top:18px;color:var(--workbench-accent);}
+.embedded .history-list {min-height:0;overflow:auto;scrollbar-width:thin;}
 @container(max-width:440px){.workspace-footnote>span{display:none;}.workspace-intro h1,.embedded .workspace-intro h1{font-size:24px;}.suggestion-grid{gap:8px;}}
 </style>

@@ -1,0 +1,24 @@
+/* User-provided variable fonts; provenance is documented in README.md. */
+@font-face {
+  font-family: 'Anthropic Sans';
+  src: url('./AnthropicSans-Roman-Web.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  src: url('./AnthropicSerif-Roman-Web.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Anthropic Mono';
+  src: url('./AnthropicMono-Roman-Web.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}

@@ -3,7 +3,7 @@
     <div class="box-normal">
       <div class="reply-box-avatar">
         <div class="tianmu-avatar">
-          <VAvatar :img="this.user.avatar" :size="isWideWindow ? 48 : 40" />
+          <VAvatar :img="this.user.avatar" :size="40" />
         </div>
       </div>
       <div class="reply-box-wrap">
@@ -11,22 +11,23 @@
           <textarea
             class="reply-box-textarea"
             :placeholder="placeholder"
+            aria-label="评论内容"
             @focus.stop="isFocus = true"
             @blur="handleBlur"
             ref="textarea"
             v-model="content"
             maxlength="2000"
             :style="{
-              height: content === '' ? '32px' : '64px',
-              lineHeight: content === '' ? '32px' : '1.25',
+              height: content === '' ? '32px' : '80px',
+              lineHeight: '24px',
             }"
           />
         </div>
         <div class="disable-mask" v-else>
           <span
-            >请先<span class="to-login-btn" @click="updateDialogVisible(true)"
-              >登录</span
-            >后发表评论 (・ω・)
+            >请先<button type="button" class="to-login-btn" @click="updateDialogVisible(true)"
+              >登录</button
+            >后发表评论
           </span>
         </div>
       </div>
@@ -64,7 +65,7 @@
         class="reply-box-send"
         :class="{ 'send-not-allowed': !this.content.trim() }"
       >
-        <div class="send-text" @click="handleSendComment">发布</div>
+        <button type="button" class="send-text" :disabled="!content.trim()" @click="handleSendComment">发布</button>
       </div>
     </div>
   </div>
@@ -86,7 +87,7 @@ export default {
   props: {
     placeholder: {
       type: String,
-      default: "你猜我的评论区在等待谁？",
+      default: "写下你的看法",
     },
     // 是否是宽屏
     isWideWindow: {

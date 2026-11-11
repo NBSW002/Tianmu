@@ -15,10 +15,10 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
       </div>
     </dl>
     <p class="context-note"><TraceIcon name="info" :size="13" />仅展示本轮实际装配的模块。</p>
-    <details class="context-protocol">
-      <summary>技术信息</summary>
+    <section class="context-protocol" aria-label="上下文技术信息">
+      <h4>技术信息</h4>
       <dl><div><dt>结构版本</dt><dd>{{ selection.version || '未记录' }}</dd></div><div><dt>投影协议</dt><dd>{{ selection.projection || '未记录' }}</dd></div></dl>
-    </details>
+    </section>
   </section>
 </template>
 
@@ -42,4 +42,8 @@ summary:focus-visible { outline: 2px solid var(--workbench-focus); outline-offse
 .context-protocol dl { margin: 6px 0 0; }
 .context-protocol dl > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 4px 0; }
 .context-protocol dd { overflow-wrap: anywhere; }
+.context-section {margin:0 0 14px;padding:12px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--workbench-raised);}
+.context-slots {padding:0;border:0;border-radius:0;background:transparent;}
+.context-protocol {margin-top:10px;padding-top:10px;border-top:1px solid var(--workbench-border-subtle);}
+.context-protocol h4 {margin:0;font-size:11px;font-weight:500;}
 </style>

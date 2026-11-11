@@ -46,6 +46,52 @@
 #app .video-page-card-small .playinfo svg path {fill:currentColor;}
 
 /* Artplayer native variables also survive web/fullscreen and mini-player mounting. */
+/* Comments share one avatar column from the composer through nested replies. */
+#app .videoDetail .comment .reply-navigation {margin-bottom:16px;}
+#app .videoDetail .comment .nav-title {gap:8px;}
+#app .videoDetail .comment .nav-title-text {margin:0;color:var(--text1);font:500 20px/28px var(--workbench-ui);}
+#app .videoDetail .comment .total-reply {margin:0;color:var(--workbench-muted);font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+#app .videoDetail .comment .box-normal {gap:12px;align-items:flex-start;}
+#app .videoDetail .comment .reply-box-avatar {flex:none;width:var(--comment-avatar-size);height:48px;justify-content:flex-start;}
+#app .videoDetail .comment .reply-box-wrap {min-width:0;border-color:var(--workbench-border);border-radius:8px;background:var(--line_light);transition:border-color .18s,background-color .18s;}
+#app .videoDetail .comment .reply-box-wrap:focus-within {border-color:var(--workbench-ring-deep);background:var(--workbench-raised);}
+#app .videoDetail .comment .textarea-wrap {background:transparent;}
+#app .videoDetail .comment .reply-box-textarea {padding:4px 10px;color:var(--text1);font-size:14px;overflow-wrap:anywhere;}
+#app .videoDetail .comment .reply-box-textarea::placeholder {color:var(--text3);}
+#app .videoDetail .comment .disable-mask {background:var(--line_light);color:var(--workbench-muted);font-size:13px;}
+#app .videoDetail .comment .to-login-btn {border:0;font:inherit;line-height:20px;padding:2px 8px;}
+#app .videoDetail .comment .box-expand {margin-left:var(--comment-avatar-space);}
+#app .videoDetail .comment .send-text {width:100%;height:100%;border:0;background:transparent;font:500 13px/20px var(--workbench-ui);cursor:inherit;}
+#app .videoDetail .comment .reply-box-send.send-not-allowed {background:var(--workbench-soft);}
+#app .videoDetail .comment .send-text:disabled {color:var(--workbench-muted);cursor:not-allowed;}
+#app .videoDetail .comment .reply-list {margin-top:8px;padding-bottom:48px;}
+#app .videoDetail .comment .root-reply-container {position:relative;min-width:0;padding:16px 0 0 var(--comment-avatar-space);}
+#app .videoDetail .comment .root-reply-avatar-wrap {width:var(--comment-avatar-size);justify-content:flex-start;}
+#app .videoDetail .comment .content-wrap {min-width:0;}
+#app .videoDetail .comment .user-info {min-width:0;gap:6px;margin-bottom:2px;}
+#app .videoDetail .comment .user-name {min-width:0;max-width:calc(100% - 32px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;line-height:20px;margin:0;}
+#app .videoDetail .comment .comment-author-badge {flex:none;color:var(--workbench-accent);}
+#app .videoDetail .comment .root-reply {font-size:14px;line-height:24px;padding:0;}
+#app .videoDetail .comment .reply-content {white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;}
+#app .videoDetail .comment :is(.reply-info,.sub-reply-info) {flex-wrap:wrap;gap:4px 12px;margin-top:4px;font-size:12px;line-height:20px;color:var(--workbench-muted);}
+#app .videoDetail .comment :is(.reply-time,.sub-reply-time) {margin-right:0;}
+#app .videoDetail .comment :is(.reply-btn,.sub-reply-btn) {min-height:24px;padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer;}
+#app .videoDetail .comment :is(.reply-btn,.sub-reply-btn):hover {color:var(--workbench-accent);}
+#app .videoDetail .comment .sub-reply-container {padding-left:var(--comment-avatar-space);margin-top:4px;}
+#app .videoDetail .comment .sub-reply-item {padding:6px 0 6px 36px;font-size:13px;line-height:22px;}
+#app .videoDetail .comment .sub-reply-item .reply-content {line-height:22px;}
+#app .videoDetail .comment .sub-user-name {font-size:12px;line-height:22px;}
+#app .videoDetail .comment .view-more {padding:0;margin-top:4px;}
+#app .videoDetail .comment .view-more-btn {min-height:24px;padding:0;border:0;background:none;color:var(--workbench-muted);font:12px/20px var(--workbench-ui);cursor:pointer;}
+#app .videoDetail .comment .view-more-btn:hover {color:var(--workbench-accent);}
+#app .videoDetail .comment .sub-reply-avatar-wrap {left:0;}
+#app .videoDetail .comment .sub-user-info {max-width:calc(100% - 32px);white-space:normal;}
+#app .videoDetail .comment .sub-user-name {max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+#app .videoDetail .comment .reply-item .reply-box-container {padding:16px 0 8px var(--comment-avatar-space);}
+#app .videoDetail .comment .bottom-line {margin:12px 0 0 var(--comment-avatar-space);border-bottom:1px solid var(--workbench-border);}
+#app .videoDetail .comment :is(.reply-loading,.no-any,.no-more) {color:var(--workbench-muted);font-size:13px;}
+#app .videoDetail .comment .reply-box.fixed-box {background:var(--workbench-paper);border-color:var(--workbench-border);}
+
 .video-player {font-family:var(--workbench-ui);container-type:inline-size;}
 .video-player .player-viewport {border-radius:14px 14px 0 0;background:var(--workbench-ink);overflow:hidden;}
 .video-player .player-mount {border-radius:inherit;}

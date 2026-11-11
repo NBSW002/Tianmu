@@ -259,9 +259,11 @@ function downloadExample() {
         <aside ref="inspector" class="inspector-column" aria-label="节点详情" tabindex="0">
           <div class="inspector-heading">节点详情</div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
+            <section class="node-overview" aria-label="节点概况">
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
             <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
+            </section>
             <section v-if="selected.attributes?.['analysis.raw_records'] != null" class="intent-selection" aria-label="反馈聚类统计">
               <h3>反馈聚类统计</h3>
               <p>原始 {{ selected.attributes['analysis.raw_records'] }} 条 · 过滤 {{ selected.attributes['analysis.filtered_records'] }} 条</p>
@@ -290,14 +292,14 @@ function downloadExample() {
               <h3>能力识别</h3>
               <p>主目标：<strong>{{ intentSelection.primary?.label || '未选择具体能力（兼容识别器）' }}</strong></p>
               <p v-if="intentSelection.related.length">关联目标：{{ intentSelection.related.map(item => item.label).join('、') }}</p>
-              <details><summary>本轮候选能力 · {{ intentSelection.candidates.length }}</summary>
+              <section class="candidate-list" aria-label="本轮候选能力"><h4>本轮候选能力 · {{ intentSelection.candidates.length }}</h4>
                 <article v-for="candidate in intentSelection.candidates" :key="candidate.id" :class="{ chosen: candidate.id === intentSelection.primary?.id }">
                   <h4>{{ candidate.label }}<small v-if="candidate.id === intentSelection.primary?.id">主目标</small><small v-else-if="intentSelection.related.some(item => item.id === candidate.id)">关联目标</small></h4>
                   <p v-if="candidate.description">{{ candidate.description }}</p><p v-if="candidate.boundary">{{ candidate.boundary }}</p>
                   <p v-if="candidate.skill">Skill：{{ candidate.skill }}</p>
                   <p v-if="candidate.requiredConditions?.length">功能所需条件：{{ candidate.requiredConditions.join('、') }}</p>
                 </article>
-              </details>
+              </section>
             </section>
             <section v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
               <h3>本轮调用 <span>{{ invocations.length }} 项</span></h3>
@@ -308,8 +310,8 @@ function downloadExample() {
                 <p v-if="call.skill" class="invocation-skill">Skill：{{ call.skill }}</p>
                 <p class="invocation-summary">{{ call.summary }}</p>
                 <div class="invocation-payloads">
-                  <details><summary>调用参数</summary><TraceCode title="调用参数" :value="call.arguments" :state="call.inputState" :reference="call.inputRef" /></details>
-                  <details v-if="call.toolId"><summary>执行结果</summary><TraceCode title="工具返回" :value="call.output" :state="call.outputState" :reference="call.outputRef" /></details>
+                  <TraceCode title="调用参数" :value="call.arguments" :state="call.inputState" :reference="call.inputRef" />
+                  <TraceCode v-if="call.toolId" title="工具返回" :value="call.output" :state="call.outputState" :reference="call.outputRef" />
                 </div>
                 <button v-if="call.toolId" type="button" class="invocation-link" @click="selectNode(call.toolId)">查看执行节点 →</button>
               </article>
@@ -321,9 +323,9 @@ function downloadExample() {
             <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
             <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
             <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
-            <details v-for="(source, index) in reasoningSources" :key="source.id" open><summary>模型思考<span v-if="reasoningSources.length > 1"> · 第 {{ index + 1 }} 次调用</span></summary><TraceCode title="模型返回的思考内容" :value="source.reasoning" :state="source.reasoningState" :reference="source.reasoningRef" /></details>
-            <details v-if="selectedSource && selected.provider_outputRef"><summary>模型原始返回</summary><TraceCode title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" /></details>
-            <details v-for="item in privateSources" :key="`${item.source.id}-${item.direction}`"><summary>{{ {prompt:'提示词快照',code:'生成的代码',execution:'代码执行结果'}[item.direction] }} · {{ item.source.attributes?.['prompt.variant'] || item.source.id }}</summary><TraceCode :title="{prompt:'提示词快照',code:'生成的代码',execution:'代码执行结果'}[item.direction]" :value="item.source[item.direction]" :state="item.source[`${item.direction}State`]" :reference="item.source[`${item.direction}Ref`]" /></details>
+            <TraceCode v-for="(source, index) in reasoningSources" :key="source.id" :title="reasoningSources.length > 1 ? `模型思考 · 第 ${index + 1} 次调用` : '模型思考'" :value="source.reasoning" :state="source.reasoningState" :reference="source.reasoningRef" />
+            <TraceCode v-if="selectedSource && selected.provider_outputRef" title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" />
+            <TraceCode v-for="item in privateSources" :key="`${item.source.id}-${item.direction}`" :title="{prompt:'提示词快照',code:'生成的代码',execution:'代码执行结果'}[item.direction]" :subtitle="item.source.attributes?.['prompt.variant'] || item.source.id" :value="item.source[item.direction]" :state="item.source[`${item.direction}State`]" :reference="item.source[`${item.direction}Ref`]" />
             <section class="metadata-section"><h3>节点属性</h3><dl class="node-metadata"><div><dt>{{ selected.synthetic ? '展示分组 ID' : 'Span ID' }}</dt><dd>{{ selected.id }}</dd></div><div><dt>Parent Span ID</dt><dd>{{ selected.parentId || '根节点' }}</dd></div><div><dt>开始时间 · 北京</dt><dd>{{ date(selected.startMs) }} {{ clock(selected.startMs) }}</dd></div><div><dt>模型</dt><dd>{{ selected.model || '—' }}</dd></div><div><dt>原始名称</dt><dd>{{ selected.name }}</dd></div></dl></section>
             <TraceCode v-if="selectedSource" title="原始属性" :value="selected.attributes" state="COMPLETE" />
           </div>
@@ -473,7 +475,10 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .timing-track i.bar-tool { background: var(--workbench-success); }
 .timing-row.failed .timing-track i { background: var(--workbench-accent); }
 .timing-value { text-align: right; }
-@media(min-width:1101px) { .graph-column { overflow: auto; } }
+@media(min-width:1101px) {
+  .graph-column { overflow: auto; }
+  .timing-panel { flex-basis: clamp(260px, 34dvh, 400px); }
+}
 @media(max-width:1100px) {
   .workspace-sidebar { width: 180px; padding-inline: 12px; }
   .workspace-panels { grid-template-columns: minmax(0, 1fr); overflow: auto; }
@@ -505,7 +510,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 /* Shared surfaces and typography; the trace retains its diagnostic density. */
 .trace-studio {--ink:var(--workbench-ink);--muted:var(--workbench-muted);--line:var(--workbench-border);--accent:var(--workbench-accent);background:var(--workbench-paper);font-family:var(--workbench-ui);font-variant-numeric:tabular-nums;}
 .workspace-sidebar {background:var(--workbench-sidebar);padding-top:32px;}
-.workspace-brand {font:500 28px/1.3 var(--workbench-display);letter-spacing:-.7px;}
+.workspace-brand {font:500 28px/1.3 var(--workbench-display);letter-spacing:var(--workbench-brand-spacing);}
 .workspace-brand span {font:12px/1.8 var(--workbench-ui);letter-spacing:3px;color:var(--workbench-muted);}
 .workspace-main,.workspace-header {background:var(--workbench-paper);}
 .workspace-header {height:44px;min-height:44px;}
@@ -560,4 +565,26 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .view-tabs button.active {color:var(--workbench-ink);border-bottom-color:var(--workbench-charcoal);}
 .inspector-heading,.token-grid,.member-section button {border-color:var(--workbench-border-subtle);}
 @media(max-width:700px){.workspace-heading h1 {font-size:21px;}.run-context h2{font-size:20px;}}
+
+/* Keep the inspector readable without requiring repeated disclosure clicks. */
+.inspector-content {padding:16px;}
+.node-overview,.metadata-section,.intent-selection,.invocation-section,.member-section {
+  min-width:0;margin:0 0 14px;padding:12px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--workbench-raised);
+}
+.node-overview .node-status-line {margin:14px 0 12px;gap:8px;}
+.node-overview .semantic-result {margin:0;border:1px solid var(--workbench-border-subtle);color:var(--workbench-ink);overflow-wrap:anywhere;}
+.metadata-section h3,.intent-selection h3,.invocation-section h3,.member-section h3 {margin:0 0 10px;font-size:12px;}
+.node-metadata {margin:0;}
+.node-metadata>div {padding:8px 0;}
+.node-metadata>div+div {border-top:1px solid var(--workbench-border-subtle);}
+.node-metadata dt {font-size:11px;color:var(--workbench-muted);}
+.node-metadata dd {margin:3px 0 0;font-size:12px;line-height:1.7;overflow-wrap:anywhere;}
+.candidate-list {margin-top:12px;padding-top:10px;border-top:1px solid var(--workbench-border-subtle);}
+.candidate-list>h4 {color:var(--workbench-muted);}
+.candidate-list article:last-child {border-bottom:0;padding-bottom:0;}
+.invocation-card {padding:10px;}
+.invocation-payloads {border-top:0;padding-top:0;margin-top:10px;}
+.invocation-payloads :deep(.trace-code) {margin:10px 0 0;}
+.member-section button:last-child {border-bottom:0;}
+.token-grid {margin:0 0 14px;gap:10px;padding:10px 12px;}
 </style>

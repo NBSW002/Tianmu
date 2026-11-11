@@ -3,7 +3,7 @@
 import { computed, ref } from 'vue'
 import TraceIcon from './TraceIcon.vue'
 
-const props = defineProps({ title: String, value: { default: null }, state: String, reference: String })
+const props = defineProps({ title: String, subtitle: String, value: { default: null }, state: String, reference: String })
 const copied = ref(false)
 const copyError = ref(false)
 const protectedPayload = computed(() => props.value?.memoryProtected === true
@@ -30,7 +30,7 @@ async function copy() {
 <template>
   <section class="trace-code">
     <div class="code-heading">
-      <h3>{{ title }}</h3>
+      <div class="code-title"><h3>{{ title }}</h3><p v-if="subtitle" class="code-subtitle">{{ subtitle }}</p></div>
       <div class="code-actions">
         <span v-if="value != null && !protectedPayload" class="code-format">{{ typeof value === 'string' ? 'TEXT' : 'JSON' }}</span>
         <span v-if="state === 'TRUNCATED'" class="code-state">已截断</span>
@@ -38,7 +38,7 @@ async function copy() {
       </div>
     </div>
     <div v-if="protectedPayload" class="code-protected" role="note"><TraceIcon name="info" :size="16" /><div><strong>内容已保护</strong><p>为保护记忆来源，这份详情仅保留运行引用。</p></div></div>
-    <pre v-else-if="value != null" tabindex="0"><code><span v-for="(token, index) in tokens" :key="index" :class="`syntax-${token.type}`">{{ token.text }}</span></code></pre>
+    <pre v-else-if="value != null" tabindex="0" role="region" :aria-label="`${title}内容`"><code><span v-for="(token, index) in tokens" :key="index" :class="`syntax-${token.type}`">{{ token.text }}</span></code></pre>
     <div v-else class="code-empty">
       <TraceIcon name="info" :size="17" />
       <p>{{ reference ? '正文未载入' : '暂无内容' }}<small>{{ stateLabels[state] || '未采集' }}</small></p>
@@ -67,4 +67,14 @@ pre{max-height:360px;overflow:auto;font-size:12px;line-height:1.75;background:va
 .code-protected > svg { flex-shrink: 0; margin-top: 2px; }
 .code-protected strong { font-size: 12px; font-weight: 500; color: var(--workbench-ink); }
 .code-protected p { margin: 3px 0 0; font-size: 11px; line-height: 1.8; }
+
+.trace-code {min-width:0;margin:0 0 14px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--workbench-paper);overflow:hidden;}
+.code-heading {padding:9px 11px;align-items:flex-start;border-bottom:1px solid var(--workbench-border-subtle);background:var(--workbench-raised);}
+.code-title {min-width:0;}
+.code-actions {flex-shrink:0;}
+.code-subtitle {margin:4px 0 0;font:11px/1.5 var(--workbench-mono);color:var(--workbench-muted);overflow-wrap:anywhere;}
+pre {margin:0;padding:11px;max-height:clamp(160px,26dvh,280px);min-height:64px;box-sizing:border-box;border:0;border-radius:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--workbench-ring) transparent;}
+pre:focus-visible {outline:2px solid var(--workbench-focus);outline-offset:-2px;}
+.code-empty,.code-protected {margin:0;padding:12px 11px;border:0;border-radius:0;background:transparent;}
+.code-empty small {margin-top:2px;}
 </style>

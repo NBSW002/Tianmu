@@ -57,7 +57,7 @@
   --el-bg-color-overlay: #faf9f5;
   --el-fill-color-blank: #faf9f5;
   --el-fill-color-light: #f0eee6;
-  --el-font-family: 'PingFang SC','Microsoft YaHei UI','Microsoft YaHei',system-ui,Arial,sans-serif;
+  --el-font-family: var(--workbench-ui);
   --el-border-radius-base: 8px;
   --Ga0: #faf9f5;
   --Ga1: #f0eee6;
@@ -72,13 +72,14 @@
   --Ga10: #242420;
   --Ga11: #faf9f5;
 }
-body {background:var(--workbench-paper);color:var(--text1);font-family:var(--workbench-ui);line-height:1.6;}
-button,input,textarea,select {font-family:inherit;}
+body {background:var(--workbench-paper);color:var(--text1);font-family:var(--workbench-ui);font-optical-sizing:auto;letter-spacing:var(--workbench-letter-spacing);line-height:1.6;}
+button,input,textarea,select {font-family:inherit;letter-spacing:inherit;}
+#app :is(code,kbd,samp),#app .agent-workspace pre {font-family:var(--workbench-mono);letter-spacing:normal;}
 ::selection {background:var(--workbench-soft);color:var(--workbench-ink);}
 #app :is(button,a,input,textarea,select,summary):focus-visible {outline:2px solid var(--workbench-focus);outline-offset:3px;}
 #app .header-bar {background:var(--workbench-raised);color:var(--text1);box-shadow:none;border-bottom:1px solid var(--workbench-border);}
 #app .header-bar :is(.entry-title,.header-category,.right-entry--outside,.right-entry--outside .iconfont) {color:var(--text2);}
-#app .header-bar .site-wordmark {font:500 24px/1.2 var(--workbench-display);letter-spacing:-.7px;color:var(--text1);text-decoration:none;margin-right:12px;white-space:nowrap;}
+#app .header-bar .site-wordmark {font:500 24px/1.2 var(--workbench-display);letter-spacing:var(--workbench-brand-spacing);color:var(--text1);text-decoration:none;margin-right:12px;white-space:nowrap;}
 #app .header-bar .entry-title {font-weight:400;}
 #app .header-bar #nav-searchform {background:var(--workbench-paper);border:1px solid var(--workbench-border);border-radius:10px;box-shadow:none;}
 #app .header-bar .nav-search-btn {background:transparent;color:var(--text2);border-radius:7px;}
@@ -89,7 +90,7 @@ button,input,textarea,select {font-family:inherit;}
 #app .home-banner {height:104px;max-width:1488px;margin:76px auto 0;width:calc(100% - 2 * var(--home-gutter));background:#dce2cb;border-radius:12px;}
 #app .home-banner__ornament {position:absolute;width:144px;height:144px;border:28px solid #aab994;border-radius:60% 40% 65% 35%;right:-20px;top:-20px;transform:rotate(-24deg);opacity:.55;}
 #app .home-banner__brand {left:30px;bottom:20px;color:#354632;text-shadow:none;gap:6px;}
-#app .home-banner__brand a {font:500 30px/1.2 var(--workbench-display);letter-spacing:-1px;}
+#app .home-banner__brand a {font:500 30px/1.2 var(--workbench-display);letter-spacing:var(--workbench-brand-spacing);}
 #app .home-banner__brand>span {font-size:12px;letter-spacing:1px;}
 #app .brand-spark {color:#667b57;font-size:.5em;transform:translateY(-8px);}
 #app .header-channel {background:transparent;color:var(--text1);max-width:1680px;gap:24px;padding-top:20px;padding-bottom:24px;}

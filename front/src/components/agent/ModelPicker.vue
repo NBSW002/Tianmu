@@ -5,8 +5,8 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 const props = defineProps({ modelValue: String, models: { type: Array, default: () => [] }, disabled: Boolean, refreshing: Boolean })
 const emit = defineEmits(['update:modelValue', 'refresh'])
 const root = ref(null), trigger = ref(null), menu = ref(null), open = ref(false)
-const label = computed(() => props.models.find(model => model.id === props.modelValue)?.label || '系统默认')
-const choices = computed(() => [{ id: '', label: '系统默认', model: '使用服务端默认配置' }, ...props.models])
+const label = computed(() => props.models.find(model => model.id === props.modelValue)?.label || '默认模型')
+const choices = computed(() => [{ id: '', label: '默认模型', model: '使用默认模型' }, ...props.models])
 async function reveal(last = false) {
   if (props.disabled) return
   open.value = true
@@ -53,13 +53,13 @@ watch(() => props.disabled, value => { if (value) close() })
 </template>
 <style scoped>
 .model-picker{position:relative;min-width:0;font-family:var(--workbench-ui);}
-.model-select{display:flex;align-items:center;gap:5px;max-width:160px;min-height:32px;padding:5px 6px;border:0;border-radius:7px;background:transparent;color:var(--workbench-ink);font-size:12px;cursor:pointer;}
+.model-select{display:flex;align-items:center;gap:5px;max-width:160px;min-height:32px;padding:5px 0;border:0;border-radius:7px;background:transparent;color:var(--workbench-ink);font-size:12px;cursor:pointer;}
 .model-select>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .model-select svg{flex:none;transition:transform var(--workbench-motion-fast) var(--workbench-ease);}
 .model-select svg.rotated{transform:rotate(180deg);}
 .model-select:hover{background:var(--workbench-sidebar);}
 .model-select:disabled{opacity:.5;cursor:default;}
-.model-menu{position:absolute;bottom:calc(100% + 12px);right:0;z-index:10;width:min(280px,calc(100vw - 112px));padding:7px;background:var(--workbench-raised);border-radius:12px;box-shadow:var(--workbench-popover-shadow);transform-origin:bottom right;max-height:min(420px,55dvh);overflow:auto;overscroll-behavior:contain;}
+.model-menu{position:absolute;bottom:calc(100% + 12px);left:0;z-index:10;width:min(280px,calc(100vw - 112px));padding:7px;background:var(--workbench-raised);border-radius:12px;box-shadow:var(--workbench-popover-shadow);transform-origin:bottom left;max-height:min(420px,55dvh);overflow:auto;overscroll-behavior:contain;}
 .model-menu-heading{display:flex;align-items:center;justify-content:space-between;padding:3px 8px 7px;color:var(--workbench-muted);font-size:11px;}
 .model-menu-heading button{border:0;background:transparent;border-radius:6px;padding:3px 6px;color:inherit;cursor:pointer;}
 .model-options>[role=option]{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border:0;border-radius:8px;padding:9px 10px;text-align:left;background:transparent;color:var(--workbench-ink);cursor:pointer;}

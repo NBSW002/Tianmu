@@ -1,5 +1,5 @@
 <template>
-  <div class="comment">
+  <div class="comment" style="--comment-avatar-size:40px;--comment-avatar-space:52px;">
     <div class="tianmu-comment browser-pc">
       <div class="comment-container">
         <div class="reply-header">
@@ -8,8 +8,8 @@
           <div class="reply-navigation">
             <ul class="nav-bar">
               <li class="nav-title">
-                <span class="nav-title-text">评论</span>
-                <span class="total-reply">{{ commentCount }}</span>
+                <h2 class="nav-title-text">评论</h2>
+                <span class="total-reply">{{ Number(commentCount || 0).toLocaleString('zh-CN') }}</span>
               </li>
             </ul>
           </div>

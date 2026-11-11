@@ -112,21 +112,23 @@
           <!-- 简介 -->
           <div
             class="video-desc-container"
-            :style="false ? 'display: none;' : ''"
+            ref="descriptionSection"
           >
             <div
               class="basic-desc-info"
-              :style="showAllDesc ? 'height: auto;' : 'height: 84px;'"
+              :class="{ 'is-collapsed': !showAllDesc }"
             >
               <span
+                ref="descriptionText"
+                id="video-description-text"
                 class="desc-info-text"
                 v-html="handleLinkify(videoDetail.description)"
               ></span>
             </div>
             <div class="toggle-btn" v-if="descTooLong">
-              <span class="toggle-btn-text" @click="showAllDesc = !showAllDesc">
+              <button type="button" class="toggle-btn-text" :aria-expanded="showAllDesc" aria-controls="video-description-text" @click="toggleDescription">
                 {{ showAllDesc ? "收起" : "展开更多" }}
-              </span>
+              </button>
             </div>
           </div>
           <!-- 分类、标签 -->
@@ -162,13 +164,11 @@
               <!-- up主头像 -->
               <div class="up-info--left">
                 <div class="up-avatar-wrap">
-                  <VPopover
-                    popStyle="z-index: 2000; cursor: default; padding-top: 30px;"
-                  >
-                    <template #reference>
                       <a
                         :href="`/user/${videoUserInfo.userId}`"
                         target="_blank"
+                        rel="noopener"
+                        :aria-label="`查看 ${videoUserInfo.nickname || '创作者'} 的主页`"
                         class="up-avatar"
                       >
                         <VAvatar
@@ -176,8 +176,6 @@
                           :size="48"
                         ></VAvatar>
                       </a>
-                    </template>
-                  </VPopover>
                 </div>
               </div>
               <!-- 关注信息 -->
@@ -188,22 +186,22 @@
                     <a
                       :href="`/user/${videoDetail.userId}`"
                       target="_blank"
+                      rel="noopener"
+                      :title="videoUserInfo.nickname"
                       class="up-name"
                       >{{ videoUserInfo.nickname }}</a
                     >
+                    <details v-if="isSourceProfile" ref="authorSourceDetails" class="author-source-details" @keydown.esc.prevent="closeAuthorSource">
+                      <summary class="author-source-info" aria-label="查看来源说明" title="查看来源说明"><el-icon><InfoFilled /></el-icon></summary>
+                      <div class="author-source-popover"><p class="author-source-copy">{{ authorDescription }}</p></div>
+                    </details>
                   </div>
-                  <div class="up-description">
-                    {{
-                      videoUserInfo.description
-                        ? videoUserInfo.description
-                        : "这个人很懒，什么也没写"
-                    }}
-                  </div>
+                  <div class="up-description" aria-label="个性签名" :title="authorSignature">{{ authorSignature }}</div>
                 </div>
                 <!-- 关注状态 -->
                 <div
                   class="up-info__btn-panel"
-                  v-if="videoUserInfo.userId !== user.userId"
+                  v-if="videoUserInfo.userId != null && String(videoUserInfo.userId) !== String(user.userId)"
                 >
                   <button
                     class="default-btn follow-btn"
@@ -213,6 +211,7 @@
                         : 'not-follow'
                     "
                     @click="handleFocus"
+                    :aria-label="`${focusText} ${videoUserInfo.nickname || '创作者'}`"
                   >
                     {{ focusText }}
                   </button>
@@ -278,7 +277,6 @@
 import CommentIndex from "@/components/Comment/CommentIndex.vue";
 import HeaderBar from "@/components/headerBar/HeaderBar.vue";
 import Artplayer from "@/components/player/Artplayer.vue";
-import VPopover from "@/components/popover/VPopover.vue";
 import VAvatar from "@/components/avatar/VAvatar.vue";
 import DanmuBox from "@/components/danmu/DanmuBox.vue";
 import VideoSmallCard from "@/components/VideoSmallCard/VideoSmallCard.vue";
@@ -286,7 +284,6 @@ import {
   handleNum,
   handleDuration,
   formatStandardDateTime,
-  linkify,
 } from "@/lib/utils.js";
 import { ElMessage } from "element-plus";
 import { getDanmuWSUrl } from "@/lib/config";
@@ -310,13 +307,13 @@ import { useUserStore } from "@/store/user";
 import { mapState, mapActions } from "pinia";
 import { mediaVideoUrl, mediaUrl } from "@/lib/media";
 import { compactInteractionCount, fullInteractionCount } from '@/lib/interaction-count.mjs';
+import { renderVideoDescription } from '@/lib/video-description.mjs';
 export default {
   name: "VideoDetail",
   components: {
     CommentIndex,
     HeaderBar,
     Artplayer,
-    VPopover,
     VAvatar,
     DanmuBox,
     VideoSmallCard,
@@ -344,7 +341,7 @@ export default {
       seekTimePoint: -1, // 双击弹幕跳转的时间点
       isSelfDanmu: false, //标记websocket传输的弹幕是否自己发的弹幕
       recmVideoList: [], //推荐视频列表
-      showAllDesc: true, // 是否展开简介
+      showAllDesc: false, // 是否展开简介
       descTooLong: false, // 简介太长需要展开
       sortType: 0, // 排序方式 0默认时间升序 1时间降序 2内容升序 3内容降序
 
@@ -380,10 +377,12 @@ export default {
     this.getVideoDetail();
   },
   mounted() {
+    document.addEventListener('pointerdown', this.dismissAuthorSource);
     this.playerColumnObserver = new ResizeObserver(entries => {
       const width = Math.round(entries[0].contentRect.width);
       if (width && width !== this.playerSize.width) {
         this.playerSize = { width, height: Math.round(width * 9 / 16) + 60 };
+        this.isDescTooLong();
       }
     });
     this.playerColumnObserver.observe(this.$refs.playerColumn);
@@ -397,12 +396,16 @@ export default {
     this.initAllinVar();
   },
   beforeUnmount() {
+    document.removeEventListener('pointerdown', this.dismissAuthorSource);
     this.playerColumnObserver?.disconnect();
     // 关闭websocket
     this.closeWebSocket();
   },
   computed: {
     assistantOpen() { return useAssistantStore().open; },
+    authorDescription() { return String(this.videoUserInfo.description || '').trim(); },
+    isSourceProfile() { return /^B站来源归档账号[；;，,：:\s]/.test(this.authorDescription); },
+    authorSignature() { return this.isSourceProfile ? '暂无个性签名' : this.authorDescription || '暂无个性签名'; },
     ...mapState(useUserStore, ["user", "isLogin"]),
     isVideoAuthor() {
       return this.isLogin && this.user.userId != null && this.videoDetail.userId != null
@@ -437,6 +440,11 @@ export default {
     },
   },
   methods: {
+    closeAuthorSource() { if (this.$refs.authorSourceDetails) this.$refs.authorSourceDetails.open = false; },
+    dismissAuthorSource(event) {
+      const details = this.$refs.authorSourceDetails;
+      if (details && !details.contains(event.target)) details.open = false;
+    },
     compactInteractionCount,
     fullInteractionCount,
     updateAssistantPlayback(milliseconds) {
@@ -782,16 +790,22 @@ export default {
     // 判断简介长度是否过长需要收起
     isDescTooLong() {
       this.$nextTick(() => {
-        const desc = document.querySelector(".basic-desc-info");
-        if (desc.clientHeight > 84) {
-          this.descTooLong = true;
-          this.showAllDesc = false;
-        }
+        const text = this.$refs.descriptionText;
+        if (!text) return;
+        const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+        this.descTooLong = text.scrollHeight > lineHeight * 4 + 1;
+      });
+    },
+    toggleDescription() {
+      this.showAllDesc = !this.showAllDesc;
+      if (!this.showAllDesc) this.$nextTick(() => {
+        const section = this.$refs.descriptionSection;
+        if (section.getBoundingClientRect().top < 80) section.scrollIntoView({ block: 'start' });
       });
     },
     // 处理超链接文本
     handleLinkify(text) {
-      return linkify(text);
+      return renderVideoDescription(text);
     },
     sortDanmu(type) {
       this.sortType = type;
@@ -1239,6 +1253,7 @@ export default {
 
 .video-desc-container {
   margin: 16px 0;
+  scroll-margin-top: 80px;
 }
 
 .basic-desc-info {
@@ -1249,6 +1264,10 @@ export default {
   line-height: 24px;
   overflow: hidden;
 }
+.desc-info-text {display:block;overflow-wrap:anywhere;}
+.basic-desc-info.is-collapsed .desc-info-text {display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;}
+.desc-info-text :deep(.video-source-link) {color:var(--text_link);text-decoration:underline;text-decoration-color:var(--workbench-ring);text-underline-offset:3px;overflow-wrap:anywhere;}
+.desc-info-text :deep(.video-source-link:hover) {text-decoration-color:currentColor;}
 
 .toggle-btn {
   margin-top: 10px;
@@ -1259,6 +1278,10 @@ export default {
 .toggle-btn-text {
   cursor: pointer;
   color: var(--text2);
+  border:0;
+  background:transparent;
+  font:inherit;
+  padding:4px 0;
 }
 
 .toggle-btn-text:hover {
@@ -1316,8 +1339,11 @@ export default {
   box-sizing: border-box;
   height: 104px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  padding: 16px 0 10px;
+  gap: 12px;
 }
+.up-info--left {flex:none;width:48px;padding-top:2px;}
 
 .up-avatar-wrap {
   width: 48px;
@@ -1337,20 +1363,26 @@ export default {
 }
 
 .up-info--right {
-  margin-left: 12px;
+  margin-left: 0;
   flex: 1;
+  min-width: 0;
 }
 
 .up-info__detail {
-  margin-bottom: 5px;
+  margin-bottom: 0;
 }
 
 .up-detail-top {
   display: flex;
   align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 20px;
 }
 
 .up-name {
+  flex: 1;
+  min-width: 0;
   font-size: 15px;
   color: var(--text1);
   font-weight: 500;
@@ -1358,15 +1390,23 @@ export default {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
-  margin-right: 12px;
-  max-width: calc(100% - 12px - 56px);
+  margin-right: 0;
+  max-width: 100%;
+  line-height: 20px;
 }
+.author-source-info {flex:none;display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:var(--text3);font-size:14px;cursor:pointer;}
+.author-source-info:hover {background:var(--workbench-sidebar);color:var(--text2);}
+.author-source-details {position:relative;flex:none;}
+.author-source-info {list-style:none;}
+.author-source-info::-webkit-details-marker {display:none;}
+.author-source-details[open] .author-source-info {background:var(--workbench-sidebar);}
+.author-source-popover {position:absolute;right:0;top:calc(100% + 8px);z-index:100;width:288px;max-width:calc(100vw - 32px);padding:12px 16px;border:1px solid var(--workbench-border);border-radius:8px;background:var(--workbench-raised);box-shadow:var(--workbench-whisper);}
 
 .up-description {
   margin-top: 2px;
   font-size: 13px;
-  line-height: 16px;
-  height: 16px;
+  line-height: 18px;
+  height: 18px;
   color: var(--text3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1376,28 +1416,29 @@ export default {
 .up-info__btn-panel {
   clear: both;
   display: flex;
-  margin-top: 5px;
+  margin-top: 6px;
   white-space: nowrap;
 }
 
 .up-info__btn-panel .default-btn {
   box-sizing: border-box;
   padding: 0;
-  line-height: 30px;
-  height: 30px;
+  line-height: 28px;
+  height: 28px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
   /* cursor: pointer; */
   background: var(--graph_weak);
   position: relative;
-  transition: 0.3s all;
+  transition: background-color .18s, color .18s;
 }
 
 .follow-btn {
-  width: 200px;
+  width: 100%;
+  min-width: 0;
   cursor: pointer;
 }
 
@@ -1416,7 +1457,7 @@ export default {
 }
 
 .follow-btn.not-follow:hover {
-  background: #00b8f6;
+  background: var(--brand_blue_hover);
 }
 
 .follow-btn .iconfont {
@@ -1520,16 +1561,12 @@ export default {
 
   .up-name {
     font-size: 16px;
-    max-width: calc(100% - 12px - 60px);
   }
 
   .up-description {
     font-size: 14px;
   }
 
-  .follow-btn {
-    width: 230px;
-  }
 }
 
 /* 三连动画样式开始 */
@@ -1794,6 +1831,7 @@ export default {
 </style>
 
 <style>
+.author-source-copy {margin:0;font:13px/1.7 var(--workbench-ui);color:var(--text2);overflow-wrap:anywhere;}
 .operations-drawer.el-drawer { border-radius: 22px 0 0 22px; overflow: hidden; }
 .operations-drawer .el-drawer__body { padding: 0; overflow: hidden; }
 @media (max-width: 760px) { .operations-drawer.el-drawer { border-radius: 16px 0 0 16px; } }
