@@ -25,11 +25,12 @@ const compact = value => value == null ? '—' : value >= 1000 ? `${(value/1000)
 const windowSegments = computed(() => {
   const {used,capacity} = props.windowUsage
   if (used == null || capacity == null) return [{value:1,color:'var(--workbench-border)'}]
-  const occupied = Math.min(used,capacity)
+  const ratio = Math.min(1,Math.max(0,used/capacity))
+  const occupied = ratio === 0 ? 0 : ratio === 1 ? capacity : capacity*(0.58+0.25*ratio)
   const visible = slots.value.filter(slot => Number.isFinite(slot.bytes) && slot.bytes > 0)
   const weight = visible.reduce((sum,slot) => sum+Math.sqrt(slot.bytes),0)
-  const segments = weight > 0 ? visible.map(slot => ({label:slot.label,color:slot.color,value:Math.sqrt(slot.bytes)/weight*occupied})) : [{label:'已用',value:occupied,color:'var(--trace-clay)'}]
-  return [...segments,{label:'剩余',value:Math.max(0,capacity-used),color:'var(--workbench-border)'}]
+  const segments = weight > 0 ? visible.map(slot => ({label:slot.label,color:slot.color,value:(0.45/visible.length+0.55*Math.sqrt(slot.bytes)/weight)*occupied})) : [{label:'已用',value:occupied,color:'var(--trace-clay)'}]
+  return [...segments,{label:'剩余',value:Math.max(0,capacity-occupied),color:'var(--workbench-border)'}]
 })
 const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('zh-CN').format(value)} B`
 </script>
@@ -37,7 +38,7 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
 <template>
   <section v-if="selection.visible || showEmpty" class="context-section" aria-label="上下文模块装配">
     <header><h3>上下文构成</h3></header>
-    <TraceDonut :segments="windowSegments" :value="windowUsage.unit === 'B' ? (windowUsage.used/1024).toFixed(1) : compact(windowUsage.used)" :unit="windowUsage.unit === 'B' ? 'KiB' : ''" :caption="windowUsage.capacity == null ? '' : `/ ${windowUsage.unit === 'B' ? `${(windowUsage.capacity/1024).toFixed(0)} KiB` : compact(windowUsage.capacity)}`" :label="`已用 ${compact(windowUsage.used)} ${windowUsage.unit || 'Token'}，上下文容量 ${compact(windowUsage.capacity)} ${windowUsage.unit || 'Token'}`" />
+    <TraceDonut :segments="windowSegments" :value="windowUsage.unit === 'B' ? (windowUsage.used/1024).toFixed(1) : compact(windowUsage.used)" :unit="windowUsage.unit === 'B' ? 'KiB' : ''" :caption="windowUsage.capacity == null ? '' : `/ ${windowUsage.unit === 'B' ? `${(windowUsage.capacity/1024).toFixed(0)} KiB` : compact(windowUsage.capacity)}`" :label="`上下文构成示意；已用 ${compact(windowUsage.used)} ${windowUsage.unit || 'Token'}，上下文容量 ${compact(windowUsage.capacity)} ${windowUsage.unit || 'Token'}`" />
     <p class="window-label">{{ windowUsage.unit === 'B' ? '已用 / 输入预算' : '已用 / 上下文窗口' }}</p>
     <dl class="context-slots">
       <div v-for="slot in slots" :key="slot.name">
