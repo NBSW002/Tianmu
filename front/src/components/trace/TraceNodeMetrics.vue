@@ -2,7 +2,7 @@
 /* global defineProps */
 import { computed } from 'vue'
 import { formatDuration, formatValue } from '@/trace/trace-data.mjs'
-const props = defineProps({ node: { type: Object, required: true }, summaryOnly:Boolean })
+const props = defineProps({ node: { type: Object, required: true }, summaryOnly:Boolean, partial:Boolean })
 const timing = computed(() => {
   const a = props.node.attributes || {}, first = a['model.first_token_ms'], response = a['model.response_ms']
   if (!Number.isFinite(first) || !Number.isFinite(response) || first < 0 || response <= 0 || first > response) return null
@@ -18,7 +18,7 @@ const tokens = computed(() => {
   <div class="node-visuals">
     <dl class="metric-row">
       <div><dt>本次耗时</dt><dd data-testid="inspector-duration">{{ node.durationLabel || formatDuration(node.durationMs) }}</dd></div>
-      <div v-if="node.totalTokens != null"><dt>Token 用量</dt><dd>{{ formatValue(node.totalTokens) }}</dd></div>
+      <div v-if="node.totalTokens != null"><dt>Token 用量 <small v-if="partial">· 部分</small></dt><dd>{{ formatValue(node.totalTokens) }}</dd></div>
       <div v-if="node.turn != null"><dt>所在轮次</dt><dd>{{ node.turn === 0 ? '前置处理' : `第 ${node.turn} 轮` }}</dd></div>
     </dl>
     <section v-if="tokens && !summaryOnly" class="allocation" aria-label="Token 分布">

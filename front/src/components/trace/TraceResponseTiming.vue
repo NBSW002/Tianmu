@@ -3,20 +3,20 @@
 import { computed } from 'vue'
 import TraceDonut from './TraceDonut.vue'
 import { formatDuration } from '@/trace/trace-data.mjs'
-const props = defineProps({ timing: { type: Object, default: null }, duration: Number })
-const segments = computed(() => props.timing?.first != null ? [
+const props = defineProps({ timing: { type: Object, default: null } })
+const segments = computed(() => props.timing?.first != null && props.timing?.remaining != null ? [
   { label:'首 Token 等待',value:props.timing.first,color:'var(--trace-wait)' },
   { label:'后续响应',value:props.timing.remaining,color:'var(--trace-clay)' },
 ] : [])
-const total = computed(() => props.timing?.total ?? props.duration)
-const display = computed(() => formatDuration(total.value))
+const display = computed(() => props.timing?.total == null ? '未记录' : formatDuration(props.timing.total))
 const percentage = value => `${(value / props.timing.total * 100).toFixed(1)}%`
 </script>
 <template>
   <section class="response-card" aria-label="响应耗时">
     <h3>响应耗时</h3>
     <TraceDonut v-if="segments.length" :segments="segments" :value="display" caption="总响应耗时" :label="segments.map(s => `${s.label} ${formatDuration(s.value)}`).join('，')" />
-    <p v-else class="response-total">{{ display }}<small>总耗时</small></p>
+    <p v-else class="response-total">{{ display }}<small>响应耗时</small></p>
+    <dl v-if="!segments.length && timing?.first != null"><div><dt><i style="background:var(--trace-wait)" />首 Token 等待</dt><dd>{{ formatDuration(timing.first) }}</dd></div></dl>
     <dl v-if="segments.length"><div v-for="segment in segments" :key="segment.label"><dt><i :style="{ background:segment.color }" />{{ segment.label }}</dt><dd>{{ formatDuration(segment.value) }}<small>{{ percentage(segment.value) }}</small></dd></div></dl>
   </section>
 </template>

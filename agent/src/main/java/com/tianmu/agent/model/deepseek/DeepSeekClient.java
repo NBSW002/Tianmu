@@ -259,7 +259,7 @@ public final class DeepSeekClient {
             if(line.size()>0){String tail=line.toString(java.nio.charset.StandardCharsets.UTF_8).stripTrailing();if(tail.startsWith("data:")){if(!data.isEmpty())data.append('\n');data.append(tail.substring(5).stripLeading());}}
             if(!data.isEmpty())parser.accept(data.toString());return parser.result();
         }catch(AgentException e){throw e;}catch(Exception e){if(e instanceof InterruptedException)Thread.currentThread().interrupt();control.checkpoint();throw unavailable();}
-        finally{timeout.cancel(false);close.run();}
+        finally{TraceAttributes.apply(Span.current(),Map.of("model.response_ms",Math.max(0,(System.nanoTime()-started)/1_000_000)));timeout.cancel(false);close.run();}
     }
     private JsonNode exchange(HttpRequest request, CallControl control) {
         long requestStarted = System.nanoTime();

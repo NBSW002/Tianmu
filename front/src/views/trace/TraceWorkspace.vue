@@ -13,7 +13,9 @@ import TraceNodeMetrics from '@/components/trace/TraceNodeMetrics.vue'
 import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
 import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
-import { modelResponseDetails } from '@/trace/trace-inspector.mjs'
+import TraceRunTiming from '@/components/trace/TraceRunTiming.vue'
+import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
+import { modelResponseDetails, runInspectorSummary } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -77,8 +79,11 @@ const selectedMembers = computed(() => (selected.value?.memberIds || []).filter(
 const invocations = computed(() => modelInvocations(selected.value, presentation.value))
 const reasoningSources = computed(() => selected.value?.cardKind === 'run' ? [] : modelReasoningSources(selected.value, presentation.value))
 const intentSelection = computed(() => intentDetails(selected.value))
-const contextSelection = computed(() => contextDetails(selected.value))
+const runSelection = computed(() => selected.value?.cardKind === 'run')
+const runSummary = computed(() => runInspectorSummary(trace.value,presentation.value))
+const contextSelection = computed(() => runSelection.value ? runSummary.value.context : contextDetails(selected.value))
 const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
+const metricSelection = computed(() => runSelection.value ? {...selected.value,durationMs:trace.value.durationMs,totalTokens:trace.value.totalTokens} : selected.value)
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
 const executionSelection = computed(() => executionFacts(selected.value, presentation.value).filter(fact => fact !== '思考状态未记录'))
@@ -256,12 +261,14 @@ function downloadExample() {
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
             <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
-            <TraceNodeMetrics :node="selected" summary-only />
+            <TraceNodeMetrics :node="metricSelection" :partial="runSelection && !trace.usageComplete" summary-only />
             </section>
-            <div v-if="contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
-              <TraceContext :selection="contextSelection" :show-empty="selected.kind === 'MODEL' || selected.cardKind === 'model'" />
-              <TraceResponseTiming v-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" :duration="selected.durationMs" />
-              <TraceTokenUsage v-if="selected.kind === 'MODEL' || selected.totalTokens != null" :node="selected" />
+            <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
+              <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" />
+              <TraceRunTiming v-if="runSelection" :duration="trace.durationMs" :model-calls="runSummary.modelCalls" :tool-calls="runSummary.tools.length" :foreground="trace.foregroundModelCalls" :preparation="trace.preparationModelCalls" :background="trace.backgroundModelCalls" />
+              <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" />
+              <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
+              <TraceRunCalls v-if="runSelection" :calls="runSummary.tools" @select="selectNode" />
               <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
             </div>
             <section v-if="selected.attributes?.['analysis.raw_records'] != null" class="intent-selection" aria-label="反馈聚类统计">

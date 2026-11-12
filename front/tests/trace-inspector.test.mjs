@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { modelResponseDetails } from '../src/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary } from '../src/trace/trace-inspector.mjs'
 
 const model = (id,parentId,attributes={}) => ({id,parentId,kind:'MODEL',attributes})
 test('response phases come from the leaf provider, not the outer model wrapper',()=>{
@@ -23,4 +23,36 @@ test('missing and invalid first-token timing stays missing while response total 
 test('duration alone and non-model nodes do not acquire response timing',()=>{
   assert.equal(modelResponseDetails({...model('m'),durationMs:100}),null)
   assert.equal(modelResponseDetails({id:'tool',kind:'TOOL',attributes:{'model.response_ms':100}}),null)
+})
+test('a recorded first token remains visible without inventing total response time',()=>{
+  assert.deepEqual(modelResponseDetails(model('m',null,{'model.first_token_ms':120})),{total:null,first:120,remaining:null})
+})
+test('run overview aggregates separate context assemblies and skips duplicated descendant snapshots',()=>{
+  const attrs=(size)=>({'context.present_slots':['system_prompt','focus'],'context.slot_bytes':[`system_prompt:${size}`,'focus:20']})
+  const a=model('a',null,attrs(100)),duplicate=model('nested','a',attrs(100)),b=model('b',null,attrs(200))
+  const result=runInspectorSummary({nodes:[a,duplicate,b]},{allCards:new Map()})
+  assert.equal(result.context.note,'已记录 2 次')
+  assert.deepEqual(result.context.slots.map(s=>[s.name,s.bytes]),[['system_prompt',300],['focus',40]])
+  assert.equal(result.modelCalls,2)
+})
+test('run overview preserves unknown slot sizes and counts actual tool roots once',()=>{
+  const a=model('a',null,{'context.present_slots':['system_prompt'],'context.slot_bytes':['system_prompt:100']})
+  const b=model('b',null,{'context.present_slots':['system_prompt'],'context.slot_bytes':[]})
+  const tool={id:'t',kind:'TOOL',type:'tool_call',tool:'read_skill',name:'agent.tool',status:'SUCCEEDED',attributes:{}}
+  const nested={...tool,id:'nested',parentId:'t'}
+  const cards=new Map([['t',{id:'t',cardKind:'tool',name:'agent.tool',tool:'read_skill',attributes:{}}]])
+  const result=runInspectorSummary({nodes:[a,b,tool,nested]},{allCards:cards})
+  assert.equal(result.context.slots[0].bytes,null)
+  assert.equal(result.tools.length,1)
+  assert.equal(result.tools[0].id,'t')
+})
+test('run overview excludes another run and its descendants',()=>{
+  const attrs = id => ({'run.id':id,'context.present_slots':['focus'],'context.slot_bytes':['focus:20']})
+  const own = model('own',null,attrs('current'))
+  const other = model('other',null,attrs('historical'))
+  const nested = {id:'historical-tool',parentId:'other',kind:'TOOL',type:'tool_call',tool:'read_skill',attributes:{}}
+  const result = runInspectorSummary({runId:'current',nodes:[own,other,nested]},{allCards:new Map()})
+  assert.equal(result.context.slots[0].bytes,20)
+  assert.equal(result.modelCalls,1)
+  assert.equal(result.tools.length,0)
 })

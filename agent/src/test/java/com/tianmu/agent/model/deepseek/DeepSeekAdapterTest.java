@@ -32,6 +32,7 @@ class DeepSeekAdapterTest {
     Function<JsonNode, String> answer = input -> "{\"kind\":\"CLARIFY\",\"clarification\":\"Date?\"}";
     Function<JsonNode,Map<String,Object>> nativeAnswer;
     int status = 200;
+    boolean streamingFixture;
     String finishReason;
     CountDownLatch entered, release;
     @BeforeEach void start() throws Exception {
@@ -41,6 +42,15 @@ class DeepSeekAdapterTest {
             auth.add(exchange.getRequestHeaders().getFirst("Authorization"));
             if (entered != null) entered.countDown();
             if (release != null) try { release.await(3, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (streamingFixture) {
+                byte[] body = ("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n" +
+                        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+                        "data: [DONE]\n\n").getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                try { exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); }
+                finally { exchange.close(); }
+                return;
+            }
             var message=nativeAnswer==null ? Map.<String,Object>of("content",answer.apply(request)):nativeAnswer.apply(request);
             byte[] body = mapper.writeValueAsBytes(Map.of("choices", List.of(Map.of("finish_reason", finishReason!=null?finishReason:message.containsKey("tool_calls")?"tool_calls":"stop",
                     "message", message)), "usage", Map.of("prompt_tokens", 10, "completion_tokens", 5)));
@@ -355,6 +365,23 @@ class DeepSeekAdapterTest {
             for(int i=0;i<2;i++){assertTrue(((Number)calls.get(i).get("model.response_ms")).longValue()>=0);assertTrue(((Number)calls.get(i).get("context.request_bytes")).longValue()>0);assertEquals("fixture-run",calls.get(i).get("run.id"));}
             assertEquals(429L,calls.get(1).get("model.http_status"));assertEquals("NOT_REPORTED",calls.get(1).get("model.usage_state"));
             assertEquals(2L,usage.totals().get("usage.attempted_calls"));assertEquals(false,usage.totals().get("usage.complete"));assertEquals(2,requests.size());
+        }
+    }
+    @Test void streamingRequestRecordsFirstTokenAndResponseFromSameClock() {
+        streamingFixture = true;
+        var spans = new CopyOnWriteArrayList<io.opentelemetry.sdk.trace.data.SpanData>();
+        var exporter = new io.opentelemetry.sdk.trace.export.SpanExporter() {
+            public io.opentelemetry.sdk.common.CompletableResultCode export(Collection<io.opentelemetry.sdk.trace.data.SpanData> batch) { spans.addAll(batch); return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess(); }
+            public io.opentelemetry.sdk.common.CompletableResultCode flush() { return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess(); }
+            public io.opentelemetry.sdk.common.CompletableResultCode shutdown() { return io.opentelemetry.sdk.common.CompletableResultCode.ofSuccess(); }
+        };
+        try (var provider = io.opentelemetry.sdk.trace.SdkTracerProvider.builder().addSpanProcessor(io.opentelemetry.sdk.trace.export.SimpleSpanProcessor.create(exporter)).build()) {
+            var traced = new DeepSeekClient(properties,mapper,new com.tianmu.agent.model.ContextPolicy(2048,0),provider.get("test"));
+            traced.completeHarness(properties.harnessModel(),List.of(Map.of("role","user","content","fixture")),List.of(),128,control().withTextOutput(text -> {}));
+            var attributes = spans.stream().filter(span -> span.getName().equals("model.request")).findFirst().orElseThrow().getAttributes();
+            Long first = attributes.get(io.opentelemetry.api.common.AttributeKey.longKey("model.first_token_ms"));
+            Long total = attributes.get(io.opentelemetry.api.common.AttributeKey.longKey("model.response_ms"));
+            assertNotNull(first); assertNotNull(total); assertTrue(first >= 0); assertTrue(total >= first);
         }
     }
     @Test void inputAwareTokenLimitStopsNetworkDispatch() {
