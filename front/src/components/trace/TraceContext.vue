@@ -2,7 +2,7 @@
 /* global defineProps */
 import { computed } from 'vue'
 import TraceDonut from './TraceDonut.vue'
-const props = defineProps({ selection: { type: Object, required: true }, showEmpty:Boolean, aggregate:Boolean })
+const props = defineProps({ selection: { type: Object, required: true }, showEmpty:Boolean, aggregate:Boolean, windowUsage:{type:Object,default:()=>({used:null,capacity:null})} })
 const colors = {
   system_prompt:'var(--trace-clay)', tool_catalog:'var(--trace-charcoal)',
   skill_catalog:'var(--trace-skill)', agent_catalog:'var(--trace-agent)',
@@ -14,17 +14,20 @@ const colors = {
 const total = computed(() => props.selection.slots.reduce((sum, slot) => sum + (Number.isFinite(slot.bytes) && slot.bytes >= 0 ? slot.bytes : 0), 0))
 const complete = computed(() => props.selection.slots.every(slot => Number.isFinite(slot.bytes) && slot.bytes >= 0))
 const slots = computed(() => props.selection.slots.map(slot => ({ ...slot, color: colors[slot.name] || 'var(--trace-sand)', value:slot.bytes, share: complete.value && total.value > 0 ? slot.bytes / total.value * 100 : null })))
-const schematicSlots = computed(() => slots.value.map(slot => ({ ...slot, value:Number.isFinite(slot.bytes) && slot.bytes > 0 ? Math.sqrt(slot.bytes) : 0 })))
-const compactTotal = computed(() => total.value >= 1000000 ? {value:(total.value/1000000).toFixed(2),unit:'MB'} : total.value >= 1000 ? {value:(total.value/1000).toFixed(2),unit:'KB'} : {value:String(total.value),unit:'B'})
+const compact = value => value == null ? '未记录' : value >= 1000 ? `${(value/1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
+const windowSegments = computed(() => {
+  const {used,capacity} = props.windowUsage
+  if (used == null || capacity == null) return [{value:1,color:'var(--workbench-border)'}]
+  return [{value:Math.min(used,capacity),color:'var(--trace-clay)'},{value:Math.max(0,capacity-used),color:'var(--workbench-border)'}]
+})
 const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('zh-CN').format(value)} B`
 </script>
 
 <template>
   <section v-if="selection.visible || showEmpty" class="context-section" aria-label="上下文模块装配">
-    <header><h3>{{ aggregate ? '累计上下文' : '上下文构成' }}</h3><span v-if="selection.visible">示意 · 非比例</span></header>
-    <p v-if="aggregate && selection.note" class="context-count">{{ selection.note }}装配</p>
-    <p v-if="!selection.visible" class="context-empty">未记录</p>
-    <TraceDonut v-if="slots.length" :segments="schematicSlots" :value="complete ? compactTotal.value : '—'" :unit="complete ? compactTotal.unit : ''" :caption="aggregate ? '累计装配' : '上下文大小'" :label="`示意图，圆环不代表比例；${complete ? `上下文 ${bytes(total)}；` : ''}${slots.map(slot => `${slot.label} ${bytes(slot.bytes)}${slot.share == null ? '' : `，${slot.share.toFixed(1)}%`}`).join('；')}`" />
+    <header><h3>{{ aggregate ? '上下文峰值' : '上下文窗口' }}</h3></header>
+    <TraceDonut :segments="windowSegments" :value="compact(windowUsage.used)" :caption="`/ ${compact(windowUsage.capacity)}`" :label="`已用 ${compact(windowUsage.used)} Token，上下文窗口 ${compact(windowUsage.capacity)} Token`" />
+    <p class="window-label">已用 / 上下文窗口</p>
     <dl class="context-slots">
       <div v-for="slot in slots" :key="slot.name">
         <dt><i :style="{ background: slot.color }" aria-hidden="true"></i>{{ slot.label }}</dt>
@@ -40,6 +43,7 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
 
 <style scoped>
 .context-section{margin:0;padding:16px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--trace-card,var(--workbench-raised));color:var(--workbench-ink);font-size:12px;min-width:0;}
+.window-label{text-align:center;color:var(--workbench-muted);font-size:11px;margin:-8px 0 16px;}
 .context-empty{margin:24px 0;color:var(--workbench-muted);font-size:12px;}
 .context-count{margin:6px 0 0;color:var(--workbench-muted);font-size:11px;}
 header{display:flex;align-items:center;justify-content:space-between;gap:8px;}h3{margin:0;font-size:13px;font-weight:500;}header>span{font-size:11px;color:var(--workbench-muted);white-space:nowrap;}

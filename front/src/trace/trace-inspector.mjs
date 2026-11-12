@@ -53,7 +53,7 @@ export function runInspectorSummary(trace, presentation) {
   const decisions = models.filter(node => node.attributes?.['model.decision']).map(node => ({id:node.id,label:'模型决策',name:node.attributes['model.decision'],offsetMs:node.offsetMs,kind:'model'}))
   const events = [...decisions, ...tools.map(tool => ({...tool,kind:'tool'}))].sort((a,b) => (a.offsetMs ?? Infinity) - (b.offsetMs ?? Infinity))
   return {
-    responseTiming, events,
+    responseTiming, events, modelDetails:modelInspectorDetails(modelLeaves, nodes),
     context:{visible:combined.size > 0,slots:[...combined.values()],version:null,projection:null, note:assemblies.length ? `已记录 ${assemblies.length} 次` : null},
     modelCalls, tools,
   }
@@ -83,4 +83,37 @@ export function modelResponseDetails(node, rawById = new Map()) {
   }
   const phases = Number.isFinite(first) && first >= 0 && first <= response && response > 0
   return { total: response, first: phases ? first : null, remaining: phases ? response - first : null }
+}
+
+
+export function modelInspectorDetails(calls, nodes = calls) {
+  const byId = new Map(nodes.map(node => [node.id,node]))
+  const positive = value => Number.isFinite(value) && value >= 0
+  const records = calls.map(node => {
+    const attrs = node.attributes || {}
+    const input = node.inputTokens ?? attrs['model.input_tokens']
+    const capacity = [attrs['model.context_window'], attrs['model.context_window_tokens'], attrs['context.window_tokens']].find(value => positive(value) && value > 0) ?? null
+    let contextNode = node
+    const seen = new Set()
+    while (!contextDetails(contextNode).visible && byId.has(contextNode.parentId) && !seen.has(contextNode.id)) {
+      seen.add(contextNode.id); contextNode = byId.get(contextNode.parentId)
+    }
+    return {node, attrs, input:positive(input) ? input : null, capacity, context:contextDetails(contextNode)}
+  })
+  const peak = records.filter(record => record.input != null).sort((a,b) => {
+    if (a.capacity != null && b.capacity != null) return b.input/b.capacity - a.input/a.capacity
+    return b.input-a.input
+  })[0]
+  const cached = records.filter(record => positive(record.attrs['model.cache_hit_tokens']) && record.input > 0 && record.attrs['model.cache_hit_tokens'] <= record.input)
+  const cacheRate = cached.length ? cached.reduce((sum,r) => sum+r.attrs['model.cache_hit_tokens'],0) / cached.reduce((sum,r) => sum+r.input,0) * 100 : null
+  const generation = records.filter(record => record.attrs['model.streaming'] === true && positive(record.node.outputTokens) && modelResponseDetails(record.node)?.remaining > 0)
+  const tps = generation.length ? generation.reduce((sum,r) => sum+r.node.outputTokens,0) / generation.reduce((sum,r) => sum+modelResponseDetails(r.node).remaining,0) * 1000 : null
+  return {
+    cacheRate, tps, cachePartial:cached.length < calls.length, tpsPartial:generation.length < calls.length,
+    models:[...new Set(records.map(r => r.node.model || r.attrs['model.name']).filter(Boolean))],
+    types:[...new Set(records.map(r => r.attrs['model.streaming'] === true ? '流式' : r.attrs['model.streaming'] === false ? '非流式' : null).filter(Boolean))],
+    count:calls.length,
+    window:{used:peak?.input ?? null,capacity:peak?.capacity ?? null},
+    peakContext:peak?.context?.visible ? peak.context : null,
+  }
 }

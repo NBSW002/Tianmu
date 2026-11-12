@@ -9,7 +9,7 @@ const share = computed(() => {
 })
 </script>
 <template>
-  <section class="token-card" aria-label="Token 分布"><header><h3>Token 分布<small v-if="partial" class="partial"> · 部分</small></h3><span v-if="share != null">示意 · 非比例</span></header><p>{{ formatValue(node.totalTokens) }}<small>Token</small></p>
+  <section class="token-card" aria-label="Token 分布"><header><h3>Token 分布<small v-if="partial" class="partial"> · 部分</small></h3></header><p>{{ formatValue(node.totalTokens) }}<small>Token</small></p>
     <div v-if="share != null" class="token-bar" role="img" :aria-label="`示意图，分段长度不代表比例；输入 ${formatValue(node.inputTokens)}，输出 ${formatValue(node.outputTokens)} Token`"><i v-if="share > 0" :style="{width:`${share}%`}" /><i v-if="share < 100" :class="{ 'only-output': share === 0 }" :style="{width:`${100-share}%`}" /></div>
     <dl><div><dt><i />输入</dt><dd>{{ formatValue(node.inputTokens) }}</dd></div><div><dt><i />输出</dt><dd>{{ formatValue(node.outputTokens) }}</dd></div></dl>
   </section>

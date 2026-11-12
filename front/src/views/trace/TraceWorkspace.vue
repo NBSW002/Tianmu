@@ -10,11 +10,12 @@ import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import TraceContext from '@/components/trace/TraceContext.vue'
 import TraceNodeMetrics from '@/components/trace/TraceNodeMetrics.vue'
+import TraceModelDetails from '@/components/trace/TraceModelDetails.vue'
 import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
 import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
 import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
-import { modelResponseDetails, runInspectorSummary } from '@/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary, modelInspectorDetails } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -80,7 +81,22 @@ const reasoningSources = computed(() => selected.value?.cardKind === 'run' ? [] 
 const intentSelection = computed(() => intentDetails(selected.value))
 const runSelection = computed(() => selected.value?.cardKind === 'run')
 const runSummary = computed(() => runInspectorSummary(trace.value,presentation.value))
-const contextSelection = computed(() => runSelection.value ? runSummary.value.context : contextDetails(selected.value))
+const modelDetails = computed(() => {
+  if (runSelection.value) return runSummary.value.modelDetails
+  const candidates = [selectedSource.value, ...selectedMembers.value].filter(node => node && (node.kind === 'MODEL' || node.type === 'llm_inference') && node.attributes?.['model.dispatched'] !== false)
+  const ids = new Set(candidates.map(node => node.id))
+  const parents = new Set()
+  for (const node of candidates) {
+    let parent = presentation.value.rawById.get(node.parentId)
+    const seen = new Set()
+    while (parent && !seen.has(parent.id)) {
+      seen.add(parent.id); if (ids.has(parent.id)) parents.add(parent.id)
+      parent = presentation.value.rawById.get(parent.parentId)
+    }
+  }
+  return modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes)
+})
+const contextSelection = computed(() => runSelection.value ? (modelDetails.value.peakContext || {visible:false,slots:[]}) : contextDetails(selected.value))
 const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
 const metricSelection = computed(() => runSelection.value ? {...selected.value,durationMs:trace.value.durationMs,totalTokens:trace.value.totalTokens} : selected.value)
 const compactionSelection = computed(() => compactionDetails(selected.value))
@@ -264,9 +280,12 @@ function downloadExample() {
           <div v-if="selected" class="inspector-content" :key="selected.id">
 
             <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
-              <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" />
+              <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" :window-usage="modelDetails.window" />
+              <div class="model-performance">
               <TraceResponseTiming v-if="runSelection" :timing="runSummary.responseTiming" aggregate />
               <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" />
+              <TraceModelDetails :details="modelDetails" />
+              </div>
               <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
               <TraceRunCalls v-if="runSelection" :calls="runSummary.events" @select="selectNode" />
               <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
@@ -726,13 +745,18 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
   --trace-output: #b6aa93;
 }
 
-.selected-summary{display:flex;align-items:center;gap:16px;margin:0 24px 12px;padding:12px 16px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--trace-card);flex-shrink:0;}
-.selected-summary .selected-node-heading{min-width:0;flex:1;}
+.selected-summary{width:fit-content;max-width:calc(100% - 48px);align-self:flex-start;display:flex;align-items:center;gap:20px;margin:0 24px 10px;padding:8px 14px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--trace-card);flex-shrink:0;}
+.selected-summary .selected-node-heading{min-width:0;flex:0 1 auto;}
 .selected-summary .semantic-result{max-width:240px;margin:0;}
 .selected-summary .node-status-line{margin:0;}
 .selected-summary :deep(.node-visuals){margin:0;min-width:280px;}
-.selected-summary :deep(.metric-row){padding:0;border:0;gap:24px;}
+.selected-summary :deep(.metric-row){padding:0;border:0;gap:20px;}
+.selected-summary .selected-node-icon{width:30px;height:30px;}
+.selected-summary .selected-node-heading h2{font-size:13px;}
+.selected-summary :deep(.metric-row dd){font-size:15px;margin-top:2px;}
+.model-performance{display:flex;flex-direction:column;gap:12px;min-width:0;}
+.model-performance :deep(.response-card){flex:1;}
 .selected-summary :deep(.metric-row>div){flex:none;}
 @media(max-width:1100px){.selected-summary{flex-wrap:wrap;}}
-@media(max-width:600px){.selected-summary{margin-inline:12px;gap:10px;}.selected-summary .semantic-result{max-width:100%;}}
+@media(max-width:600px){.selected-summary{max-width:calc(100% - 24px);margin-inline:12px;gap:10px;}.selected-summary .semantic-result{max-width:100%;}}
 </style>

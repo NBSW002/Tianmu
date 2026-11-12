@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { modelResponseDetails, runInspectorSummary } from '../src/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary, modelInspectorDetails } from '../src/trace/trace-inspector.mjs'
 
 const model = (id,parentId,attributes={}) => ({id,parentId,kind:'MODEL',attributes})
 test('response phases come from the leaf provider, not the outer model wrapper',()=>{
@@ -68,4 +68,28 @@ test('run response timing does not invent missing phase or total measurements',(
   const b={...model('b',null,{'model.response_ms':300}),name:'model.request'}
   const result=runInspectorSummary({nodes:[a,b]},{allCards:new Map()})
   assert.deepEqual(result.responseTiming,{total:500,first:null,remaining:null,recorded:2,calls:2})
+})
+
+test('model details use token-weighted cache and streaming generation time',()=>{
+ const a={...model('a',null,{'model.cache_hit_tokens':80,'model.response_ms':600,'model.first_token_ms':100,'model.streaming':true,'model.context_window':1000}),inputTokens:100,outputTokens:20,model:'flash'}
+ const b={...model('b',null,{'model.cache_hit_tokens':0,'model.response_ms':1100,'model.first_token_ms':100,'model.streaming':true,'model.context_window':2000}),inputTokens:200,outputTokens:40,model:'flash'}
+ const result=modelInspectorDetails([a,b])
+ assert.ok(Math.abs(result.cacheRate-80/300*100)<0.001)
+ assert.equal(result.tps,40)
+ assert.deepEqual(result.window,{used:100,capacity:1000})
+ assert.deepEqual(result.models,['flash'])
+})
+test('missing capacity, cache and generation data remain unknown',()=>{
+ const result=modelInspectorDetails([{...model('a'),inputTokens:500,outputTokens:20,durationMs:1000}])
+ assert.deepEqual(result.window,{used:500,capacity:null})
+ assert.equal(result.cacheRate,null)
+ assert.equal(result.tps,null)
+})
+test('peak window context comes from its assembly ancestor instead of summing calls',()=>{
+ const parent=model('parent',null,{'context.present_slots':['focus'],'context.slot_bytes':['focus:88']})
+ const a={...model('a','parent',{'model.context_window':1000}),inputTokens:500}
+ const b={...model('b',null,{'model.context_window':1000}),inputTokens:100}
+ const result=modelInspectorDetails([a,b],[parent,a,b])
+ assert.deepEqual(result.window,{used:500,capacity:1000})
+ assert.equal(result.peakContext.slots[0].bytes,88)
 })
