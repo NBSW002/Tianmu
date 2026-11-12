@@ -85,7 +85,7 @@ JSONL / Kafka 的 Span attributes 仍然只携带元数据和详情引用，消�
 
 ### 模型接口元数据与界面口径
 
-`GET /api/agent/models/metadata` 在身份认证后查询默认配置供应商的 `/models`，仅返回供应商标识、模型 ID、`context_window`、`max_output_tokens` 和采集时间。成功结果在 Agent 进程内缓存 10 分钟，失败空结果缓存 30 秒；连接上限 2 秒、请求上限 3 秒、响应上限 128 KiB，无重定向、无自动重试。失败不影响 Trace 查询，不用默认值猜测模型容量。
+`GET /api/agent/models/metadata` 在身份认证后查询默认配置供应商的 `/models`，仅返回供应商标识、模型 ID、接口完整名称 `name`、`context_window`、`max_output_tokens` 和采集时间。成功结果在 Agent 进程内缓存 10 分钟，失败空结果缓存 30 秒；连接上限 2 秒、请求上限 3 秒、响应上限 128 KiB，无重定向、无自动重试。失败不影响 Trace 查询，不用默认值猜测模型容量。
 
 Trace 界面优先使用记录自身的窗口容量；缺失时，仅对匹配供应商与模型 ID 的 DeepSeek 记录使用当前 `/models` 元数据。当前元数据不是历史容量快照；原始 Trace 不被改写。模型窗口使用 Token，`context.byte_limit` 仍是独立的应用字节预算，不互相换算。界面缓存命中和未命中展示服务商返回 Token 数，不再展示自行计算的命中率或 TPS。根节点对实际请求去重后合计，缺失缓存字段不补零。
 
@@ -111,3 +111,5 @@ python scripts/render_trace.py --trace var/trace-demo/spans.jsonl --details var/
 生命周期由 HarnessSession 的终态 CAS 和执行计数控制，排队取消、错误与正常提前返回均有唯一 finish。进程被强杀时未结束 Span 无法由 outbox 恢复；晚到、未响应取消的适配器也可能在 finish 后产生记录，因此 finish 不是“所有记录已经到齐”的证明。
 
 现有同步刷盘、容量上限、失败重试、eventId 去重契约保持不变。Kafka Consumer、在线 Trace 列表查询、跨服务 HTTP 注入、动态采样仍待建设；本地修改需部署后才能用于服务器流量。
+
+模型情况中的 Tool 调用按实际工具执行去重统计，Skill 调用是其中的 Skill 访问（也兼容独立的 `agent.skill` 记录），同一次 `read_skill` 与内部 Skill Span 只计一次 Skill 访问；仅选择、未执行的工具不计数。上下文压缩区分本次压缩事件、工具结果精简、沿用历史摘要和明确未触发，缺失证据不补成未触发。

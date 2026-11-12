@@ -58,7 +58,7 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
 .window-label{text-align:center;color:var(--workbench-muted);font-size:11px;margin:-8px 0 16px;}
 .context-empty{margin:24px 0;color:var(--workbench-muted);font-size:12px;}
 .context-count{margin:6px 0 0;color:var(--workbench-muted);font-size:11px;}
-header{display:flex;align-items:center;justify-content:space-between;gap:8px;}h3{margin:0;font-size:13px;font-weight:500;}header>span{font-size:11px;color:var(--workbench-muted);white-space:nowrap;}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;}h3{margin:0;font-size:13px;font-weight:600;}header>span{font-size:11px;color:var(--workbench-muted);white-space:nowrap;}
 .context-slots{margin:0;}.context-slots>div{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:8px 0;border-bottom:1px solid var(--workbench-border-subtle);}
 dt{min-width:0;overflow-wrap:anywhere;}.context-slots dt{display:flex;align-items:center;gap:6px;font-size:11px;}.context-slots i{width:7px;height:7px;border-radius:2px;flex-shrink:0;}
 dd{margin:0;font-size:11px;font-variant-numeric:tabular-nums;}.context-slots dd{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 8px;white-space:nowrap;}.context-slots dd span{width:39px;text-align:right;color:var(--workbench-muted);}

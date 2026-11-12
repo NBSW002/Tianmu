@@ -64,7 +64,7 @@ export function runInspectorSummary(trace, presentation, metadata = []) {
   const decisions = models.filter(node => node.attributes?.['model.decision']).map(node => ({id:node.id,label:'模型决策',name:node.attributes['model.decision'],offsetMs:node.offsetMs,kind:'model'}))
   const events = [...decisions, ...tools.map(tool => ({...tool,kind:'tool'}))].sort((a,b) => (a.offsetMs ?? Infinity) - (b.offsetMs ?? Infinity))
   return {
-    responseTiming, ttftTiming:runTtftDetails(modelLeaves), events, modelDetails:modelInspectorDetails(modelLeaves, nodes, metadata),
+    responseTiming, ttftTiming:runTtftDetails(modelLeaves), events, modelDetails:{...modelInspectorDetails(modelLeaves, nodes, metadata),...executionSummary(nodes)},
     context:{visible:combined.size > 0,slots:[...combined.values()],version:null,projection:null, note:assemblies.length ? `已记录 ${assemblies.length} 次` : null},
     modelCalls, tools,
   }
@@ -121,7 +121,7 @@ export function modelInspectorDetails(calls, nodes = calls, metadata = []) {
     const byteLimit = budgetNode.attributes?.['context.byte_limit']
     const requestBytes = attrs['context.request_bytes'] ?? attrs['context.input_bytes'] ?? budgetNode.attributes?.['context.input_bytes']
     const byteWindow = positive(requestBytes) && byteLimit > 0 ? {used:requestBytes,capacity:byteLimit,unit:'B'} : null
-    return {node, attrs, input:positive(input) ? input : null, capacity, byteWindow, context:contextDetails(contextNode)}
+    return {node, attrs, displayName:discovered?.name || node.model || attrs['model.name'], input:positive(input) ? input : null, capacity, byteWindow, context:contextDetails(contextNode)}
   })
   const peak = records.filter(record => record.input != null).sort((a,b) => {
     if (a.capacity == null && b.capacity != null) return 1
@@ -137,7 +137,8 @@ export function modelInspectorDetails(calls, nodes = calls, metadata = []) {
     cacheHits:hits.length ? hits.reduce((sum,record) => sum+record.attrs['model.cache_hit_tokens'],0) : null,
     cacheMisses:misses.length ? misses.reduce((sum,record) => sum+record.attrs['model.cache_miss_tokens'],0) : null,
     cacheHitPartial:hits.length < calls.length, cacheMissPartial:misses.length < calls.length,
-    models:[...new Set(records.map(r => r.node.model || r.attrs['model.name']).filter(Boolean))],
+    models:[...new Set(records.map(r => r.displayName).filter(Boolean))],
+    modelIds:[...new Set(records.map(r => r.node.model || r.attrs['model.name']).filter(Boolean))],
     types:[...new Set(records.map(r => r.attrs['model.streaming'] === true ? '流式' : r.attrs['model.streaming'] === false ? '非流式' : null).filter(Boolean))],
     count:calls.length,
     window:peak?.capacity != null ? {used:peak.input,capacity:peak.capacity} : (bytePeak?.byteWindow || {used:peak?.input ?? null,capacity:null}),
@@ -166,4 +167,28 @@ export function runTtftDetails(calls) {
     remaining:sampled.length ? sampled.reduce((sum,timing) => sum+timing.remaining,0) : null,
     recorded:sampled.length,calls:streams.length,
   }
+}
+
+
+export function executionSummary(nodes) {
+  const byId = new Map(nodes.map(node => [node.id,node]))
+  const ancestors = node => {
+    const result=[], seen=new Set([node.id])
+    let parent=byId.get(node.parentId)
+    while (parent && !seen.has(parent.id)) {seen.add(parent.id);result.push(parent);parent=byId.get(parent.parentId)}
+    return result
+  }
+  const tools=nodes.filter(node => node.kind === 'TOOL' && (node.tool || node.type === 'tool_call'))
+  const roots=tools.filter(node => !ancestors(node).some(parent => tools.some(tool => tool.id === parent.id)))
+  const unique=[...new Map(roots.map(node => [node.attributes?.['tool.call_id'] || node.id,node])).values()]
+  const skillKeys=new Set(unique.filter(node => node.tool === 'read_skill' || node.attributes?.['tool.name'] === 'read_skill').map(node => node.id))
+  for (const node of nodes.filter(node => node.name === 'agent.skill' || (node.kind === 'SKILL' && node.attributes?.['skill.name']))) {
+    const tool=ancestors(node).find(parent => unique.some(root => root.id === parent.id))
+    skillKeys.add(tool?.id || node.id)
+  }
+  const triggered=nodes.some(node => node.name === 'agent.context.compact' || node.type === 'context_compact' || node.attributes?.['compaction.trigger_reason'])
+  const compactedResults=nodes.some(node => node.attributes?.['context.results_compacted'] > 0)
+  const inherited=nodes.some(node => node.attributes?.['context.compaction_segments'] > 0)
+  const observed=nodes.some(node => node.attributes?.['context.results_compacted'] === 0 || node.attributes?.['context.compaction_segments'] === 0)
+  return {toolCalls:unique.length,skillCalls:skillKeys.size,compression:triggered ? '已触发' : compactedResults ? '结果已精简' : inherited ? '沿用历史摘要' : observed ? '未触发' : '—'}
 }

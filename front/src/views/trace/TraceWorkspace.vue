@@ -14,7 +14,7 @@ import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
 import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
 import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
-import { modelResponseDetails, runInspectorSummary, modelInspectorDetails } from '@/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary, modelInspectorDetails, executionSummary } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -94,7 +94,16 @@ const modelDetails = computed(() => {
       parent = presentation.value.rawById.get(parent.parentId)
     }
   }
-  return modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes,providerMetadata.value)
+  const scopeIds = new Set([selected.value?.sourceId || selected.value?.id,...(selected.value?.memberIds || []),...invocations.value.map(call => call.toolId).filter(Boolean)])
+  const scope = trace.value.nodes.filter(node => {
+    const seen=new Set();let current=node
+    while (current && !seen.has(current.id)) {
+      if (scopeIds.has(current.id)) return true
+      seen.add(current.id);current=presentation.value.rawById.get(current.parentId)
+    }
+    return false
+  })
+  return {...modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes,providerMetadata.value),...executionSummary(scope)}
 })
 watch([() => trace.value.remote, () => userStore.user?.token], async ([remote,token], _, onCleanup) => {
   metadataController?.abort(); providerMetadata.value=[]
@@ -750,7 +759,8 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 
 .model-performance{display:flex;flex-direction:column;gap:12px;min-width:0;}
 .model-performance :deep(.response-card){flex:1;}
- .inspector-heading{gap:12px;}
+ .timing-heading h2,.inspector-label{font-weight:600;}
+.inspector-heading{gap:12px;}
 .inspector-label{white-space:nowrap;flex-shrink:0;}
 .inspector-selection{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;}
 .inspector-selection strong{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}

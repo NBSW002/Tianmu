@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { modelResponseDetails, runInspectorSummary, modelInspectorDetails, runTtftDetails } from '../src/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary, modelInspectorDetails, runTtftDetails, executionSummary } from '../src/trace/trace-inspector.mjs'
 
 const model = (id,parentId,attributes={}) => ({id,parentId,kind:'MODEL',attributes})
 test('response phases come from the leaf provider, not the outer model wrapper',()=>{
@@ -133,4 +133,29 @@ test('missing cache reporting is partial and does not turn into zero',()=>{
  const details=modelInspectorDetails([a,b])
  assert.equal(details.cacheHits,0);assert.equal(details.cacheMisses,20)
  assert.equal(details.cacheHitPartial,true);assert.equal(details.cacheMissPartial,true)
+})
+
+test('Skill activation nested under read_skill counts once and tools count actual executions',()=>{
+ const tool={id:'read',kind:'TOOL',type:'tool_call',tool:'read_skill',attributes:{'tool.call_id':'call1'}}
+ const child={...tool,id:'read-child',parentId:'read'}
+ const skill={id:'skill',parentId:'read',kind:'SKILL',name:'agent.skill',attributes:{'skill.name':'audience-report'}}
+ const other={...tool,id:'report',tool:'generate_feedback_report',attributes:{'tool.call_id':'call2'}}
+ assert.deepEqual(executionSummary([tool,child,skill,other]),{toolCalls:2,skillCalls:1,compression:'—'})
+ const summary=runInspectorSummary({nodes:[tool,child,skill,other]})
+ assert.equal(summary.modelDetails.skillCalls,1);assert.equal(summary.modelDetails.toolCalls,2)
+})
+test('compression distinguishes a new trigger, inherited summaries, and tool result reduction',()=>{
+ const node=attrs=>({...model('m'),attributes:attrs})
+ assert.equal(executionSummary([node({'context.results_compacted':0,'context.compaction_segments':0})]).compression,'未触发')
+ assert.equal(executionSummary([node({'context.compaction_segments':2})]).compression,'沿用历史摘要')
+ assert.equal(executionSummary([node({'context.results_compacted':1})]).compression,'结果已精简')
+ assert.equal(executionSummary([{id:'c',name:'agent.context.compact',status:'FAILED',attributes:{}}]).compression,'已触发')
+})
+test('model full name comes only from matching provider metadata and keeps its model ID',()=>{
+ const call={...model('m',null,{'model.provider':'deepseek'}),model:'deepseek-flash',inputTokens:10}
+ const metadata=[{provider:'deepseek',model:'deepseek-flash',name:'DeepSeek-V4.1-Flash',contextWindow:1048576}]
+ const details=modelInspectorDetails([call],[call],metadata)
+ assert.deepEqual(details.models,['DeepSeek-V4.1-Flash']);assert.deepEqual(details.modelIds,['deepseek-flash'])
+ const other={...call,attributes:{'model.provider':'compatible'}}
+ assert.deepEqual(modelInspectorDetails([other],[other],metadata).models,['deepseek-flash'])
 })

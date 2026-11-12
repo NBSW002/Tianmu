@@ -47,7 +47,9 @@ public final class DeepSeekModelMetadata implements ModelMetadataPort {
                 for(var model:data) {
                     String id=model.path("id").asText("");
                     if(!id.matches("[a-zA-Z0-9_.:/-]{1,100}") || !ids.add(id))continue;
-                    result.add(new Metadata(provider,id,limit(model.get("context_window")),limit(model.get("max_output_tokens")),fetched));
+                    String name=model.path("name").isTextual()?model.path("name").asText().strip():null;
+                    if(name!=null && (name.isEmpty() || name.length()>160 || name.codePoints().anyMatch(Character::isISOControl)))name=null;
+                    result.add(new Metadata(provider,id,limit(model.get("context_window")),limit(model.get("max_output_tokens")),fetched,name));
                 }
                 cached=List.copyOf(result);expiresAt=System.nanoTime()+Duration.ofMinutes(10).toNanos();return cached;
             }

@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DeepSeekModelMetadataTest {
     HttpServer server;
     final AtomicInteger requests=new AtomicInteger();
-    String body="{\"data\":[{\"id\":\"deepseek-flash\",\"context_window\":1048576,\"max_output_tokens\":393216}]}";
+    String body="{\"data\":[{\"id\":\"deepseek-flash\",\"name\":\"DeepSeek-V4.1-Flash\",\"context_window\":1048576,\"max_output_tokens\":393216}]}";
     String authorization;
     int status=200;
     @BeforeEach void start()throws Exception {
@@ -33,12 +33,13 @@ class DeepSeekModelMetadataTest {
         var service=service();var models=service.list();
         assertEquals(1,models.size());assertEquals("deepseek-flash",models.get(0).model());
         assertEquals(1048576L,models.get(0).contextWindow());assertEquals(393216L,models.get(0).maxOutputTokens());
+        assertEquals("DeepSeek-V4.1-Flash",models.get(0).name());
         assertEquals("compatible",models.get(0).provider());assertTrue(models.get(0).fetchedAtEpochMs()>0);
         assertEquals("Bearer fixture-secret",authorization);assertEquals(models,service.list());assertEquals(1,requests.get());
     }
     @Test void absentOrInvalidLimitsNeverAcquireDefaults(){
         body="{\"data\":[{\"id\":\"a\",\"context_window\":-1},{\"id\":\"b\",\"context_window\":\"1048576\"},{\"id\":\"c\"}]}";
-        assertTrue(service().list().stream().allMatch(model->model.contextWindow()==null && model.maxOutputTokens()==null));
+        assertTrue(service().list().stream().allMatch(model->model.contextWindow()==null && model.maxOutputTokens()==null && model.name()==null));
     }
     @Test void failuresAreNegativelyCachedAndDoNotExposeProviderBody(){
         status=500;body="fixture-private-error";var service=service();
