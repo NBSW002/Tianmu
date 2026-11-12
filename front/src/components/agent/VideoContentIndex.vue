@@ -19,6 +19,7 @@
 </template>
 
 <script setup>
+/* global defineEmits, defineProps */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { videoContentIndex } from '@/api/agent';
 defineEmits(['remove']);
@@ -44,12 +45,13 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer); controller?.abort(); 
 <style scoped>
 .content-index{margin:12px 0;padding:12px 16px;border:1px solid var(--workbench-border);border-radius:12px;background:var(--workbench-raised);color:var(--workbench-ink);font-size:13px}
 .index-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.index-heading span{flex:1;color:var(--workbench-muted)}.content-index button{background:var(--workbench-paper);border:1px solid var(--workbench-border);border-radius:6px;padding:5px 8px;cursor:pointer}.content-index small{display:block;color:var(--workbench-muted);margin-top:6px}.content-index progress{width:100%;margin-top:10px}.content-index article{border-top:1px solid var(--workbench-border);padding:12px 0}.content-index p{white-space:pre-wrap;line-height:1.7}.content-index summary{cursor:pointer;margin-top:8px}
-.content-index{flex-shrink:0;margin:0;padding:12px 24px;border:0;border-bottom:1px solid var(--workbench-border);border-radius:0;background:var(--workbench-paper);font-size:12px;}
+.content-index{flex-shrink:0;margin:0;padding:8px 24px;border:0;border-bottom:1px solid var(--workbench-border);border-radius:0;background:var(--workbench-paper);font-size:12px;}
 .index-heading{gap:8px;flex-wrap:nowrap;}
-.index-context{flex:1;min-width:0;}
-.index-context strong{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.index-context span{display:block;font-size:11px;}
+.index-context{display:flex;align-items:baseline;gap:10px;flex:1;min-width:0;}
+.index-context strong{min-width:0;max-width:min(65%,430px);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.index-context span{flex:none;font-size:11px;white-space:nowrap;}
 .content-index button{border:0;background:transparent;padding:5px 6px;white-space:nowrap;}
 .content-index>details{max-height:200px;overflow:auto;overscroll-behavior:contain;}
-@media(max-width:600px){.content-index{padding:12px 16px;}}
+.content-index>details>summary{margin-top:2px;color:var(--workbench-muted);font-size:11px;}
+@media(max-width:600px){.content-index{padding:8px 16px;}.index-context{gap:5px;}.index-context strong{max-width:55%;}}
 </style>

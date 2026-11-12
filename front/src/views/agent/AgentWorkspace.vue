@@ -83,7 +83,7 @@
             <article v-for="turn in conversationTurns" :key="turn.localId || turn.runId" class="analysis-turn">
               <div class="user-question">
                 <span>你</span>
-                <p>{{ turn.message }}<small v-if="turn.videoId" class="turn-video"> · {{ turn.videoTitle || '视频 #' + turn.videoId }}{{ turn.playbackMs != null ? ' · ' + Math.floor(turn.playbackMs / 60000) + ':' + String(Math.floor(turn.playbackMs / 1000) % 60).padStart(2, '0') : '' }}</small></p>
+                <p>{{ turn.message }}<small v-if="turn.videoId && isSegmentQuestion(turn.message)" class="turn-video"> · {{ turn.videoTitle || '当前视频' }}{{ turn.playbackMs != null ? ' · ' + Math.floor(turn.playbackMs / 60000) + ':' + String(Math.floor(turn.playbackMs / 1000) % 60).padStart(2, '0') : '' }}</small></p>
               </div>
               <section v-if="turn.command === 'log'" class="assistant-result" aria-label="Trace ID 回复">
                 <div class="result-heading"><span class="assistant-avatar" aria-hidden="true"><EchoMark /></span><strong>EchoFrame个人助手</strong></div>
@@ -106,7 +106,7 @@
                 <MemoryUsage v-if="validRunId(turn.runId) && isTerminal(turn.snapshot?.status)" :run-id="turn.runId" />
 
                 <div
-                  v-if="!isTerminal(turn.snapshot?.status)"
+                  v-if="!isTerminal(turn.snapshot?.status) && !turn.events.length"
                   class="working-message"
                   role="status"
                 >
@@ -123,7 +123,7 @@
                 <p v-if="turn.snapshot?.answer" class="answer-text">
                   {{ displayReportAnswer(turn.runId, answerPresentation(turn.snapshot.answer).text) }}
                 </p>
-                <details v-if="answerPresentation(turn.snapshot?.answer).notes.length" class="answer-data-notes">
+                <details v-if="!turn.reportPath && answerPresentation(turn.snapshot?.answer).notes.length" class="answer-data-notes">
                   <summary>数据说明</summary>
                   <div v-for="(note, index) in answerPresentation(turn.snapshot.answer).notes" :key="index">
                     <span v-if="note.label">{{ note.label }}</span>
@@ -141,8 +141,17 @@
                       : '这次回复已停止。'
                   }}
                 </p>
-                <details v-if="turn.events.length" class="execution-details">
-                  <summary>查看执行进度 <span>{{ turn.events.length }} 条记录</span></summary>
+                <div v-if="turn.events.length && !isTerminal(turn.snapshot?.status)" class="execution-details execution-live" role="status">
+                  <strong>执行进度</strong>
+                  <span class="execution-count">{{ turn.events.length }} 条记录</span>
+                  <ol>
+                    <li v-for="event in turn.events.slice(-3)" :key="event.sequence">
+                      <span>{{ event.label }}</span><time>{{ formatTime(event.at) }}</time>
+                    </li>
+                  </ol>
+                </div>
+                <details v-else-if="turn.events.length" class="execution-details">
+                  <summary>查看过程 <span>{{ turn.events.length }} 条记录</span></summary>
                 <div v-if="turn.snapshot" class="execution-summary">
                   <span v-if="!isTerminal(turn.snapshot.status)"
                     >已等待 {{ elapsed(turn.waitClock) }}</span
@@ -180,11 +189,21 @@
                   <iframe
                     v-else-if="turn.reportHtml"
                     :srcdoc="reportDocument(turn)"
-                    sandbox="allow-popups allow-popups-to-escape-sandbox"
+                    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                     referrerpolicy="no-referrer"
                     title="观众反馈报告预览"
                     class="report-preview"
+                    scrolling="no"
+                    @load="sizeReportPreview"
                   />
+                  <div v-if="answerPresentation(turn.snapshot?.answer).notes.length" class="report-sources">
+                    <strong>数据依据</strong>
+                    <div v-for="(note, index) in answerPresentation(turn.snapshot.answer).notes" :key="index">
+                      <span v-if="note.label">{{ note.label }}</span>
+                      <p>{{ note.text }}</p>
+                      <time v-if="formatDataUpdatedAt(note.updatedAt)">更新于 {{ formatDataUpdatedAt(note.updatedAt) }}</time>
+                    </div>
+                  </div>
                 </div>
               </section>
             </article>
@@ -433,6 +452,9 @@ function failureLabel(code) {
   );
 }
 const isTerminal = terminal;
+function isSegmentQuestion(message = '') {
+  return /当前(?:播放|画面|片段|视频位置)|此刻|这一(?:段|帧)|这个片段|某个片段|第\s*\d+\s*(?:秒|分钟)|\d{1,2}:\d{2}|时间点|播放位置|附近的画面/i.test(message);
+}
 function formatDate(value) {
   return value
     ? new Date(value).toLocaleDateString('zh-CN', {
@@ -688,6 +710,26 @@ async function cancel() {
 function reportDocument(turn) {
   return reportDocumentHtml(turn.reportHtml,window.location.origin);
 }
+const reportPreviewObservers = new Map();
+function sizeReportPreview(event) {
+  const frame = event.target;
+  reportPreviewObservers.get(frame)?.disconnect();
+  try {
+    const page = frame.contentDocument;
+    if (!page?.documentElement || !page.body) return;
+    const resize = () => {
+      const bodyStyle = getComputedStyle(page.body);
+      const margins = (parseFloat(bodyStyle.marginTop) || 0) + (parseFloat(bodyStyle.marginBottom) || 0);
+      const height = page.body.scrollHeight + margins;
+      if (height > 0) frame.style.height = `${Math.ceil(height) + 2}px`;
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(page.documentElement);
+    observer.observe(page.body);
+    reportPreviewObservers.set(frame, observer);
+    resize();
+  } catch { /* Keep the preview available if the browser blocks measurement. */ }
+}
 function openReport(turn) {
   const url=URL.createObjectURL(new Blob([reportDocument(turn)],{type:'text/html;charset=utf-8'}));
   window.open(url,'_blank','noopener,noreferrer');
@@ -742,6 +784,8 @@ watch(
 );
 watch(focus, () => nextTick(resizeComposer));
 onBeforeUnmount(() => {
+  reportPreviewObservers.forEach(observer => observer.disconnect());
+  reportPreviewObservers.clear();
   composerObserver?.disconnect();
   navigationMedia?.removeEventListener('change', resetWideNavigation);
   historyController?.abort();
@@ -1341,6 +1385,8 @@ onBeforeUnmount(() => {
 .execution-details summary {
   cursor: pointer;
 }
+.execution-live > strong { font-size: 12px; color: var(--workbench-ink); }
+.execution-count { margin-left: 12px; }
 .execution-details ol {
   margin: 12px 0 0;
   padding-left: 19px;
@@ -1392,6 +1438,11 @@ onBeforeUnmount(() => {
   color: var(--workbench-muted);
   font-size: 12px;
 }
+.report-sources { padding: 16px 20px; border-top: 1px solid var(--workbench-border); background: var(--workbench-raised); font-size: 12px; line-height: 1.7; }
+.report-sources > strong { display: block; margin-bottom: 8px; color: var(--workbench-ink); }
+.report-sources > div + div { margin-top: 10px; }
+.report-sources span,.report-sources time { color: var(--workbench-muted); }
+.report-sources p { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .embedded {
   height: 100%;
   min-height: 0;
@@ -1458,9 +1509,7 @@ onBeforeUnmount(() => {
   .assistant-result {
     padding: 15px;
   }
-  .report-preview {
-    height: 550px;
-  }
+  .report-preview { height: 550px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .working-dot {
