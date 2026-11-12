@@ -56,3 +56,16 @@ test('run overview excludes another run and its descendants',()=>{
   assert.equal(result.modelCalls,1)
   assert.equal(result.tools.length,0)
 })
+
+test('run response timing sums recorded provider phases and identifies incomplete coverage',()=>{
+  const a={...model('a',null,{'model.response_ms':400,'model.first_token_ms':120}),name:'model.request'}
+  const b={...model('b',null,{}),name:'model.request'}
+  const result=runInspectorSummary({nodes:[a,b]},{allCards:new Map()})
+  assert.deepEqual(result.responseTiming,{total:400,first:120,remaining:280,recorded:1,calls:2})
+})
+test('run response timing does not invent missing phase or total measurements',()=>{
+  const a={...model('a',null,{'model.response_ms':200,'model.first_token_ms':50}),name:'model.request'}
+  const b={...model('b',null,{'model.response_ms':300}),name:'model.request'}
+  const result=runInspectorSummary({nodes:[a,b]},{allCards:new Map()})
+  assert.deepEqual(result.responseTiming,{total:500,first:null,remaining:null,recorded:2,calls:2})
+})

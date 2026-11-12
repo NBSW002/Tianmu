@@ -14,7 +14,7 @@ const colors = {
 const total = computed(() => props.selection.slots.reduce((sum, slot) => sum + (Number.isFinite(slot.bytes) && slot.bytes >= 0 ? slot.bytes : 0), 0))
 const complete = computed(() => props.selection.slots.every(slot => Number.isFinite(slot.bytes) && slot.bytes >= 0))
 const slots = computed(() => props.selection.slots.map(slot => ({ ...slot, color: colors[slot.name] || 'var(--trace-sand)', value:slot.bytes, share: complete.value && total.value > 0 ? slot.bytes / total.value * 100 : null })))
-const schematicSlots = computed(() => slots.value.map(slot => ({ ...slot, value:1 })))
+const schematicSlots = computed(() => slots.value.map(slot => ({ ...slot, value:Number.isFinite(slot.bytes) && slot.bytes > 0 ? Math.sqrt(slot.bytes) : 0 })))
 const compactTotal = computed(() => total.value >= 1000000 ? {value:(total.value/1000000).toFixed(2),unit:'MB'} : total.value >= 1000 ? {value:(total.value/1000).toFixed(2),unit:'KB'} : {value:String(total.value),unit:'B'})
 const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('zh-CN').format(value)} B`
 </script>

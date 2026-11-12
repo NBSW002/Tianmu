@@ -5,7 +5,7 @@ import { formatValue } from '@/trace/trace-data.mjs'
 const props = defineProps({ node:{type:Object,required:true}, partial:Boolean })
 const share = computed(() => {
   const { inputTokens:input,outputTokens:output } = props.node
-  return Number.isFinite(input) && input>=0 && Number.isFinite(output) && output>=0 && input+output>0 ? (input === 0 ? 0 : output === 0 ? 100 : 50) : null
+  return Number.isFinite(input) && input>=0 && Number.isFinite(output) && output>=0 && input+output>0 ? (input === 0 ? 0 : output === 0 ? 100 : 100 * Math.sqrt(input) / (Math.sqrt(input) + Math.sqrt(output))) : null
 })
 </script>
 <template>

@@ -13,7 +13,6 @@ import TraceNodeMetrics from '@/components/trace/TraceNodeMetrics.vue'
 import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
 import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
-import TraceRunTiming from '@/components/trace/TraceRunTiming.vue'
 import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
 import { modelResponseDetails, runInspectorSummary } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
@@ -265,10 +264,10 @@ function downloadExample() {
             </section>
             <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
               <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" />
-              <TraceRunTiming v-if="runSelection" :duration="trace.durationMs" :model-calls="runSummary.modelCalls" :tool-calls="runSummary.tools.length" :foreground="trace.foregroundModelCalls" :preparation="trace.preparationModelCalls" :background="trace.backgroundModelCalls" />
+              <TraceResponseTiming v-if="runSelection" :timing="runSummary.responseTiming" aggregate />
               <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" />
               <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
-              <TraceRunCalls v-if="runSelection" :calls="runSummary.tools" @select="selectNode" />
+              <TraceRunCalls v-if="runSelection" :calls="runSummary.events" @select="selectNode" />
               <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
             </div>
             <section v-if="selected.attributes?.['analysis.raw_records'] != null" class="intent-selection" aria-label="反馈聚类统计">
