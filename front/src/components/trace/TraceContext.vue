@@ -13,19 +13,30 @@ const colors = {
 }
 const total = computed(() => props.selection.slots.reduce((sum, slot) => sum + (Number.isFinite(slot.bytes) && slot.bytes >= 0 ? slot.bytes : 0), 0))
 const complete = computed(() => props.selection.slots.every(slot => Number.isFinite(slot.bytes) && slot.bytes >= 0))
-const slots = computed(() => props.selection.slots.map(slot => ({ ...slot, color: colors[slot.name] || 'var(--trace-sand)', value:slot.bytes, share: complete.value && total.value > 0 ? slot.bytes / total.value * 100 : null })))
+const slots = computed(() => {
+  const rows = props.selection.slots.map(slot => ({...slot,color:colors[slot.name] || 'var(--trace-sand)',value:slot.bytes}))
+  const {used,unit} = props.windowUsage
+  const overhead = unit === 'B' && complete.value && used != null ? Math.max(0,used-total.value) : 0
+  if (overhead > 0) rows.push({name:'request_overhead',label:'请求开销',bytes:overhead,value:overhead,color:'var(--trace-sand)'})
+  const denominator = total.value+overhead
+  return rows.map(slot => ({...slot,share:complete.value && denominator > 0 ? slot.bytes/denominator*100 : null}))
+})
 const compact = value => value == null ? '—' : value >= 1000 ? `${(value/1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
 const windowSegments = computed(() => {
   const {used,capacity} = props.windowUsage
   if (used == null || capacity == null) return [{value:1,color:'var(--workbench-border)'}]
-  return [{value:Math.min(used,capacity),color:'var(--trace-clay)'},{value:Math.max(0,capacity-used),color:'var(--workbench-border)'}]
+  const occupied = Math.min(used,capacity)
+  const visible = slots.value.filter(slot => Number.isFinite(slot.bytes) && slot.bytes > 0)
+  const weight = visible.reduce((sum,slot) => sum+Math.sqrt(slot.bytes),0)
+  const segments = weight > 0 ? visible.map(slot => ({label:slot.label,color:slot.color,value:Math.sqrt(slot.bytes)/weight*occupied})) : [{label:'已用',value:occupied,color:'var(--trace-clay)'}]
+  return [...segments,{label:'剩余',value:Math.max(0,capacity-used),color:'var(--workbench-border)'}]
 })
 const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('zh-CN').format(value)} B`
 </script>
 
 <template>
   <section v-if="selection.visible || showEmpty" class="context-section" aria-label="上下文模块装配">
-    <header><h3>{{ windowUsage.unit === 'B' ? (aggregate ? '上下文预算峰值' : '上下文预算') : aggregate ? '上下文峰值' : '上下文窗口' }}</h3></header>
+    <header><h3>上下文构成</h3></header>
     <TraceDonut :segments="windowSegments" :value="windowUsage.unit === 'B' ? (windowUsage.used/1024).toFixed(1) : compact(windowUsage.used)" :unit="windowUsage.unit === 'B' ? 'KiB' : ''" :caption="windowUsage.capacity == null ? '' : `/ ${windowUsage.unit === 'B' ? `${(windowUsage.capacity/1024).toFixed(0)} KiB` : compact(windowUsage.capacity)}`" :label="`已用 ${compact(windowUsage.used)} ${windowUsage.unit || 'Token'}，上下文容量 ${compact(windowUsage.capacity)} ${windowUsage.unit || 'Token'}`" />
     <p class="window-label">{{ windowUsage.unit === 'B' ? '已用 / 输入预算' : '已用 / 上下文窗口' }}</p>
     <dl class="context-slots">
