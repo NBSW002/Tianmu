@@ -4,17 +4,17 @@ import { computed } from 'vue'
 import TraceDonut from './TraceDonut.vue'
 import { formatDuration } from '@/trace/trace-data.mjs'
 const props = defineProps({ timing: { type: Object, default: null }, aggregate:Boolean })
-const segments = computed(() => props.timing?.first != null && props.timing?.remaining != null ? [
+const segments = computed(() => props.timing?.segments || (props.timing?.first != null && props.timing?.remaining != null ? [
   { label:'首 Token 等待',value:props.timing.first,color:'var(--trace-wait)' },
   { label:'后续响应',value:props.timing.remaining,color:'var(--trace-clay)' },
-] : [])
-const display = computed(() => props.timing?.total == null ? '未记录' : formatDuration(props.timing.total))
+] : props.timing?.total != null ? [{label:'模型调用',value:props.timing.total,color:'var(--trace-clay)'}] : []))
+const display = computed(() => props.timing?.total == null ? '—' : formatDuration(props.timing.total))
 const percentage = value => `${(value / props.timing.total * 100).toFixed(1)}%`
 </script>
 <template>
   <section class="response-card" aria-label="响应耗时">
-    <header><h3>响应耗时</h3><span v-if="aggregate && timing">{{ timing.recorded }}/{{ timing.calls }} 次</span></header>
-    <TraceDonut v-if="segments.length" :segments="segments" :value="display" :caption="aggregate ? '累计响应耗时' : '总响应耗时'" :label="segments.map(s => `${s.label} ${formatDuration(s.value)}`).join('，')" />
+    <header><h3>{{ timing?.callDuration ? '调用耗时' : '响应耗时' }}</h3><span v-if="aggregate && timing">{{ timing.recorded }}/{{ timing.calls }} 次</span></header>
+    <TraceDonut v-if="segments.length" :segments="segments" :value="display" :caption="aggregate ? '累计调用耗时' : timing?.callDuration ? '调用耗时' : '总响应耗时'" :label="segments.map(s => `${s.label} ${formatDuration(s.value)}`).join('，')" />
     <p v-else class="response-total">{{ display }}<small>{{ aggregate ? '累计响应耗时' : '响应耗时' }}</small></p>
     <dl v-if="!segments.length && timing?.first != null"><div><dt><i style="background:var(--trace-wait)" />首 Token 等待</dt><dd>{{ formatDuration(timing.first) }}</dd></div></dl>
     <dl v-if="segments.length"><div v-for="segment in segments" :key="segment.label"><dt><i :style="{ background:segment.color }" />{{ segment.label }}</dt><dd>{{ formatDuration(segment.value) }}<small>{{ percentage(segment.value) }}</small></dd></div></dl>

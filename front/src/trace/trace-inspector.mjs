@@ -34,7 +34,7 @@ export function runInspectorSummary(trace, presentation) {
   const models = nodes.filter(node => (node.kind === 'MODEL' || node.type === 'llm_inference') && node.attributes?.['model.dispatched'] !== false)
   const modelLeaves = requests.length ? requests : models.filter(node => !models.some(child => child.id !== node.id && below(child,node)))
   const modelCalls = modelLeaves.length
-  const responseRecords = modelLeaves.map(node => modelResponseDetails(node)).filter(timing => timing?.total != null)
+  const responseRecords = modelLeaves.map(node => measuredResponseDetails(node)).filter(timing => timing?.total != null)
   const phaseRecords = responseRecords.filter(timing => timing.first != null)
   const responseTiming = responseRecords.length ? {
     total:responseRecords.reduce((sum, item) => sum + item.total, 0),
@@ -42,6 +42,17 @@ export function runInspectorSummary(trace, presentation) {
     remaining:phaseRecords.length === responseRecords.length ? phaseRecords.reduce((sum, item) => sum + item.remaining, 0) : null,
     recorded:responseRecords.length, calls:modelCalls,
   } : null
+  if (responseTiming && phaseRecords.length !== responseRecords.length) {
+    const groups = new Map()
+    for (const node of modelLeaves) {
+      const timing = measuredResponseDetails(node)
+      if (timing?.total == null) continue
+      const label = node.attributes?.['model.streaming'] === true ? '流式调用' : node.attributes?.['model.streaming'] === false ? '非流式调用' : '模型调用'
+      groups.set(label,(groups.get(label) || 0)+timing.total)
+    }
+    responseTiming.segments = [...groups].map(([label,value],index) => ({label,value,color:index === 0 ? 'var(--trace-clay)' : 'var(--trace-wait)'}))
+    responseTiming.callDuration = true
+  }
   const toolNodes = nodes.filter(node => node.kind === 'TOOL' && (node.tool || node.type === 'tool_call'))
   const roots = toolNodes.filter(node => !toolNodes.some(parent => parent.id !== node.id && below(node,parent)))
   const tools = [...new Map(roots.map(node => [node.attributes?.['tool.call_id'] || node.id,node])).values()]
@@ -98,7 +109,15 @@ export function modelInspectorDetails(calls, nodes = calls) {
     while (!contextDetails(contextNode).visible && byId.has(contextNode.parentId) && !seen.has(contextNode.id)) {
       seen.add(contextNode.id); contextNode = byId.get(contextNode.parentId)
     }
-    return {node, attrs, input:positive(input) ? input : null, capacity, context:contextDetails(contextNode)}
+    let budgetNode = node
+    const budgetSeen = new Set()
+    while (!(budgetNode.attributes?.['context.byte_limit'] > 0) && byId.has(budgetNode.parentId) && !budgetSeen.has(budgetNode.id)) {
+      budgetSeen.add(budgetNode.id); budgetNode = byId.get(budgetNode.parentId)
+    }
+    const byteLimit = budgetNode.attributes?.['context.byte_limit']
+    const requestBytes = attrs['context.request_bytes'] ?? attrs['context.input_bytes'] ?? budgetNode.attributes?.['context.input_bytes']
+    const byteWindow = positive(requestBytes) && byteLimit > 0 ? {used:requestBytes,capacity:byteLimit,unit:'B'} : null
+    return {node, attrs, input:positive(input) ? input : null, capacity, byteWindow, context:contextDetails(contextNode)}
   })
   const peak = records.filter(record => record.input != null).sort((a,b) => {
     if (a.capacity != null && b.capacity != null) return b.input/b.capacity - a.input/a.capacity
@@ -106,14 +125,25 @@ export function modelInspectorDetails(calls, nodes = calls) {
   })[0]
   const cached = records.filter(record => positive(record.attrs['model.cache_hit_tokens']) && record.input > 0 && record.attrs['model.cache_hit_tokens'] <= record.input)
   const cacheRate = cached.length ? cached.reduce((sum,r) => sum+r.attrs['model.cache_hit_tokens'],0) / cached.reduce((sum,r) => sum+r.input,0) * 100 : null
-  const generation = records.filter(record => record.attrs['model.streaming'] === true && positive(record.node.outputTokens) && modelResponseDetails(record.node)?.remaining > 0)
-  const tps = generation.length ? generation.reduce((sum,r) => sum+r.node.outputTokens,0) / generation.reduce((sum,r) => sum+modelResponseDetails(r.node).remaining,0) * 1000 : null
+  const generation = records.filter(record => positive(record.node.outputTokens) && measuredResponseDetails(record.node)?.total > 0)
+  const tps = generation.length ? generation.reduce((sum,r) => sum+r.node.outputTokens,0) / generation.reduce((sum,r) => sum+measuredResponseDetails(r.node).total,0) * 1000 : null
   return {
     cacheRate, tps, cachePartial:cached.length < calls.length, tpsPartial:generation.length < calls.length,
     models:[...new Set(records.map(r => r.node.model || r.attrs['model.name']).filter(Boolean))],
     types:[...new Set(records.map(r => r.attrs['model.streaming'] === true ? '流式' : r.attrs['model.streaming'] === false ? '非流式' : null).filter(Boolean))],
     count:calls.length,
-    window:{used:peak?.input ?? null,capacity:peak?.capacity ?? null},
+    window:peak?.capacity != null ? {used:peak.input,capacity:peak.capacity} : (records.filter(record => record.byteWindow).sort((a,b) => b.byteWindow.used/b.byteWindow.capacity-a.byteWindow.used/a.byteWindow.capacity)[0]?.byteWindow || {used:peak?.input ?? null,capacity:null}),
     peakContext:peak?.context?.visible ? peak.context : null,
   }
+}
+
+
+export function measuredResponseDetails(node, rawById = new Map()) {
+  const direct = modelResponseDetails(node,rawById)
+  if (direct?.total != null) return direct
+  const members = [...new Set([node?.sourceId || node?.id,...(node?.memberIds || [])])].map(id => rawById.get(id)).filter(Boolean)
+  const requests = members.filter(member => member.name === 'model.request')
+  const source = requests.length === 1 ? requests[0] : requests.length === 0 ? node : null
+  if (source?.name === 'model.request' && Number.isFinite(source.durationMs) && source.durationMs >= 0) return {total:source.durationMs,first:null,remaining:null,callDuration:true}
+  return direct
 }

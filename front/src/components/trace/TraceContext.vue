@@ -14,7 +14,7 @@ const colors = {
 const total = computed(() => props.selection.slots.reduce((sum, slot) => sum + (Number.isFinite(slot.bytes) && slot.bytes >= 0 ? slot.bytes : 0), 0))
 const complete = computed(() => props.selection.slots.every(slot => Number.isFinite(slot.bytes) && slot.bytes >= 0))
 const slots = computed(() => props.selection.slots.map(slot => ({ ...slot, color: colors[slot.name] || 'var(--trace-sand)', value:slot.bytes, share: complete.value && total.value > 0 ? slot.bytes / total.value * 100 : null })))
-const compact = value => value == null ? '未记录' : value >= 1000 ? `${(value/1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
+const compact = value => value == null ? '—' : value >= 1000 ? `${(value/1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
 const windowSegments = computed(() => {
   const {used,capacity} = props.windowUsage
   if (used == null || capacity == null) return [{value:1,color:'var(--workbench-border)'}]
@@ -25,9 +25,9 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
 
 <template>
   <section v-if="selection.visible || showEmpty" class="context-section" aria-label="上下文模块装配">
-    <header><h3>{{ aggregate ? '上下文峰值' : '上下文窗口' }}</h3></header>
-    <TraceDonut :segments="windowSegments" :value="compact(windowUsage.used)" :caption="`/ ${compact(windowUsage.capacity)}`" :label="`已用 ${compact(windowUsage.used)} Token，上下文窗口 ${compact(windowUsage.capacity)} Token`" />
-    <p class="window-label">已用 / 上下文窗口</p>
+    <header><h3>{{ windowUsage.unit === 'B' ? (aggregate ? '上下文预算峰值' : '上下文预算') : aggregate ? '上下文峰值' : '上下文窗口' }}</h3></header>
+    <TraceDonut :segments="windowSegments" :value="windowUsage.unit === 'B' ? (windowUsage.used/1024).toFixed(1) : compact(windowUsage.used)" :unit="windowUsage.unit === 'B' ? 'KiB' : ''" :caption="windowUsage.capacity == null ? '' : `/ ${windowUsage.unit === 'B' ? `${(windowUsage.capacity/1024).toFixed(0)} KiB` : compact(windowUsage.capacity)}`" :label="`已用 ${compact(windowUsage.used)} ${windowUsage.unit || 'Token'}，上下文容量 ${compact(windowUsage.capacity)} ${windowUsage.unit || 'Token'}`" />
+    <p class="window-label">{{ windowUsage.unit === 'B' ? '已用 / 输入预算' : '已用 / 上下文窗口' }}</p>
     <dl class="context-slots">
       <div v-for="slot in slots" :key="slot.name">
         <dt><i :style="{ background: slot.color }" aria-hidden="true"></i>{{ slot.label }}</dt>

@@ -15,7 +15,7 @@ import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
 import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
 import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
-import { modelResponseDetails, runInspectorSummary, modelInspectorDetails } from '@/trace/trace-inspector.mjs'
+import { measuredResponseDetails, runInspectorSummary, modelInspectorDetails } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -97,7 +97,7 @@ const modelDetails = computed(() => {
   return modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes)
 })
 const contextSelection = computed(() => runSelection.value ? (modelDetails.value.peakContext || {visible:false,slots:[]}) : contextDetails(selected.value))
-const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
+const responseSelection = computed(() => measuredResponseDetails(selected.value,presentation.value.rawById))
 const metricSelection = computed(() => runSelection.value ? {...selected.value,durationMs:trace.value.durationMs,totalTokens:trace.value.totalTokens} : selected.value)
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))

@@ -67,7 +67,9 @@ test('run response timing does not invent missing phase or total measurements',(
   const a={...model('a',null,{'model.response_ms':200,'model.first_token_ms':50}),name:'model.request'}
   const b={...model('b',null,{'model.response_ms':300}),name:'model.request'}
   const result=runInspectorSummary({nodes:[a,b]},{allCards:new Map()})
-  assert.deepEqual(result.responseTiming,{total:500,first:null,remaining:null,recorded:2,calls:2})
+  assert.equal(result.responseTiming.total,500)
+ assert.equal(result.responseTiming.first,null)
+ assert.equal(result.responseTiming.segments.reduce((sum,item)=>sum+item.value,0),500)
 })
 
 test('model details use token-weighted cache and streaming generation time',()=>{
@@ -75,7 +77,7 @@ test('model details use token-weighted cache and streaming generation time',()=>
  const b={...model('b',null,{'model.cache_hit_tokens':0,'model.response_ms':1100,'model.first_token_ms':100,'model.streaming':true,'model.context_window':2000}),inputTokens:200,outputTokens:40,model:'flash'}
  const result=modelInspectorDetails([a,b])
  assert.ok(Math.abs(result.cacheRate-80/300*100)<0.001)
- assert.equal(result.tps,40)
+ assert.ok(Math.abs(result.tps-60/1.7)<0.001)
  assert.deepEqual(result.window,{used:100,capacity:1000})
  assert.deepEqual(result.models,['flash'])
 })
@@ -92,4 +94,15 @@ test('peak window context comes from its assembly ancestor instead of summing ca
  const result=modelInspectorDetails([a,b],[parent,a,b])
  assert.deepEqual(result.window,{used:500,capacity:1000})
  assert.equal(result.peakContext.slots[0].bytes,88)
+})
+
+test('historical provider spans supply measured duration and inherit byte budget',()=>{
+ const parent=model('parent',null,{'context.byte_limit':98304,'context.present_slots':['focus'],'context.slot_bytes':['focus:88']})
+ const request={...model('request','parent',{'context.request_bytes':21008,'model.streaming':true,'model.cache_hit_tokens':3072}),name:'model.request',durationMs:1175.752501,inputTokens:4924,outputTokens:116}
+ const result=runInspectorSummary({nodes:[parent,request]},{allCards:new Map()})
+ assert.deepEqual(result.modelDetails.window,{used:21008,capacity:98304,unit:'B'})
+ assert.ok(result.modelDetails.tps > 98 && result.modelDetails.tps < 99)
+ assert.equal(result.responseTiming.recorded,1)
+ assert.equal(result.responseTiming.total,1175.752501)
+ assert.equal(result.responseTiming.segments[0].label,'流式调用')
 })
