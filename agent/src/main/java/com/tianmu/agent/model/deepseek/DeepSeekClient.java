@@ -248,7 +248,7 @@ public final class DeepSeekClient {
                 TraceAttributes.apply(Span.current(),Map.of("model.streaming",false,"model.first_token_state","NOT_APPLICABLE"));
                 byte[] bytes=response.body().readNBytes(131073);if(bytes.length>131072)throw unavailable();return mapper.readTree(bytes);
             }
-            var parser=new NativeSseResponse(mapper,text->{if(first.compareAndSet(false,true))TraceAttributes.apply(Span.current(),Map.of("model.first_token_state","RECEIVED","model.first_token_ms",(System.nanoTime()-started)/1_000_000));control.textOutput().accept(text);});var line=new ByteArrayOutputStream();var data=new StringBuilder();int total=0,next;
+            var parser=new NativeSseResponse(mapper,control.textOutput(),()->{if(first.compareAndSet(false,true))TraceAttributes.apply(Span.current(),Map.of("model.first_token_state","RECEIVED","model.first_token_ms",(System.nanoTime()-started)/1_000_000));});var line=new ByteArrayOutputStream();var data=new StringBuilder();int total=0,next;
             while((next=response.body().read())!=-1){
                 if(++total>2097152||line.size()>131072)throw unavailable();control.checkpoint();
                 if(next!=10){line.write(next);continue;}

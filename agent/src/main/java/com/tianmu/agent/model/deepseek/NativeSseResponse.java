@@ -7,14 +7,16 @@ import java.util.function.Consumer;
 
 /** Reassembles native tool calls; only content deltas are suitable for provisional display. */
 final class NativeSseResponse {
-    private final ObjectMapper json;private final Consumer<String> sink;
+    private final ObjectMapper json;private final Consumer<String> sink;private final Runnable firstToken;private boolean tokenSeen;
     private final StringBuilder content=new StringBuilder();private final Map<Integer,ObjectNode> tools=new TreeMap<>();
     private final StringBuilder reasoning=new StringBuilder();
     private final StringBuilder pending=new StringBuilder();private long flushedAt=System.nanoTime();private Boolean display;
     boolean done(){return done;}
     private void flush(){if(!pending.isEmpty()){sink.accept(pending.toString());pending.setLength(0);flushedAt=System.nanoTime();}}
     private JsonNode usage;private String finish,model;private boolean done;
-    NativeSseResponse(ObjectMapper json,Consumer<String> sink){this.json=json;this.sink=sink;}
+    NativeSseResponse(ObjectMapper json,Consumer<String> sink){this(json,sink,()->{});}
+    NativeSseResponse(ObjectMapper json,Consumer<String> sink,Runnable firstToken){this.json=json;this.sink=sink;this.firstToken=firstToken;}
+    private void token(String value){if(!tokenSeen && !value.isEmpty()){tokenSeen=true;firstToken.run();}}
     void accept(String data) {
         if(done)throw new AgentException("MODEL_ERROR","Data after stream completion");
         if(data.equals("[DONE]")){done=true;flush();return;}
@@ -27,10 +29,10 @@ final class NativeSseResponse {
                 if(choice.hasNonNull("finish_reason"))finish=choice.get("finish_reason").asText();
                 var delta=choice.path("delta");
                 if(delta.path("reasoning_content").isTextual()){
-                    reasoning.append(delta.path("reasoning_content").asText());if(reasoning.length()>131072)throw new IllegalArgumentException();
+                    token(delta.path("reasoning_content").asText());reasoning.append(delta.path("reasoning_content").asText());if(reasoning.length()>131072)throw new IllegalArgumentException();
                 }
                 if(delta.path("content").isTextual()){
-                    String text=delta.path("content").asText();if(content.length()+text.length()>131072)throw new IllegalArgumentException();
+                    String text=delta.path("content").asText();token(text);if(content.length()+text.length()>131072)throw new IllegalArgumentException();
                     content.append(text);if(display==null && !content.toString().isBlank()){String prefix=content.toString().stripLeading();display=!prefix.startsWith("{") && !prefix.startsWith("[");}
                     if(!Boolean.FALSE.equals(display)){pending.append(text);if(Boolean.TRUE.equals(display) && (content.length()==text.length() || pending.length()>=128 || System.nanoTime()-flushedAt>=50_000_000))flush();}else pending.setLength(0);
                 }
@@ -40,7 +42,7 @@ final class NativeSseResponse {
                     if(call.hasNonNull("id"))target.put("id",call.get("id").asText());
                     var function=(ObjectNode)target.get("function");
                     for(String key:List.of("name","arguments"))if(call.path("function").path(key).isTextual()){
-                        String value=function.path(key).asText()+call.path("function").path(key).asText();if(value.length()>65536)throw new IllegalArgumentException();function.put(key,value);
+                        token(call.path("function").path(key).asText());String value=function.path(key).asText()+call.path("function").path(key).asText();if(value.length()>65536)throw new IllegalArgumentException();function.put(key,value);
                     }
                 }
             }

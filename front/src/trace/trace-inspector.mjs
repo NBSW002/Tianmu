@@ -64,7 +64,7 @@ export function runInspectorSummary(trace, presentation) {
   const decisions = models.filter(node => node.attributes?.['model.decision']).map(node => ({id:node.id,label:'模型决策',name:node.attributes['model.decision'],offsetMs:node.offsetMs,kind:'model'}))
   const events = [...decisions, ...tools.map(tool => ({...tool,kind:'tool'}))].sort((a,b) => (a.offsetMs ?? Infinity) - (b.offsetMs ?? Infinity))
   return {
-    responseTiming, events, modelDetails:modelInspectorDetails(modelLeaves, nodes),
+    responseTiming, ttftTiming:runTtftDetails(modelLeaves), events, modelDetails:modelInspectorDetails(modelLeaves, nodes),
     context:{visible:combined.size > 0,slots:[...combined.values()],version:null,projection:null, note:assemblies.length ? `已记录 ${assemblies.length} 次` : null},
     modelCalls, tools,
   }
@@ -146,4 +146,16 @@ export function measuredResponseDetails(node, rawById = new Map()) {
   const source = requests.length === 1 ? requests[0] : requests.length === 0 ? node : null
   if (source?.name === 'model.request' && Number.isFinite(source.durationMs) && source.durationMs >= 0) return {total:source.durationMs,first:null,remaining:null,callDuration:true}
   return direct
+}
+
+
+export function runTtftDetails(calls) {
+  const streams = calls.filter(node => node.attributes?.['model.streaming'] === true)
+  const sampled = streams.map(node => modelResponseDetails(node)).filter(timing => timing?.first != null && timing?.remaining != null)
+  return {
+    total:sampled.length ? sampled.reduce((sum,timing) => sum+timing.total,0) : null,
+    first:sampled.length ? sampled.reduce((sum,timing) => sum+timing.first,0) : null,
+    remaining:sampled.length ? sampled.reduce((sum,timing) => sum+timing.remaining,0) : null,
+    recorded:sampled.length,calls:streams.length,
+  }
 }

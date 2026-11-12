@@ -17,6 +17,17 @@ class NativeSseResponseTest {
         assertEquals("先核对数据来源。",message.path("reasoning_content").asText());
         assertEquals("这是正文。",String.join("",visible));
     }
+    @Test void firstTokenIncludesReasoningAndToolDeltasWithoutWaitingForDisplay()throws Exception {
+        for(var delta:List.of(Map.of("reasoning_content","think"),Map.of("content","{\"answer\":1}"),Map.of("tool_calls",List.of(Map.of("index",0,"id","c","function",Map.of("name","search","arguments","{}")))))) {
+            var count=new java.util.concurrent.atomic.AtomicInteger();var visible=new ArrayList<String>();
+            var parser=new NativeSseResponse(json,visible::add,count::incrementAndGet);
+            parser.accept(chunk(Map.of("role","assistant","content",""),null));
+            parser.accept("{\"choices\":[],\"usage\":{\"prompt_tokens\":1}}");
+            assertEquals(0,count.get());
+            parser.accept(chunk(delta,null));assertEquals(1,count.get());
+            parser.accept(chunk(delta,null));assertEquals(1,count.get());assertTrue(visible.isEmpty());
+        }
+    }
     String chunk(Object delta,String finish)throws Exception {var choice=new HashMap<String,Object>();choice.put("index",0);choice.put("delta",delta);choice.put("finish_reason",finish);return json.writeValueAsString(Map.of("choices",List.of(choice)));}
     @Test void combinesUnicodeAndUsageWithBoundedDisplayEvents()throws Exception {
         var output=new ArrayList<String>();var parser=new NativeSseResponse(json,output::add);

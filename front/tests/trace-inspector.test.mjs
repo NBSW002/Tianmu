@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { modelResponseDetails, runInspectorSummary, modelInspectorDetails } from '../src/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary, modelInspectorDetails, runTtftDetails } from '../src/trace/trace-inspector.mjs'
 
 const model = (id,parentId,attributes={}) => ({id,parentId,kind:'MODEL',attributes})
 test('response phases come from the leaf provider, not the outer model wrapper',()=>{
@@ -105,4 +105,12 @@ test('historical provider spans supply measured duration and inherit byte budget
  assert.equal(result.responseTiming.recorded,1)
  assert.equal(result.responseTiming.total,1175.752501)
  assert.equal(result.responseTiming.segments[0].label,'流式调用')
+})
+
+test('TTFT overview excludes nonstream and unsampled legacy streams without substituting duration',()=>{
+ const a=model('a',null,{'model.streaming':true,'model.response_ms':400,'model.first_token_ms':120})
+ const b={...model('b',null,{'model.streaming':true}),durationMs:1000}
+ const c=model('c',null,{'model.streaming':false,'model.response_ms':500})
+ assert.deepEqual(runTtftDetails([a,b,c]),{total:400,first:120,remaining:280,recorded:1,calls:2})
+ assert.deepEqual(runTtftDetails([b,c]),{total:null,first:null,remaining:null,recorded:0,calls:1})
 })

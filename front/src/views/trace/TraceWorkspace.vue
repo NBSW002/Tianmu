@@ -15,7 +15,7 @@ import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
 import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
 import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
-import { measuredResponseDetails, runInspectorSummary, modelInspectorDetails } from '@/trace/trace-inspector.mjs'
+import { modelResponseDetails, runInspectorSummary, modelInspectorDetails } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -97,7 +97,7 @@ const modelDetails = computed(() => {
   return modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes)
 })
 const contextSelection = computed(() => runSelection.value ? (modelDetails.value.peakContext || {visible:false,slots:[]}) : contextDetails(selected.value))
-const responseSelection = computed(() => measuredResponseDetails(selected.value,presentation.value.rawById))
+const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
 const metricSelection = computed(() => runSelection.value ? {...selected.value,durationMs:trace.value.durationMs,totalTokens:trace.value.totalTokens} : selected.value)
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
@@ -282,7 +282,7 @@ function downloadExample() {
             <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
               <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" :window-usage="modelDetails.window" />
               <div class="model-performance">
-              <TraceResponseTiming v-if="runSelection" :timing="runSummary.responseTiming" aggregate />
+              <TraceResponseTiming v-if="runSelection" :timing="runSummary.ttftTiming" aggregate />
               <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" />
               <TraceModelDetails :details="modelDetails" />
               </div>
