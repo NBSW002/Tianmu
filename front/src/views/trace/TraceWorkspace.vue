@@ -304,19 +304,15 @@ function downloadExample() {
             <p v-if="!runSelection && (cardHighlight(selected) || selected.summary)" class="selected-result">{{ cardHighlight(selected) || selected.summary }}</p>
 
             <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
-              <div class="inspector-dashboard-column">
-                <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" :window-usage="modelDetails.window" />
-                <TraceModelDetails :details="modelDetails" />
+              <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" :window-usage="modelDetails.window" />
+              <div class="model-performance">
+              <TraceResponseTiming v-if="runSelection" :timing="runSummary.ttftTiming" aggregate />
+              <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" :non-streaming="modelDetails.types.length === 1 && modelDetails.types[0] === '非流式'" />
+              <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
               </div>
-              <div class="inspector-dashboard-column">
-                <div class="model-performance">
-                  <TraceResponseTiming v-if="runSelection" :timing="runSummary.ttftTiming" aggregate />
-                  <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" :non-streaming="modelDetails.types.length === 1 && modelDetails.types[0] === '非流式'" />
-                  <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
-                </div>
-                <TraceRunCalls v-if="runSelection" :calls="runSummary.events" @select="selectNode" />
-                <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
-              </div>
+              <TraceModelDetails :details="modelDetails" />
+              <TraceRunCalls v-if="runSelection" :calls="runSummary.events" @select="selectNode" />
+              <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
             </div>
             <div v-if="payloadLoading || payloadError" class="payload-state" role="status"><span>{{ payloadError || '正在加载节点正文…' }}</span><button v-if="payloadError && !payloadLoading" type="button" @click="payloadAttempt++">重试加载</button></div>
             <TraceCode v-if="selectedSource && (selected.input != null || selected.inputRef)" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
@@ -733,9 +729,8 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .node-overview{padding:0 0 16px;margin-bottom:0;border:0;background:transparent;}
 .node-overview .semantic-result{margin:10px 0;font-size:12px;}
 .node-status-line{flex-wrap:wrap;}
-.inspector-dashboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;margin-bottom:16px;}
+.inspector-dashboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch;margin-bottom:16px;}
 .inspector-dashboard>*{min-width:0;}
-.inspector-dashboard-column{display:flex;flex-direction:column;gap:12px;min-width:0;}
 .metadata-section summary,.invocation-section summary{cursor:pointer;font-size:13px;padding:10px 0;color:var(--workbench-muted);}
 .inspector-content :deep(.trace-donut strong){font-family:var(--workbench-ui);}
 .inspector-dashboard :deep(.context-slots>div){flex-wrap:wrap;}
