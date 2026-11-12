@@ -262,18 +262,16 @@ function downloadExample() {
         <router-link class="back-agent" to="/agent">返回助手 ↗</router-link>
         <button v-if="trace.remote" class="export-records" type="button" :disabled="exportingRecords" title="导出状态、计量和受控详情引用，正文仍需权限校验" @click="exportRecords">{{ exportingRecords ? '正在导出…' : '导出结构化记录' }}</button>
       </header>
-      <div class="trace-controlbar">
-        <label class="trace-run-picker">运行记录<select v-model="activeId" aria-label="当前运行" @change="cancelQuery(); changeTrace()"><option v-for="item in traces" :key="item.id" :value="item.id">{{ item.title }} · {{ date(item.startMs) }} {{ clock(item.startMs) }}</option></select></label>
-        <form class="trace-search" @submit.prevent="queryTrace"><label for="trace-id-query">Trace ID</label><div class="search-field"><input id="trace-id-query" v-model="traceQuery" placeholder="输入 Trace ID" autocomplete="off" spellcheck="false" :aria-invalid="!!queryError" aria-describedby="trace-query-state" @input="cancelQuery(); queryError = ''" /><button type="submit" :disabled="querying" :aria-label="querying ? '正在查询 Trace' : '查询 Trace'"><TraceIcon name="arrow" :size="16" /></button></div></form>
-        <details class="trace-run-info"><summary>运行信息</summary><dl><dt>开始时间 · 北京</dt><dd>{{ date(trace.startMs) }} {{ clock(trace.startMs) }}</dd><dt>Run ID</dt><dd>{{ trace.runId }}</dd><dt>Trace ID</dt><dd>{{ trace.id }}</dd><dt>来源</dt><dd>{{ trace.source }}</dd></dl><button type="button" @click="trace.demo ? downloadExample() : resetDemo()">{{ trace.demo ? '下载示例' : '返回示例' }}</button></details>
-        <p v-if="queryError || querying" id="trace-query-state" class="query-state" :class="{error:queryError}" role="status">{{ queryError || '正在查询…' }}</p>
-        <span v-else id="trace-query-state" class="sr-only" role="status"></span>
-      </div>
       <div class="run-toolbar">
         <p v-if="exportError" role="status">{{ exportError }}</p>
         <div class="run-context"><h2 :title="trace.title">{{ trace.title }}</h2><span class="model-name" :title="trace.model">{{ trace.model }}</span></div>
         <span class="status-pill" :class="trace.status.toLowerCase()">{{ statusLabel(trace.status) }}</span>
+        <label class="trace-run-picker">运行记录<select v-model="activeId" aria-label="当前运行" @change="cancelQuery(); changeTrace()"><option v-for="item in traces" :key="item.id" :value="item.id">{{ item.title }} · {{ date(item.startMs) }} {{ clock(item.startMs) }}</option></select></label>
+        <form class="trace-search" @submit.prevent="queryTrace"><label for="trace-id-query">Trace ID</label><div class="search-field"><input id="trace-id-query" v-model="traceQuery" placeholder="输入 Trace ID" autocomplete="off" spellcheck="false" :aria-invalid="!!queryError" aria-describedby="trace-query-state" @input="cancelQuery(); queryError = ''" /><button type="submit" :disabled="querying" :aria-label="querying ? '正在查询 Trace' : '查询 Trace'"><TraceIcon name="arrow" :size="16" /></button></div></form>
+        <p v-if="queryError || querying" id="trace-query-state" class="query-state" :class="{error:queryError}" role="status">{{ queryError || '正在查询…' }}</p>
+        <span v-else id="trace-query-state" class="sr-only" role="status"></span>
         <div class="run-metrics"><span title="运行自身记录的耗时；可能与所有节点覆盖的时间跨度不同"><TraceIcon name="clock" :size="14" /><small>运行耗时</small>{{ formatDuration(trace.durationMs) }}</span><span><TraceIcon name="token" :size="14" />{{ formatValue(trace.totalTokens) }}<small>Token</small><small v-if="!trace.usageComplete" title="部分节点未提供用量">部分</small></span><span v-if="trace.foregroundModelCalls != null || trace.preparationModelCalls != null || trace.backgroundModelCalls != null" title="来源任务的历史调用不计入本次"><small>本次模型调用：</small>前台 {{ trace.foregroundModelCalls ?? '未知' }} · 前置 {{ trace.preparationModelCalls ?? '未知' }} · 后台 {{ trace.backgroundModelCalls ?? '未知' }}</span></div>
+        <details class="trace-run-info"><summary>运行信息</summary><dl><dt>开始时间 · 北京</dt><dd>{{ date(trace.startMs) }} {{ clock(trace.startMs) }}</dd><dt>Run ID</dt><dd>{{ trace.runId }}</dd><dt>Trace ID</dt><dd>{{ trace.id }}</dd><dt>来源</dt><dd>{{ trace.source }}</dd></dl><button type="button" @click="trace.demo ? downloadExample() : resetDemo()">{{ trace.demo ? '下载示例' : '返回示例' }}</button></details>
       </div>
 
       <div class="workspace-panels">
@@ -392,13 +390,13 @@ function downloadExample() {
 .brand-separator{font-size:26px;color:var(--workbench-border);font-weight:400;}
 .trace-controlbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px 20px;padding:12px 24px;border-bottom:1px solid var(--workbench-border);background:var(--workbench-paper);}
 .trace-run-picker{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--workbench-muted);min-width:0;}
-.trace-run-picker select{max-width:320px;min-width:0;border:1px solid var(--workbench-border);border-radius:7px;padding:7px 10px;background:var(--workbench-raised);color:var(--workbench-ink);font-size:12px;}
-.trace-controlbar .trace-search{display:flex;align-items:center;gap:10px;margin:0;min-width:0;}
-.trace-controlbar .trace-search label{margin:0;font-size:12px;color:var(--workbench-muted);white-space:nowrap;}
-.trace-controlbar .search-field{width:220px;min-width:0;}
-.trace-controlbar .search-field input{padding:7px 10px;font-family:var(--workbench-ui);color:var(--workbench-ink);}
-.trace-controlbar .query-state{flex-basis:100%;margin:0;}
-.trace-run-info{margin-left:auto;font-size:12px;max-width:100%;}
+.trace-run-picker select{width:260px;max-width:100%;min-width:0;border:1px solid var(--workbench-border);border-radius:7px;padding:7px 10px;background:var(--workbench-raised);color:var(--workbench-ink);font-size:12px;}
+.run-toolbar .trace-search{display:flex;align-items:center;gap:10px;margin:0;min-width:0;}
+.run-toolbar .trace-search label{margin:0;font-size:12px;color:var(--workbench-muted);white-space:nowrap;}
+.run-toolbar .search-field{width:220px;min-width:0;}
+.run-toolbar .search-field input{padding:7px 10px;font-family:var(--workbench-ui);color:var(--workbench-ink);}
+.run-toolbar .query-state{flex-basis:100%;margin:0;}
+.trace-run-info{font-size:12px;max-width:100%;white-space:nowrap;}
 .trace-run-info summary{cursor:pointer;color:var(--workbench-muted);}
 .trace-run-info[open]{flex-basis:100%;margin-left:0;}
 .trace-run-info dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 12px;margin:12px 0;}
@@ -720,7 +718,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .workspace-main{height:100%;display:flex;flex-direction:column;min-width:0;}
 .workspace-header{height:64px;flex-shrink:0;}
 .workspace-heading{gap:16px;}.workspace-heading h1{font-size:20px;font-weight:500;}
-.run-toolbar{padding:10px 24px;gap:12px;flex-wrap:wrap;}
+.run-toolbar{padding:10px 24px;gap:10px 12px;flex-wrap:wrap;border-bottom:1px solid var(--workbench-border);}
 .run-context h2{font-size:16px;}.run-metrics{flex-wrap:wrap;gap:10px 16px;flex-shrink:1;}
 .workspace-panels{margin:0 24px 20px;grid-template-columns:minmax(0,1fr) 8px var(--inspector-width);}
 .graph-column{overflow:hidden;}
@@ -739,7 +737,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .inspector-dashboard :deep(.context-slots>div){flex-wrap:wrap;}
 @container(max-width:410px){.inspector-dashboard{grid-template-columns:minmax(0,1fr);}}
 @media(max-width:1100px){.trace-studio{height:auto;min-height:100dvh;}.workspace-main{height:auto;min-height:100dvh;}.workspace-panels{display:grid;grid-template-columns:minmax(0,1fr);overflow:visible;flex:none;}.workspace-panels>.trace-divider{display:none;}.graph-column{height:660px;min-height:0;}.inspector-column{border-left:0;border-top:1px solid var(--workbench-border);overflow:visible;}.inspector-heading{position:static;}.inspector-dashboard{grid-template-columns:repeat(2,minmax(0,1fr));}.run-metrics{margin-left:0;}.trace-controlbar{padding-inline:20px;}}
-@media(max-width:600px){.workspace-panels{margin:0 12px 12px;}.workspace-header{padding:0 12px;gap:8px;flex-wrap:wrap;height:auto;min-height:64px;}.trace-wordmark{font-size:22px;}.workspace-heading{gap:8px;}.workspace-heading h1{font-size:17px;}.trace-controlbar{padding:12px;gap:12px;}.trace-run-picker,.trace-controlbar .trace-search{width:100%;}.trace-run-picker select{flex:1;max-width:100%;}.trace-controlbar .search-field{flex:1;width:auto;}.trace-run-info{margin-left:0;}.run-toolbar{padding:10px 12px;}.run-context{width:100%;}.graph-column{height:580px;}.inspector-content{padding:12px;}.inspector-dashboard{gap:10px;}.model-name{white-space:normal;}.view-tabs{height:auto;min-height:48px;flex-wrap:wrap;padding-block:8px;}.view-meta{flex-wrap:wrap;}.trace-run-info dl{grid-template-columns:80px minmax(0,1fr);}}
+@media(max-width:600px){.workspace-panels{margin:0 12px 12px;}.workspace-header{padding:0 12px;gap:8px;flex-wrap:wrap;height:auto;min-height:64px;}.trace-wordmark{font-size:22px;}.workspace-heading{gap:8px;}.workspace-heading h1{font-size:17px;}.trace-controlbar{padding:12px;gap:12px;}.trace-run-picker,.run-toolbar .trace-search{width:100%;}.trace-run-picker select{flex:1;max-width:100%;}.run-toolbar .search-field{flex:1;width:auto;}.trace-run-info{margin-left:0;}.run-toolbar{padding:10px 12px;}.run-context{width:100%;}.graph-column{height:580px;}.inspector-content{padding:12px;}.inspector-dashboard{gap:10px;}.model-name{white-space:normal;}.view-tabs{height:auto;min-height:48px;flex-wrap:wrap;padding-block:8px;}.view-meta{flex-wrap:wrap;}.trace-run-info dl{grid-template-columns:80px minmax(0,1fr);}}
 @media(max-width:440px){.inspector-dashboard{grid-template-columns:minmax(0,1fr);}}
 .trace-studio {
   --workbench-paper: #f5f4ef;
