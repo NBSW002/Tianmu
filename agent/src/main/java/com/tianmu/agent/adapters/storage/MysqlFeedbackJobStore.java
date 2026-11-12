@@ -155,8 +155,8 @@ public final class MysqlFeedbackJobStore implements FeedbackJobStore {
         return write(()->{
             Job j=locked(id);if(!running(j) || !Instant.now().isBefore(j.deadline()) || db.queryForObject("SELECT COUNT(*) FROM agent_feedback_work WHERE job_id=? AND work_id=? AND fence=? AND state='RUNNING' AND lease_until>UTC_TIMESTAMP(6)",Long.class,id.toString(),work.toString(),fence)!=1)
                 throw new AgentException("ANALYSIS_LEASE_LOST","Analysis work is no longer owned");
-            if(com.tianmu.agent.feedback.FeedbackCompression.RERANK_VERSION.equals(j.request().rulesVersion()) && j.modelCalls()>0)
-                throw new AgentException("MODEL_DISPATCH_ALREADY_RESERVED","Confirmation dispatch has already been reserved");
+            if(com.tianmu.agent.feedback.FeedbackCompression.RERANK_VERSION.equals(j.request().rulesVersion()) && db.queryForObject("SELECT COUNT(*) FROM agent_feedback_attempt WHERE work_id=?",Long.class,work.toString())>0)
+                throw new AgentException("MODEL_DISPATCH_ALREADY_RESERVED","Analysis stage dispatch has already been reserved");
             if(estimate<1 || j.modelCalls()>=j.callLimit() || estimate>j.tokenLimit()-j.chargedTokens())throw new AgentException("MODEL_TOKEN_BUDGET_EXCEEDED","Analysis budget exhausted");
             if(db.queryForObject("SELECT COUNT(*) FROM agent_feedback_attempt WHERE work_id=? AND fence=?",Long.class,work.toString(),fence)>0)throw new AgentException("ANALYSIS_LEASE_LOST","Model attempt was already dispatched");
             db.update("INSERT INTO agent_feedback_attempt(work_id,fence,job_id,reserved_tokens,state,created_at) VALUES(?,?,?,?,'UNKNOWN',UTC_TIMESTAMP(6))",work.toString(),fence,id.toString(),estimate);

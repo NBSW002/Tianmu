@@ -29,7 +29,7 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
             }
             if(comments+danmaku!=topic.messages())throw new com.tianmu.agent.core.AgentException("INVALID_ANALYSIS","Report topic counts differ from membership");
             if(topic.selection()!=null && "EXCLUDED".equals(topic.selection().coherence())){excludedRecords+=topic.messages();continue;}
-            var evidenceIds=new HashSet<>(topic.members());
+            var evidenceIds=groups.stream().map(FeedbackModels.Group::id).collect(java.util.stream.Collectors.toSet());
             var candidates=material.clusters().stream().filter(c->clusterIds.contains(c.id())).flatMap(c->c.representatives().stream())
                     .filter(rep->!reranked || evidenceIds.contains(rep.id())).toList();
             var byId=new HashMap<String,FeedbackCompression.Representative>();candidates.forEach(r->byId.put(r.id(),r));

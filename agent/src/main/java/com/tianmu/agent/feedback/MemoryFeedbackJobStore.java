@@ -95,7 +95,7 @@ public final class MemoryFeedbackJobStore implements FeedbackJobStore {
         if(j==null || !active(j.phase()) || w==null || !w.jobId().equals(id) || !w.state().equals("RUNNING") || w.fence()!=fence || reservations.containsKey(key))throw new AgentException("ANALYSIS_LEASE_LOST","Work is no longer owned");
         if(FeedbackCompression.RERANK_VERSION.equals(j.request().rulesVersion())){
             if(!Instant.now().isBefore(w.leaseUntil()))throw new AgentException("ANALYSIS_LEASE_LOST","Confirmation work is no longer owned");
-            if(j.modelCalls()>0)throw new AgentException("MODEL_DISPATCH_ALREADY_RESERVED","Confirmation dispatch has already been reserved");
+            if(reservations.keySet().stream().anyMatch(k->k.startsWith(workId+":")))throw new AgentException("MODEL_DISPATCH_ALREADY_RESERVED","Analysis stage dispatch has already been reserved");
         }
         if(estimate<1 || j.modelCalls()>=j.callLimit() || estimate>j.tokenLimit()-j.chargedTokens())throw new AgentException("MODEL_TOKEN_BUDGET_EXCEEDED","Analysis budget exhausted");
         reservations.put(key,estimate);jobs.put(id,changed(j,j.phase(),null,j.snapshot(),j.video(),j.asset(),j.completedWork(),Math.addExact(j.chargedTokens(),estimate),j.modelCalls()+1));return estimate;

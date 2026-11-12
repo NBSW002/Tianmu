@@ -63,8 +63,6 @@ final class FeedbackRerankPreparation {
                 groups.stream().filter(group->group.id().equals(id)).findFirst().ifPresent(ordered::add);
             }
         }
-        while(!ordered.isEmpty() && objects.bytes(ordered.stream().map(FeedbackRerankConfirmation::modelEvidence).toList())>2700)
-            ordered.remove(ordered.size()-1);
         var kept=new HashSet<>(ordered.stream().map(FeedbackModels.Group::id).toList());
         var evidenceClusters=clusters.stream().map(cluster->new Cluster(cluster.id(),cluster.members(),
                 cluster.representatives().stream().filter(rep->kept.contains(rep.id())).toList())).toList();

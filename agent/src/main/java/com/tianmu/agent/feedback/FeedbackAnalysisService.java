@@ -120,7 +120,8 @@ public final class FeedbackAnalysisService {
                         "analysis.work_kind",work.kind().name(),"execution.attempt",work.attempts(),"execution.retry_count",Math.max(0,work.attempts()-1)));
                 Input stored=objects.get(work.input(),Input.class);
                 if(reranked(j.request())){
-                    confirmReranked(j,work,stored,token,accountAttempt);
+                    if(work.kind()==WorkKind.MERGE)writeConfirmedReport(j,work,stored,token,accountAttempt);
+                    else confirmReranked(j,work,stored,token,accountAttempt);
                     return Optional.empty();
                 }
                 input=new Input(stored.kind(),stored.groups(),stored.kind()==WorkKind.CLASSIFY?List.of():stored.children(),(stored.kind()==WorkKind.MERGE && !stored.groups().isEmpty()) || stored.kind()==WorkKind.CLASSIFY && (!pipeline(j.request()) || FeedbackCompression.representativeVersion(j.request().rulesVersion()) || stored.groups().stream().anyMatch(g->g.source()==Source.DANMAKU))?j.video():null,stored.correction(),
@@ -229,6 +230,18 @@ public final class FeedbackAnalysisService {
         if(completed && cached==null && key!=null && !result.topics().isEmpty() && result.topics().size()==proposals.size())
             resultCache.put(key,job,input,proposals);
     }
+    private void writeConfirmedReport(FeedbackJobStore.Job job,FeedbackJobStore.Work work,Input input,CancellationToken token,Runnable accountAttempt){
+        var control=new CallControl(min(job.deadline(),Instant.now().plus(policy.modelTimeout())),token,
+                new FeedbackBudget(store,work,governance.tokenReservation()),accountAttempt)
+                .withDispatchBarrier(()->source.authorize(job.owner(),job.request().query().videoId()));
+        reductionBarrier(control);
+        var proposals=com.tianmu.agent.harness.trace.TraceModelCall.call("feedback.model",
+                Map.of("analysis.job_id",job.id().toString(),"analysis.work_id",work.id().toString(),"analysis.work_kind","WRITE_REPORT"),
+                ()->models.writeReport(input,control));
+        var result=FeedbackReportWriting.validate(work.id().toString(),input,proposals);
+        var completion=new CallControl(job.deadline(),token).withDispatchBarrier(()->source.authorize(job.owner(),job.request().query().videoId()));
+        reductionBarrier(completion);store.complete(work,objects.put(job.id(),result,completion));
+    }
     /** Retry deterministic reduction only, never a paid model call. */
     private void finishWithRecovery(FeedbackJobStore.Job initial,CancellationToken token){
         var control=new CallControl(initial.deadline(),token).withDispatchBarrier(()->source.authorize(initial.owner(),initial.request().query().videoId()));
@@ -273,7 +286,16 @@ public final class FeedbackAnalysisService {
     private void finishPipeline(FeedbackJobStore.Job job,CallControl control) {
         if(reranked(job.request())){
             var completed=store.completedLevel(job.id(),0);
-            if(completed.size()==1)saveAsset(job,List.of(completed.get(0).result()),control);
+            if(store.hasLevel(job.id(),1)){
+                var written=store.completedLevel(job.id(),1);
+                if(written.size()==1)saveAsset(job,List.of(written.get(0).result()),control);
+            }else if(completed.size()==1){
+                var topics=objects.get(completed.get(0).result(),ResultNode.class).topics();
+                if(topics.isEmpty()){saveAsset(job,List.of(completed.get(0).result()),control);return;}
+                var evidence=objects.get(completed.get(0).input(),Input.class).groups();
+                var prepared=objects.put(job.id(),new Input(WorkKind.MERGE,evidence,topics,job.video()),control);
+                reductionBarrier(control);store.planLevel(job.id(),job.version(),1,List.of(prepared));
+            }
             return;
         }
         if(job.snapshot().counts().total()==0){saveAsset(job,List.of(),control);return;}

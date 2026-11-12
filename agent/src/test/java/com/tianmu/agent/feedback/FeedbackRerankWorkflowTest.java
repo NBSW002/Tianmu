@@ -24,17 +24,21 @@ import static org.mockito.Mockito.*;
 class FeedbackRerankWorkflowTest {
     @TempDir Path directory;
 
-    @Test void preparesFiveBucketsAndSendsExactlyOneConfirmationBeforeDelivery() throws Exception {
+    @Test void preparesFiveBucketsThenConfirmsAndWritesBeforeDelivery() throws Exception {
         verifyWorkflow(false);
     }
-    @Test void directReadingUsesOneModelCallAndNoEmbeddingOrRerank() throws Exception {
+    @Test void directReadingConfirmsAndWritesWithoutEmbeddingOrRerank() throws Exception {
         verifyWorkflow(true);
     }
     @Test void providerFailureCannotDeliverASuccessfulEmptyReport() throws Exception {
         verifyWorkflow(false,true);
     }
     private void verifyWorkflow(boolean direct) throws Exception { verifyWorkflow(direct,false); }
-    private void verifyWorkflow(boolean direct,boolean failProvider) throws Exception {
+    @Test void writingFailureKeepsConfirmedTopicsButCannotDeliverReport() throws Exception {
+        verifyWorkflow(false,false,true);
+    }
+    private void verifyWorkflow(boolean direct,boolean failProvider) throws Exception {verifyWorkflow(direct,failProvider,false);}
+    private void verifyWorkflow(boolean direct,boolean failProvider,boolean failWriter) throws Exception {
         var json=new ObjectMapper().findAndRegisterModules();
         var qwenCalls=new AtomicInteger();
         var deepseekCalls=new AtomicInteger();
@@ -57,6 +61,16 @@ class FeedbackRerankWorkflowTest {
                 if(failProvider){exchange.sendResponseHeaders(503,-1);return;}
                 var input=json.readTree(exchange.getRequestBody());
                 var payload=json.readTree(input.path("messages").get(1).path("content").asText());
+                if(payload.has("topics")){
+                    if(failWriter){exchange.sendResponseHeaders(503,-1);return;}
+                    var output=new ArrayList<Map<String,String>>();
+                    for(var topic:payload.path("topics"))output.add(Map.of("topicId",topic.path("topicId").asText(),
+                            "observation","报告正文：观众描述了实际体验，原话说明了具体感受。","recommendation",""));
+                    var content=json.writeValueAsString(Map.of("topics",output));
+                    byte[] body=json.writeValueAsBytes(Map.of("choices",List.of(Map.of("finish_reason","stop","message",Map.of("content",content))),
+                            "usage",Map.of("prompt_tokens",200,"completion_tokens",80)));
+                    exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);return;
+                }
                 var evidence=payload.path("evidence");
                 sentEvidence.set(evidence.size());
                 var edges=new ArrayList<Map<String,String>>();
@@ -81,7 +95,7 @@ class FeedbackRerankWorkflowTest {
             var rows=new ArrayList<Unit>();
             for(int bucket=0;bucket<5;bucket++)for(int i=0;i<6;i++){
                 int id=bucket*6+i+1;
-                rows.add(new Unit("C:"+id,Source.COMMENT,""+id,"方向"+bucket+"有具体体验"+i,"",false,null,"viewer"+id,Instant.parse("2026-11-01T01:00:00Z"),null));
+                rows.add(new Unit("C:"+id,Source.COMMENT,""+id,"方向"+bucket+"有具体体验"+i+"观众描述了具体内容和感受".repeat(3),"",false,null,"viewer"+id,Instant.parse("2026-11-01T01:00:00Z"),null));
             }
             FeedbackSnapshotPort source=new FeedbackSnapshotPort(){
                 public void authorize(AccessScope scope,long video){
@@ -115,6 +129,7 @@ class FeedbackRerankWorkflowTest {
             assertEquals(FeedbackCompression.RERANK_VERSION,material.version());
             assertEquals(direct?0:5,qwenCalls.get());
             assertEquals(direct?30:15,material.representativeCount());
+            assertTrue(material.modelBytes()>2700,"All selected evidence survives beyond the former tail-cut limit");
             assertEquals(0,deepseekCalls.get());
             prep.startCompressedReport(job.id(),owner,null,control);
             for(int n=0;n<8 && jobs.get(job.id()).phase()!=Phase.READY;n++)service.advance(job.id());
@@ -124,10 +139,18 @@ class FeedbackRerankWorkflowTest {
                 assertThrows(AgentException.class,()->prep.reportJson(job.id(),owner,control));
                 return;
             }
+            if(failWriter){
+                assertEquals(Phase.FAILED,jobs.get(job.id()).phase());
+                assertEquals(2,deepseekCalls.get());
+                assertEquals(1,jobs.completedLevel(job.id(),0).size());
+                assertTrue(jobs.completedLevel(job.id(),1).isEmpty());
+                assertThrows(AgentException.class,()->prep.reportJson(job.id(),owner,control));return;
+            }
             assertEquals(Phase.READY,jobs.get(job.id()).phase(),()->String.valueOf(jobs.get(job.id()).errorCode()));
-            assertEquals(1,deepseekCalls.get());
+            assertEquals(2,deepseekCalls.get());
             assertEquals(direct?30:15,sentEvidence.get());
-            assertFalse(jobs.hasLevel(job.id(),1));
+            assertTrue(jobs.hasLevel(job.id(),1));
+            assertTrue(objects.get(jobs.completedLevel(job.id(),1).get(0).result(),ResultNode.class).topics().get(0).observation().startsWith("报告正文"));
             var report=prep.reportJson(job.id(),owner,control);
             assertEquals(2L,report.method().get("confirmed_records"));
             assertEquals(28L,report.method().get("unclassified"));
@@ -149,7 +172,7 @@ class FeedbackRerankWorkflowTest {
                 for(int n=0;n<8 && jobs.get(repeated.id()).phase()!=Phase.READY;n++)service.advance(repeated.id());
                 assertEquals(Phase.READY,jobs.get(repeated.id()).phase());
                 assertEquals(6,qwenCalls.get(),"Only the bucket that previously received 429 should require another request");
-                assertEquals(2,deepseekCalls.get(),"The repeated normal evidence pack should reuse confirmation");
+                assertEquals(4+repetition,deepseekCalls.get(),"Confirmation reuse still requires a separate report writing step");
             }
 
             var recovered=prep.requestMaterials(UUID.randomUUID(),owner,request,control.deadline());
@@ -166,7 +189,7 @@ class FeedbackRerankWorkflowTest {
             for(int n=0;n<8 && jobs.get(recovered.id()).phase()!=Phase.READY;n++)service.advance(recovered.id());
             assertEquals(Phase.FAILED,jobs.get(recovered.id()).phase());
             assertEquals("ANALYSIS_CONFIRMATION_UNAVAILABLE",jobs.get(recovered.id()).errorCode());
-            assertEquals(2,deepseekCalls.get(),"A reclaimed confirmation must not send another request");
+            assertEquals(5,deepseekCalls.get(),"A reclaimed confirmation must not send another request");
             assertThrows(AgentException.class,()->prep.reportJson(recovered.id(),owner,control));
 
             var beforeReservation=prep.requestMaterials(UUID.randomUUID(),owner,request,control.deadline());
@@ -177,7 +200,7 @@ class FeedbackRerankWorkflowTest {
             assertNotNull(unreserved);
             for(int n=0;n<8 && jobs.get(beforeReservation.id()).phase()!=Phase.READY;n++)service.advance(beforeReservation.id());
             assertEquals(Phase.READY,jobs.get(beforeReservation.id()).phase());
-            assertEquals(3,deepseekCalls.get(),"Lease loss before reservation must not prevent confirmation");
+            assertEquals(7,deepseekCalls.get(),"Lease loss before reservation must allow confirmation and report writing");
         }finally{server.stop(0);}
     }
 

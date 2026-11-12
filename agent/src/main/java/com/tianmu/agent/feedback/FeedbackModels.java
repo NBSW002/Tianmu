@@ -44,5 +44,6 @@ public interface FeedbackModels {
     default List<Proposal> analyzePipeline(Input input,CallControl control){return analyze(input,control);}
     default boolean representativeReviewEnabled(){return false;}
     default List<Proposal> confirmReranked(Input input,CallControl control){return List.of();}
+    default List<Proposal> writeReport(Input input,CallControl control){throw new com.tianmu.agent.core.AgentException("MODEL_UNAVAILABLE","Report writing is not implemented");}
     default String rerankConfirmationHash(){return pipelinePolicyHash();}
 }

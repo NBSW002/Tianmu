@@ -70,7 +70,7 @@ public final class FeedbackCompression {
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1|substantive-feedback-v3").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v7").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String materialRevision(String version){
-        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top3-text256-context256-v2"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top3-text256-context256-no-tail-cut-v3"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return FIVE_VERSION.equals(version)?fiveRevision():revision();
     }
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
