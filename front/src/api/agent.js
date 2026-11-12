@@ -229,3 +229,8 @@ export async function videoContentIndex(videoId, method = 'GET', signal) {
   if (!/^[1-9][0-9]{0,18}$/.test(videoId)) throw new Error('无效的视频 ID');
   return (await request('/api/agent/videos/' + videoId + '/index', { method, signal })).json();
 }
+
+
+export async function getAgentModelMetadata(signal) {
+  return (await request('/api/agent/models/metadata', { signal })).json()
+}

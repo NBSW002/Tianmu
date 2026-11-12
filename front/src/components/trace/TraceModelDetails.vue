@@ -1,15 +1,14 @@
 <script setup>
 /* global defineProps */
 defineProps({ details:{type:Object,required:true} })
-const percent = value => value == null ? '—' : `${value.toFixed(1)}%`
-const speed = value => value == null ? '—' : `${value.toFixed(1)} tok/s`
+const tokens = value => value == null ? '—' : `${new Intl.NumberFormat('zh-CN').format(value)} Token`
 </script>
 <template>
   <section class="model-details" aria-label="模型情况">
     <h3>模型情况</h3>
     <dl>
-      <div><dt>缓存命中率<small v-if="details.cacheRate != null && details.cachePartial"> · 部分</small></dt><dd>{{ percent(details.cacheRate) }}</dd></div>
-      <div><dt title="输出 Token / 完整调用秒数">平均 TPS<small v-if="details.tps != null && details.tpsPartial"> · 部分</small></dt><dd>{{ speed(details.tps) }}</dd></div>
+      <div><dt>缓存命中<small v-if="details.cacheHits != null && details.cacheHitPartial"> · 部分</small></dt><dd>{{ tokens(details.cacheHits) }}</dd></div>
+      <div><dt>缓存未命中<small v-if="details.cacheMisses != null && details.cacheMissPartial"> · 部分</small></dt><dd>{{ tokens(details.cacheMisses) }}</dd></div>
       <div><dt>模型</dt><dd>{{ details.models.join(' / ') || '—' }}</dd></div>
       <div><dt>调用类型</dt><dd>{{ details.types.join(' / ') || '—' }}</dd></div>
       <div><dt>模型调用</dt><dd>{{ details.count }} 次</dd></div>

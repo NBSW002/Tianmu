@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getAgentTrace, getTracePayload, getTraceRecords } from '@/api/agent'
+import { getAgentTrace, getTracePayload, getTraceRecords, getAgentModelMetadata } from '@/api/agent'
 import { useUserStore } from '@/store/user'
 import '@/assets/css/workbench-tokens.css'
 import TraceGraph from '@/components/trace/TraceGraph.vue'
@@ -45,7 +45,7 @@ const payloadAttempt = ref(0)
 const inspector = ref(null)
 const userStore = useUserStore()
 const route = useRoute()
-let queryController, payloadController, recordsController
+let queryController, payloadController, recordsController, metadataController
 const exportingRecords = ref(false)
 const exportError = ref('')
 const studio = ref(null)
@@ -67,7 +67,7 @@ onMounted(() => {
 onBeforeUnmount(() => workspaceObserver?.disconnect())
 const previousTitle = document.title
 document.title = 'Trace Studio · EchoFrame运行追踪'
-onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort(); recordsController?.abort() })
+onBeforeUnmount(() => { document.title = previousTitle; queryController?.abort(); payloadController?.abort(); recordsController?.abort(); metadataController?.abort() })
 
 const trace = computed(() => traces.value.find((item) => item.id === activeId.value) || traces.value[0])
 const presentation = computed(() => buildTraceOverview(buildTracePresentation(trace.value.nodes)))
@@ -80,7 +80,8 @@ const invocations = computed(() => modelInvocations(selected.value, presentation
 const reasoningSources = computed(() => selected.value?.cardKind === 'run' ? [] : modelReasoningSources(selected.value, presentation.value))
 const intentSelection = computed(() => intentDetails(selected.value))
 const runSelection = computed(() => selected.value?.cardKind === 'run')
-const runSummary = computed(() => runInspectorSummary(trace.value,presentation.value))
+const providerMetadata = ref([])
+const runSummary = computed(() => runInspectorSummary(trace.value,presentation.value,providerMetadata.value))
 const modelDetails = computed(() => {
   if (runSelection.value) return runSummary.value.modelDetails
   const candidates = [selectedSource.value, ...selectedMembers.value].filter(node => node && (node.kind === 'MODEL' || node.type === 'llm_inference') && node.attributes?.['model.dispatched'] !== false)
@@ -94,8 +95,18 @@ const modelDetails = computed(() => {
       parent = presentation.value.rawById.get(parent.parentId)
     }
   }
-  return modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes)
+  return modelInspectorDetails(candidates.filter(node => !parents.has(node.id)), trace.value.nodes,providerMetadata.value)
 })
+watch([() => trace.value.remote, () => userStore.user?.token], async ([remote,token], _, onCleanup) => {
+  metadataController?.abort(); providerMetadata.value=[]
+  if (!remote || !token) return
+  const controller = new AbortController(); metadataController=controller
+  onCleanup(() => controller.abort())
+  try {
+    const result = await getAgentModelMetadata(controller.signal)
+    if (!controller.signal.aborted && Array.isArray(result)) providerMetadata.value=result
+  } catch { /* The Trace remains readable if provider discovery is unavailable. */ }
+}, { immediate:true })
 const contextSelection = computed(() => runSelection.value ? (modelDetails.value.peakContext || {visible:false,slots:[]}) : contextDetails(selected.value))
 const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
 const metricSelection = computed(() => runSelection.value ? {...selected.value,durationMs:trace.value.durationMs,totalTokens:trace.value.totalTokens} : selected.value)
@@ -284,9 +295,9 @@ function downloadExample() {
               <div class="model-performance">
               <TraceResponseTiming v-if="runSelection" :timing="runSummary.ttftTiming" aggregate />
               <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" />
-              <TraceModelDetails :details="modelDetails" />
-              </div>
               <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
+              </div>
+              <TraceModelDetails :details="modelDetails" />
               <TraceRunCalls v-if="runSelection" :calls="runSummary.events" @select="selectNode" />
               <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
             </div>

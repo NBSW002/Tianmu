@@ -21,7 +21,7 @@ const slots = computed(() => {
   const denominator = total.value+overhead
   return rows.map(slot => ({...slot,share:complete.value && denominator > 0 ? slot.bytes/denominator*100 : null}))
 })
-const compact = value => value == null ? '—' : value >= 1000 ? `${(value/1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
+const compact = value => value == null ? '—' : value >= 1000000 ? `${(value/1000000).toFixed(2).replace(/\.?0+$/, '')}M` : value >= 1000 ? `${(value/1000).toFixed(1).replace(/\.0$/, '')}k` : String(value)
 const windowSegments = computed(() => {
   const {used,capacity} = props.windowUsage
   if (used == null || capacity == null) return [{value:1,color:'var(--workbench-border)'}]
@@ -38,8 +38,8 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
 <template>
   <section v-if="selection.visible || showEmpty" class="context-section" aria-label="上下文模块装配">
     <header><h3>上下文构成</h3></header>
-    <TraceDonut :segments="windowSegments" :value="windowUsage.unit === 'B' ? (windowUsage.used/1024).toFixed(1) : compact(windowUsage.used)" :unit="windowUsage.unit === 'B' ? 'KiB' : ''" :caption="windowUsage.capacity == null ? '' : `/ ${windowUsage.unit === 'B' ? `${(windowUsage.capacity/1024).toFixed(0)} KiB` : compact(windowUsage.capacity)}`" :label="`上下文构成示意；已用 ${compact(windowUsage.used)} ${windowUsage.unit || 'Token'}，上下文容量 ${compact(windowUsage.capacity)} ${windowUsage.unit || 'Token'}`" />
-    <p class="window-label">{{ windowUsage.unit === 'B' ? '已用 / 输入预算' : '已用 / 上下文窗口' }}</p>
+    <TraceDonut :segments="windowSegments" :value="windowUsage.unit === 'B' ? (windowUsage.used/1024).toFixed(1) : compact(windowUsage.used)" :unit="windowUsage.unit === 'B' ? 'KiB' : 'Token'" :caption="windowUsage.capacity == null ? '' : `/ ${windowUsage.unit === 'B' ? `${(windowUsage.capacity/1024).toFixed(0)} KiB` : compact(windowUsage.capacity)}`" :label="`上下文构成示意；已用 ${windowUsage.used == null ? '—' : windowUsage.used} ${windowUsage.unit || 'Token'}，上下文容量 ${windowUsage.capacity == null ? '—' : windowUsage.capacity} ${windowUsage.unit || 'Token'}`" />
+    <p class="window-label" :title="windowUsage.capacity == null ? '' : `${new Intl.NumberFormat('zh-CN').format(windowUsage.capacity)} ${windowUsage.unit || 'Token'}`">{{ windowUsage.unit === 'B' ? '已用 / 输入预算' : '已用 / 上下文窗口' }}</p>
     <dl class="context-slots">
       <div v-for="slot in slots" :key="slot.name">
         <dt><i :style="{ background: slot.color }" aria-hidden="true"></i>{{ slot.label }}</dt>

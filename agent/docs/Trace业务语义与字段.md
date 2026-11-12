@@ -79,9 +79,15 @@ JSONL / Kafka 的 Span attributes 仍然只携带元数据和详情引用，消�
 
 每个模型节点提供 `model.name / provider / temperature / max_tokens / streaming / message_count / finish_reason`（有可信来源时）。`model.input_tokens / output_tokens / total_tokens / cache_hit_tokens / cache_miss_tokens / reasoning_tokens` 只记录服务商实际返回的非负数值。
 
-`model.usage_state` 与请求级 `usage.state` 区分 NOT_REPORTED、PARTIAL、REPORTED、NOT_APPLICABLE；没有上报用量时不写 token 数值，避免把缺失当 0。请求合计按已报告的调用统计，结合 `usage.complete / reported_calls` 判断完整性。当前是非流式模型接口，`model.first_token_state=NOT_APPLICABLE`；`model.response_ms` 是完整响应耗时，不冒充 TTFT。
+`model.usage_state` 与请求级 `usage.state` 区分 NOT_REPORTED、PARTIAL、REPORTED、NOT_APPLICABLE；没有上报用量时不写 token 数值，避免把缺失当 0。请求合计按已报告的调用统计，结合 `usage.complete / reported_calls` 判断完整性。非流式请求标记 `model.first_token_state=NOT_APPLICABLE`。流式请求在首个非空正文、推理或工具函数增量到达时记录 `model.first_token_ms`，不等待正文展示或批量刷新；`model.response_ms` 与它使用同一起点。两者均为调用方实测，不是服务商返回的延迟字段。
 
 不采集模型隐藏推理正文；服务商响应中的 reasoning_content 被规则遮盖。公开回答和结构化决策保存在对应输出快照中。
+
+### 模型接口元数据与界面口径
+
+`GET /api/agent/models/metadata` 在身份认证后查询默认配置供应商的 `/models`，仅返回供应商标识、模型 ID、`context_window`、`max_output_tokens` 和采集时间。成功结果在 Agent 进程内缓存 10 分钟，失败空结果缓存 30 秒；连接上限 2 秒、请求上限 3 秒、响应上限 128 KiB，无重定向、无自动重试。失败不影响 Trace 查询，不用默认值猜测模型容量。
+
+Trace 界面优先使用记录自身的窗口容量；缺失时，仅对匹配供应商与模型 ID 的 DeepSeek 记录使用当前 `/models` 元数据。当前元数据不是历史容量快照；原始 Trace 不被改写。模型窗口使用 Token，`context.byte_limit` 仍是独立的应用字节预算，不互相换算。界面缓存命中和未命中展示服务商返回 Token 数，不再展示自行计算的命中率或 TPS。根节点对实际请求去重后合计，缺失缓存字段不补零。
 
 ### 存储与读取
 

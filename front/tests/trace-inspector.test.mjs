@@ -72,20 +72,22 @@ test('run response timing does not invent missing phase or total measurements',(
  assert.equal(result.responseTiming.segments.reduce((sum,item)=>sum+item.value,0),500)
 })
 
-test('model details use token-weighted cache and streaming generation time',()=>{
- const a={...model('a',null,{'model.cache_hit_tokens':80,'model.response_ms':600,'model.first_token_ms':100,'model.streaming':true,'model.context_window':1000}),inputTokens:100,outputTokens:20,model:'flash'}
- const b={...model('b',null,{'model.cache_hit_tokens':0,'model.response_ms':1100,'model.first_token_ms':100,'model.streaming':true,'model.context_window':2000}),inputTokens:200,outputTokens:40,model:'flash'}
+test('model details preserve reported cache counts and omit calculated rates',()=>{
+ const a={...model('a',null,{'model.cache_hit_tokens':80,'model.cache_miss_tokens':20,'model.response_ms':600,'model.first_token_ms':100,'model.streaming':true,'model.context_window':1000}),inputTokens:100,outputTokens:20,model:'flash'}
+ const b={...model('b',null,{'model.cache_hit_tokens':0,'model.cache_miss_tokens':200,'model.response_ms':1100,'model.first_token_ms':100,'model.streaming':true,'model.context_window':2000}),inputTokens:200,outputTokens:40,model:'flash'}
  const result=modelInspectorDetails([a,b])
- assert.ok(Math.abs(result.cacheRate-80/300*100)<0.001)
- assert.ok(Math.abs(result.tps-60/1.7)<0.001)
+ assert.equal(result.cacheHits,80)
+ assert.equal(result.cacheMisses,220)
+ assert.equal('tps' in result,false)
+ assert.equal('cacheRate' in result,false)
  assert.deepEqual(result.window,{used:100,capacity:1000})
  assert.deepEqual(result.models,['flash'])
 })
 test('missing capacity, cache and generation data remain unknown',()=>{
  const result=modelInspectorDetails([{...model('a'),inputTokens:500,outputTokens:20,durationMs:1000}])
  assert.deepEqual(result.window,{used:500,capacity:null})
- assert.equal(result.cacheRate,null)
- assert.equal(result.tps,null)
+ assert.equal(result.cacheHits,null)
+ assert.equal(result.cacheMisses,null)
 })
 test('peak window context comes from its assembly ancestor instead of summing calls',()=>{
  const parent=model('parent',null,{'context.present_slots':['focus'],'context.slot_bytes':['focus:88']})
@@ -101,7 +103,8 @@ test('historical provider spans supply measured duration and inherit byte budget
  const request={...model('request','parent',{'context.request_bytes':21008,'model.streaming':true,'model.cache_hit_tokens':3072}),name:'model.request',durationMs:1175.752501,inputTokens:4924,outputTokens:116}
  const result=runInspectorSummary({nodes:[parent,request]},{allCards:new Map()})
  assert.deepEqual(result.modelDetails.window,{used:21008,capacity:98304,unit:'B'})
- assert.ok(result.modelDetails.tps > 98 && result.modelDetails.tps < 99)
+ assert.equal(result.modelDetails.cacheHits,3072)
+ assert.equal('tps' in result.modelDetails,false)
  assert.equal(result.responseTiming.recorded,1)
  assert.equal(result.responseTiming.total,1175.752501)
  assert.equal(result.responseTiming.segments[0].label,'流式调用')
@@ -113,4 +116,21 @@ test('TTFT overview excludes nonstream and unsampled legacy streams without subs
  const c=model('c',null,{'model.streaming':false,'model.response_ms':500})
  assert.deepEqual(runTtftDetails([a,b,c]),{total:400,first:120,remaining:280,recorded:1,calls:2})
  assert.deepEqual(runTtftDetails([b,c]),{total:null,first:null,remaining:null,recorded:0,calls:1})
+})
+
+test('provider discovery supplies the real Token window and never crosses providers',()=>{
+ const call={...model('m',null,{'model.provider':'deepseek','context.byte_limit':98304,'context.request_bytes':21000}),model:'deepseek-flash',inputTokens:4928}
+ const discovery=[{provider:'deepseek',model:'deepseek-flash',contextWindow:1048576}]
+ assert.deepEqual(modelInspectorDetails([call],[call],discovery).window,{used:4928,capacity:1048576})
+ const compatible={...call,attributes:{...call.attributes,'model.provider':'compatible'}}
+ assert.deepEqual(modelInspectorDetails([compatible],[compatible],discovery).window,{used:21000,capacity:98304,unit:'B'})
+ const captured={...call,attributes:{...call.attributes,'model.context_window':128000}}
+ assert.deepEqual(modelInspectorDetails([captured],[captured],discovery).window,{used:4928,capacity:128000})
+})
+test('missing cache reporting is partial and does not turn into zero',()=>{
+ const a=model('a',null,{'model.cache_hit_tokens':0,'model.cache_miss_tokens':20})
+ const b=model('b')
+ const details=modelInspectorDetails([a,b])
+ assert.equal(details.cacheHits,0);assert.equal(details.cacheMisses,20)
+ assert.equal(details.cacheHitPartial,true);assert.equal(details.cacheMissPartial,true)
 })
