@@ -235,37 +235,20 @@
           >
           </DanmuBox>
           <!-- 相关视频列表 -->
-          <div class="recommend-list">
-            <!-- 下一个播放视频 -->
-            <div class="next-play" v-if="false">
-              <p class="rec-title">
-                接下来播放
-                <span class="next-button">
-                  <span class="txt">自动连播</span>
-                  <span class="switch-button" :class="{ on: true }"></span>
-                </span>
-              </p>
-
-              <!-- <VideoSmallCard
-                v-for="item in recmVideoList"
-                :key="item.videoId"
-                :item="item"
-              ></VideoSmallCard> -->
-              <!-- 分隔线 -->
-              <!-- <div class="split-line"></div> -->
-            </div>
-            <!-- 推荐视频列表 -->
-            <div class="rec-list" v-if="true">
+          <section class="recommend-list" aria-label="推荐视频" :aria-busy="recommendLoading">
+            <h2 class="rec-title">推荐视频</h2>
+            <div class="rec-list" v-if="recmVideoList.length">
               <div
                 v-for="item in recmVideoList"
                 :key="item.videoId"
-                style="margin-bottom: 12px"
+                class="recommend-item"
               >
                 <!-- 视频卡片 -->
                 <VideoSmallCard :item="item"></VideoSmallCard>
               </div>
             </div>
-          </div>
+            <p v-else class="recommend-empty">{{ recommendLoading ? '正在加载…' : recommendError ? '推荐视频加载失败' : '暂无推荐视频' }}</p>
+          </section>
         </div>
       </div>
     </div>
@@ -295,6 +278,7 @@ import { fetchUserInfo } from "@/api/user";
 
 import {
   fetchVideoDetail,
+  fetchVideoList,
   fetchLikeVideo,
   fetchLikeVideoCancel,
   fetchCollectVideo,
@@ -344,6 +328,8 @@ export default {
       seekTimePoint: Math.max(0, Number(this.$route.query.t) || 0), // 双击弹幕跳转的时间点
       isSelfDanmu: false, //标记websocket传输的弹幕是否自己发的弹幕
       recmVideoList: [], //推荐视频列表
+      recommendLoading: true,
+      recommendError: false,
       showAllDesc: false, // 是否展开简介
       descTooLong: false, // 简介太长需要展开
       sortType: 0, // 排序方式 0默认时间升序 1时间降序 2内容升序 3内容降序
@@ -497,16 +483,50 @@ export default {
           this.likeId = res.data.tripleActionResponse.likeId;
           this.favoriteId = res.data.tripleActionResponse.favoriteId;
 
-          this.recmVideoList = res.data.videoRecommendListResponse;
+          this.loadRecommendations(res.data.videoRecommendListResponse, this.$route.params.videoId);
           // 判断简介是否太长，如果太长则显示展开按钮
           this.isDescTooLong();
 
           // 获取视频用户信息，主要是获取关注状态
           this.getVideoUserInfo();
+        } else {
+          this.recommendLoading = false;
+          this.recommendError = true;
         }
       } catch (error) {
+        this.recommendLoading = false;
+        this.recommendError = true;
         console.log("获取视频详情失败", error);
       }
+    },
+    async loadRecommendations(related, currentId) {
+      this.recommendLoading = true;
+      this.recommendError = false;
+      const seen = new Set([String(currentId)]);
+      const items = [];
+      const add = videos => {
+        if (!Array.isArray(videos)) return;
+        for (const video of videos) {
+          if (video?.videoId == null || seen.has(String(video.videoId))) continue;
+          seen.add(String(video.videoId));
+          items.push(video);
+          if (items.length >= 8) break;
+        }
+      };
+      add(related);
+      this.recmVideoList = items.slice(0, 8);
+      if (items.length < 8) {
+        try {
+          const res = await fetchVideoList(1, 15);
+          if (res.code !== 200 || !Array.isArray(res.data)) throw new Error('视频列表不可用');
+          if (String(this.$route.params.videoId) !== String(currentId)) return;
+          add(res.data);
+          this.recmVideoList = items.slice(0, 8);
+        } catch {
+          this.recommendError = !items.length;
+        }
+      }
+      this.recommendLoading = false;
     },
     async getVideoUserInfo() {
       try {
@@ -1470,11 +1490,14 @@ export default {
 }
 
 .recommend-list {
-  margin-top: 18px;
+  margin-top: 22px;
 }
+.recommend-item { margin-bottom: 16px; }
+.recommend-empty { margin: 0; padding: 12px 0; color: #777a72; font-size: 13px; }
 
 .rec-title {
   font-size: 15px;
+  font-weight: 600;
   -webkit-font-smoothing: antialiased;
   color: var(--text1);
   display: flex;

@@ -54,6 +54,7 @@
 
 /* Icon fonts, Element icons and the history SVG share the same two-row grid. */
 @media (min-width: 700px) {
+.header-bar:not(.header-bar--home) .right-entry { gap: 8px; }
 .header-bar .right-entry :deep(.header-action) {
   display: grid;
   grid-template-rows: 24px 16px;
@@ -61,7 +62,7 @@
   align-items: center;
   align-content: center;
   gap: 4px;
-  min-width: 44px;
+  min-width: 52px;
   height: 44px;
   padding: 0;
   margin: 0;

@@ -721,6 +721,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .run-context h2{font-size:16px;}.run-metrics{flex-wrap:wrap;gap:10px 16px;flex-shrink:1;}
 .workspace-panels{margin:0 24px 20px;grid-template-columns:minmax(0,1fr) 8px var(--inspector-width);}
 .graph-column{overflow:hidden;}
+.view-tabs,.timing-panel{--workbench-raised:#fcfbf8;background:var(--workbench-raised);}
 .timing-panel{flex:0 0 clamp(240px,32dvh,360px);}
 .inspector-column{--workbench-raised:#fcfbf8;--trace-card:#fcfbf8;background:var(--workbench-raised);overflow:auto;container-type:inline-size;}
 .inspector-heading{height:50px;justify-content:space-between;font-size:13px;}
