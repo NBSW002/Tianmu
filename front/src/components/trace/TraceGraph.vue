@@ -103,7 +103,7 @@ watch(() => props.selectedId, async () => {
             <span class="node-name" :aria-label="`${cardTitle(data)}，${statusLabel(data.status)}`">{{ cardTitle(data) }}</span>
             <span class="node-highlight" :title="cardHighlight(data)">{{ cardHighlight(data) }}</span>
             <span class="node-facts"><span :class="{error:['FAILED','TIMED_OUT'].includes(data.status)}">{{ statusLabel(data.status) }}</span><span>{{ data.durationLabel || formatDuration(data.durationMs) }}</span></span>
-            <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${data.collapseId || expanded.has(data.id) ? '收起' : '展开'} ${data.collapseId ? '执行阶段' : cardTitle(data)}`" :title="data.collapseId || expanded.has(data.id) ? '收起阶段' : `包含 ${stackCount(data)} 个步骤，点击展开`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '−' : `×${stackCount(data)}` }}</button>
+            <button v-if="data.children?.length && !expanded.has(data.id)" type="button" class="cluster-toggle nodrag nopan" aria-expanded="false" :aria-label="`展开 ${cardTitle(data)}`" :title="`包含 ${stackCount(data)} 个步骤，点击展开`" @click.stop="emit('toggle', data.id)">×{{ stackCount(data) }}</button>
 
             <Handle type="source" :position="Position.Right" :connectable="false" />
           </div>

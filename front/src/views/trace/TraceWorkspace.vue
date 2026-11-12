@@ -266,7 +266,6 @@ function downloadExample() {
         <p v-if="exportError" role="status">{{ exportError }}</p>
         <div class="run-context"><h2 :title="trace.title">{{ trace.title }}</h2><span class="model-name" :title="trace.model">{{ trace.model }}</span></div>
         <span class="status-pill" :class="trace.status.toLowerCase()">{{ statusLabel(trace.status) }}</span>
-        <label class="trace-run-picker">运行记录<select v-model="activeId" aria-label="当前运行" @change="cancelQuery(); changeTrace()"><option v-for="item in traces" :key="item.id" :value="item.id">{{ item.title }} · {{ date(item.startMs) }} {{ clock(item.startMs) }}</option></select></label>
         <form class="trace-search" @submit.prevent="queryTrace"><label for="trace-id-query">Trace ID</label><div class="search-field"><input id="trace-id-query" v-model="traceQuery" placeholder="输入 Trace ID" autocomplete="off" spellcheck="false" :aria-invalid="!!queryError" aria-describedby="trace-query-state" @input="cancelQuery(); queryError = ''" /><button type="submit" :disabled="querying" :aria-label="querying ? '正在查询 Trace' : '查询 Trace'"><TraceIcon name="arrow" :size="16" /></button></div></form>
         <p v-if="queryError || querying" id="trace-query-state" class="query-state" :class="{error:queryError}" role="status">{{ queryError || '正在查询…' }}</p>
         <span v-else id="trace-query-state" class="sr-only" role="status"></span>
@@ -722,7 +721,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .run-context h2{font-size:16px;}.run-metrics{flex-wrap:wrap;gap:10px 16px;flex-shrink:1;}
 .workspace-panels{margin:0 24px 20px;grid-template-columns:minmax(0,1fr) 8px var(--inspector-width);}
 .graph-column{overflow:hidden;}
-.timing-panel{flex:0 0 clamp(180px,25dvh,260px);}
+.timing-panel{flex:0 0 clamp(240px,32dvh,360px);}
 .inspector-column{overflow:auto;container-type:inline-size;}
 .inspector-heading{height:50px;justify-content:space-between;font-size:13px;}
 .inspector-heading>span{font-size:12px;color:var(--workbench-muted);}

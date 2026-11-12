@@ -11,6 +11,8 @@ const protectedPayload = computed(() => props.value?.memoryProtected === true
   && props.value.details === 'Read authorized memory references from the run memory endpoint'
   && Object.keys(props.value).sort().join(',') === 'details,memoryProtected,runId')
 const stateLabels = { DISABLED: '已关闭采集', CAPTURE_FAILED: '采集失败', LIMIT_REACHED: '已达采集上限', NOT_CAPTURED: '未采集', UNAVAILABLE: '内容不可用', TRUNCATED: '内容已截断', SOURCE_PROTECTED: '旧记录未保留正文', SOURCE_GUARDED: '查看时校验来源权限', NOT_APPLICABLE: '本节点不适用' }
+const hasReference = computed(() => !!props.reference && props.reference !== 'UNAVAILABLE')
+const emptyLabel = computed(() => props.state === 'COMPLETE' ? '无内容' : stateLabels[props.state] || '未采集')
 const content = computed(() => typeof props.value === 'string' ? props.value : JSON.stringify(props.value, null, 2))
 const tokens = computed(() => {
   if (props.value == null) return []
@@ -41,7 +43,7 @@ async function copy() {
     <pre v-else-if="value != null" tabindex="0" role="region" :aria-label="`${title}内容`"><code><span v-for="(token, index) in tokens" :key="index" :class="`syntax-${token.type}`">{{ token.text }}</span></code></pre>
     <div v-else class="code-empty">
       <TraceIcon name="info" :size="17" />
-      <p>{{ reference ? '正文未载入' : '暂无内容' }}<small>{{ stateLabels[state] || '未采集' }}</small></p>
+      <p>{{ hasReference && state !== 'COMPLETE' ? '正文未载入' : '暂无内容' }}<small v-if="emptyLabel !== '无内容'">{{ emptyLabel }}</small></p>
     </div>
   </component>
 </template>
