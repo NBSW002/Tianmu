@@ -37,6 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @SuppressWarnings({"all"})
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements CommentService {
+    @Resource private com.orangecode.tianmu.application.CreatorWorkspace workspace;
+    @Resource private com.orangecode.tianmu.application.CurrentUser currentUser;
+    @Resource private com.orangecode.tianmu.application.VideoLookup videoLookup;
 
     @Resource
     private UserService userService;
@@ -48,6 +51,9 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CommentResponse createCommentVideo(CreateCommentRequest createCommentRequest) {
+        ThrowUtils.throwIf(createCommentRequest==null || createCommentRequest.getVideoId()==null,ErrorCode.PARAMS_ERROR);
+        createCommentRequest.setUserId(currentUser.requireMatchingUser(createCommentRequest.getUserId()));
+        videoLookup.lockPublished(createCommentRequest.getVideoId());
         Snowflake snowflake = IdUtil.getSnowflake(SnowflakeConstant.WORKER_ID, SnowflakeConstant.DATA_CENTER_ID);
         return createAuthorComment(createCommentRequest, snowflake.nextId());
     }
@@ -55,6 +61,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CommentResponse createAuthorComment(CreateCommentRequest createCommentRequest, long stableId) {
+
+        ThrowUtils.throwIf(createCommentRequest==null || createCommentRequest.getVideoId()==null
+                || createCommentRequest.getContent()==null || createCommentRequest.getContent().isBlank()
+                || createCommentRequest.getContent().length()>4096,ErrorCode.PARAMS_ERROR);
+        videoLookup.lockExisting(createCommentRequest.getVideoId());
 
         CommentResponse commentResponse = new CommentResponse();
         // 创建评论
@@ -70,9 +81,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
         // 如果有父评论，则设置父评论id
         if (createCommentRequest.getParentCommentId() != null) {
-            ThrowUtils.throwIf(!this.lambdaQuery().eq(Comment::getCommentId, createCommentRequest.getParentCommentId()).exists(), ErrorCode.PARENT_COMMENT_NOT_EXISTS);
+            Comment parentComment = this.getOne(new QueryWrapper<Comment>()
+                    .eq("comment_id",createCommentRequest.getParentCommentId())
+                    .eq("video_id",createCommentRequest.getVideoId()).last("FOR UPDATE"));
+            ThrowUtils.throwIf(parentComment==null,ErrorCode.PARENT_COMMENT_NOT_EXISTS);
             comment.setParentCommentId(createCommentRequest.getParentCommentId());
-            Comment parentComment = this.getById(createCommentRequest.getParentCommentId());
             User parentUser = userService.lambdaQuery().eq(User::getUserId, parentComment.getUserId()).one();
             commentResponse.setToUserId(parentUser.getUserId());
             commentResponse.setToNickname(parentUser.getNickname());
@@ -103,18 +116,10 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Boolean deleteCommentVideo(CancelVideoActionRequest cancelVideoActionRequest) {
-        // 删除评论
-        int result = this.baseMapper.deleteById(cancelVideoActionRequest.getId());
-        ThrowUtils.throwIf(result == 0, ErrorCode.DELETE_COMMENT_ERROR);
-
-        Long countComments = this.baseMapper.selectCount(new QueryWrapper<Comment>().eq("video_id", cancelVideoActionRequest.getVideoId()));
-
-        // 更新视频评论数
-        boolean updatedVideoComment = videoStatsService.lambdaUpdate().set(VideoStats::getCommentCount, countComments).eq(VideoStats::getVideoId, cancelVideoActionRequest.getVideoId()).update();
-
-        ThrowUtils.throwIf(!updatedVideoComment, ErrorCode.SYSTEM_ERROR, "更新用户评论数失败");
-
+    public Boolean deleteCommentVideo(CancelVideoActionRequest input) {
+        if(input==null || input.getId()==null || input.getVideoId()==null) throw new com.orangecode.tianmu.exception.BusinessException(ErrorCode.PARAMS_ERROR);
+        long actor = currentUser.requireUserId();
+        workspace.deleteFeedback(actor,"COMMENT",input.getId(),input.getVideoId());
         return true;
     }
 
@@ -122,6 +127,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     @Override
     public List<CommentVideoResponse> getCommentVideoList(Long videoId) {
+        videoLookup.requirePublished(videoId);
         // 1. 获取评论列表并按创建时间升序排序
         QueryWrapper<Comment> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("video_id", videoId);

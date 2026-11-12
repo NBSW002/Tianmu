@@ -11,6 +11,9 @@ const request = axios.create({
 
 // 设置请求拦截器
 request.interceptors.request.use((config) => {
+    if (config.authUserId != null && String(useUserStore().user.userId) !== String(config.authUserId)) {
+        throw new axios.CanceledError("登录账号已变更");
+    }
     const token = useUserStore().user.token
     if (token && token !== '') {
         config.headers['Authorization'] = token;

@@ -17,9 +17,7 @@
         <span>首页</span>
       </div>
       <router-link v-for="item in headerCategories" :key="item.categoryId" class="header-category" :to="`/category/${item.categoryId}`">{{ item.categoryName }}</router-link>
-      <!-- <div class="default-entry" @click="noPage">
-        <span>直播</span>
-      </div> -->
+
     </div>
     <!-- 中间搜索框 -->
     <div v-if="isShowSearchInput" class="center-search-container">
@@ -284,33 +282,7 @@
           </template>
         </VPopover>
       </div>
-      <!-- 历史 -->
-      <!-- <div class="v-popover-wrap">
-        <VPopover
-          :pop-style="
-            isLogin
-              ? 'padding-top: 17px; margin-left: -50px;'
-              : 'padding-top: 17px;'
-          "
-        >
-          <template #reference>
-            <div
-              class="right-entry--outside"
-              @click="openNewPage(`/user/${user.userId}/history`)"
-            >
-              <i class="iconfont icon-lishijilu"></i>
-              <span>历史</span>
-            </div>
-          </template>
-          <template #content>
-            <div style="height: 556.6px; width: 371.6px" v-if="isLogin"></div>
-            <div class="not-login" v-else>
-              <p class="not-login-tips">登录即可查看历史记录</p>
-              <div class="not-login-btn" @click="openNewPage">立即登录</div>
-            </div>
-          </template>
-        </VPopover>
-      </div> -->
+      <HistoryMenu />
       <!-- 创作中心 -->
       <button type="button" class="creator-entry" @click="openNewPage('/platform/home')"><el-icon><EditPen /></el-icon><span>创作中心</span></button>
       <!-- <div class="right-entry-item" @click="openNewPage('/platform')">
@@ -348,6 +320,7 @@
 <script>
 let inTimer; // 节流计时器
 let outTimer;
+import HistoryMenu from "./HistoryMenu.vue";
 import VPopover from "@/components/popover/VPopover.vue";
 import LoginRegister from "@/components/loginRegister/LoginRegister.vue";
 import { handleNum } from "@/lib/utils.js";
@@ -366,6 +339,7 @@ export default {
   name: "HeaderBarIndex",
   components: {
     VPopover,
+    HistoryMenu,
     LoginRegister,
     VideoSmallCard,
   },

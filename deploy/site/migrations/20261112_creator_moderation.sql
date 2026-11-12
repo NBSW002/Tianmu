@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS deleted_bullet (
+  bullet_id BIGINT PRIMARY KEY,
+  video_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  deleted_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

@@ -148,3 +148,20 @@ CREATE TABLE IF NOT EXISTS upload_session (
     CONSTRAINT ck_upload_status CHECK (status IN ('UPLOADING','MERGING','COMPLETE')),
     CONSTRAINT ck_upload_size CHECK (size_bytes BETWEEN 1 AND 3221225472)
 );
+
+CREATE TABLE IF NOT EXISTS user_video_history (
+  user_id BIGINT NOT NULL,
+  video_id BIGINT NOT NULL,
+  position_seconds DOUBLE NOT NULL DEFAULT 0,
+  watched_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY(user_id,video_id),
+  INDEX ix_history_recent(user_id,watched_at,video_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS deleted_bullet (
+  bullet_id BIGINT PRIMARY KEY,
+  video_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  deleted_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

@@ -62,7 +62,7 @@
         </div>
         <div class="table-body" :style="`height: ${boxHeight - 115}px;`">
           <ul class="dm-list">
-            <li class="dm-item" v-for="(item) in danmuList" :key="item.bulletId">
+            <li class="dm-item" v-for="item in visibleDanmu" :key="item.bulletId">
               <div class="dm-info-row" @dblclick="handleDblClick(item.time)">
                 <span class="dm-info-time">{{
                   handleDuration(item.time)
@@ -70,11 +70,12 @@
                 <span class="dm-info-text" :title="item.text">{{
                   item.text
                 }}</span>
+                <FeedbackLikeButton v-if="isOpenDanmuBox && item.bulletId" :item-id="item.bulletId" source="DANMAKU" @click.stop @dblclick.stop />
                 <span
                   class="dm-info-delete-btn"
-                  v-if="item.userId === user.userId"
+                  v-if="user.userId != null && String(item.userId) === String(user.userId)"
                   @click.stop="deleteDanmu(item)"
-                  @dblclick.stop="stopOption"
+                  @dblclick.stop
                   >删除</span
                 >
               </div>
@@ -82,6 +83,9 @@
           </ul>
         </div>
         <div class="table-footer">
+          <button type="button" :disabled="page <= 1" @click="page--">上一页</button>
+          <span>{{ page }} / {{ pages }}</span>
+          <button type="button" :disabled="page >= pages" @click="page++">下一页</button>
           <!-- <div class="btn-history" @click="noOption">
             查看历史弹幕
             <!== 日历组件 ==>
@@ -93,15 +97,18 @@
 </template>
 
 <script>
+import FeedbackLikeButton from "@/components/Comment/FeedbackLikeButton.vue";
 import { useUserStore } from "@/store/user";
 import { mapState } from "pinia";
 import { handleDuration } from "@/lib/utils";
 
 export default {
   name: "DanmuBox",
+  components: { FeedbackLikeButton },
   data() {
     return {
       isOpenDanmuBox: false,
+      page: 1,
     };
   },
   props: {
@@ -126,6 +133,8 @@ export default {
     },
   },
   computed: {
+    visibleDanmu() { return this.danmuList.slice((this.page - 1) * 20, this.page * 20); },
+    pages() { return Math.max(1, Math.ceil(this.danmuList.length / 20)); },
     ...mapState(useUserStore, ["user"]),
   },
   methods: {
@@ -158,10 +167,11 @@ export default {
     },
     // 对弹幕排序
     resort(sortType) {
+      this.page = 1;
       this.$emit("sort-danmu", sortType);
     },
   },
-  watch: {},
+  watch: { pages(value) { this.page = Math.min(this.page, value); } },
 };
 </script>
 

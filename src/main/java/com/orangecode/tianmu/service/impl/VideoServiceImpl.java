@@ -204,12 +204,14 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
         QueryWrapper<Video> videoQueryWrapper = new QueryWrapper<>();
         videoQueryWrapper.eq("video_id", videoActionRequest.getVideoId());
         Video video = this.getOne(videoQueryWrapper);
+        ThrowUtils.throwIf(video == null || !Objects.equals(video.getIsDelete(), 0) || !Objects.equals(video.getStatus(), 2), ErrorCode.VIDEO_NOT_FOUND_ERROR);
 
         // 增加视频观看次数 使用原子操作更新 VideoStats
         boolean updated = videoStatsService.lambdaUpdate().setSql("view_count = view_count + 1").eq(VideoStats::getVideoId, videoActionRequest.getVideoId()).update();
         ThrowUtils.throwIf(!updated, ErrorCode.SYSTEM_ERROR, "更新视频统计失败");
 
-        if (stringRedisTemplate.hasKey("videoDetails:" + videoActionRequest.getVideoId().toString())) {
+        if (stringRedisTemplate.hasKey("videoDetails:" + videoActionRequest.getVideoId().toString())
+                && Objects.equals(String.valueOf(video.getUpdateTime().getTime()), stringRedisTemplate.opsForHash().get("videoDetails:" + videoActionRequest.getVideoId(), "sourceVersion"))) {
             stringRedisTemplate.expire("videoDetails:" + videoActionRequest.getVideoId().toString(), VideoConstant.VIDEO_DETAIL_DAYS, TimeUnit.DAYS);
             return hotVideoDetail(videoActionRequest, video);
         }
@@ -239,6 +241,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
         VideoStats videoStats = videoStatsService.getOne(videoStatsQueryWrapper);
         if (videoStats.getViewCount() >= VideoConstant.HOT_VIDEO_VIEW_COUNT) {
             Map<String, String> redisVideoDetails = new HashMap<>();
+            redisVideoDetails.put("sourceVersion", String.valueOf(video.getUpdateTime().getTime()));
             redisVideoDetails.put("videoId", String.valueOf(videoDetails.getVideoId()));
             redisVideoDetails.put("fileUrl", videoDetails.getFileUrl());
             redisVideoDetails.put("userId", String.valueOf(videoDetails.getUserId()));

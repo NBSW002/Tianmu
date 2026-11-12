@@ -90,6 +90,16 @@ class JWTInterceptorTest {
         assertEquals(401, response.getStatus()); assertNull(request.getAttribute(CurrentUser.ATTRIBUTE));
     }
 
+    @Test void creatorAndHistoryEndpointsRequireAuthenticatedSession() throws Exception {
+        for(String path:List.of("/api/creator/videos","/api/creator/videos/11","/api/creator/videos/11/status",
+                "/api/creator/feedback","/api/creator/feedback/COMMENT/11","/api/history","/api/history/11")) {
+            var request=request(""); request.setRequestURI(path);
+            var response=new MockHttpServletResponse();
+            assertFalse(interceptor.preHandle(request,response,new Object()));
+            assertEquals(401,response.getStatus());
+        }
+    }
+
     private MockHttpServletRequest request(String header) {
         var request = new MockHttpServletRequest("POST", "/api/video/like");
         request.addHeader("Authorization", header); return request;

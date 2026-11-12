@@ -25,6 +25,8 @@ body {
   line-height: 1.25;
 }
 
+html.creator-workspace-page,
+html.creator-workspace-page body,
 html.agent-workspace-page,
 html.agent-workspace-page body,
 html.home-page,

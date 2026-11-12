@@ -17,6 +17,8 @@ import static org.mockito.Mockito.*;
 class CommentServiceImplTest {
     @Test void creationSuppliesCurrentInstantInsteadOfDatabaseTimezoneDefault() {
         var service = spy(new CommentServiceImpl());
+        var lookup = mock(com.orangecode.tianmu.application.VideoLookup.class);
+        ReflectionTestUtils.setField(service,"videoLookup",lookup);
         var users = mock(UserService.class);
         var stats = mock(com.orangecode.tianmu.service.VideoStatsService.class);
         var update = mock(com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper.class, RETURNS_SELF);
@@ -38,6 +40,26 @@ class CommentServiceImplTest {
         assertTrue(saved.get().getCreateTime().getTime() >= before);
         assertTrue(saved.get().getCreateTime().getTime() <= System.currentTimeMillis());
         assertEquals(saved.get().getCreateTime(),result.getCreateTime());
+        verify(lookup).lockExisting(99L);
+        verify(lookup,never()).lockPublished(any());
+    }
+
+    @Test void publicCommentCannotForgeActorOrTargetUnpublishedVideo() {
+        var service=spy(new CommentServiceImpl());
+        var request=new com.orangecode.tianmu.model.dto.video.CreateCommentRequest();
+        request.setVideoId(99L); request.setUserId(2L); request.setContent("text");
+        var http=new org.springframework.mock.web.MockHttpServletRequest();
+        http.setAttribute(com.orangecode.tianmu.application.CurrentUser.ATTRIBUTE,1L);
+        var lookup=mock(com.orangecode.tianmu.application.VideoLookup.class);
+        ReflectionTestUtils.setField(service,"currentUser",new com.orangecode.tianmu.application.CurrentUser(http));
+        ReflectionTestUtils.setField(service,"videoLookup",lookup);
+        assertThrows(com.orangecode.tianmu.exception.BusinessException.class,()->service.createCommentVideo(request));
+        verifyNoInteractions(lookup);
+        request.setUserId(1L);
+        doThrow(new com.orangecode.tianmu.exception.BusinessException(com.orangecode.tianmu.common.ErrorCode.VIDEO_NOT_FOUND_ERROR))
+                .when(lookup).lockPublished(99L);
+        assertThrows(com.orangecode.tianmu.exception.BusinessException.class,()->service.createCommentVideo(request));
+        verify(service,never()).save(any(Comment.class));
     }
     @Test void rootAndReplyTimestampsCarryExplicitOffsetAcrossServerTimezones() throws Exception {
         var instant = Date.from(java.time.Instant.parse("2026-10-28T16:38:24Z"));
@@ -50,6 +72,7 @@ class CommentServiceImplTest {
     @Test
     void listsZeroAndNullRootsWithDirectAndNestedReplies() {
         var service = spy(new CommentServiceImpl());
+        ReflectionTestUtils.setField(service,"videoLookup",mock(com.orangecode.tianmu.application.VideoLookup.class));
         var users = mock(UserService.class);
         ReflectionTestUtils.setField(service, "userService", users);
         doReturn(List.of(comment(11, 0L, 1), comment(12, null, 2),

@@ -17,8 +17,8 @@
                     type="text"
                     class="input"
                     v-model="loginForm.account"
-                    placeholder="请输入手机号/邮箱"
-                    maxlength="30"
+                    :placeholder="loginType === 1 ? '邮箱或已有手机号' : '请输入邮箱'"
+                    maxlength="254"
                   />
                   <div
                     v-if="loginType === 2"
@@ -80,8 +80,8 @@
                     type="text"
                     class="input"
                     v-model="registerForm.account"
-                    placeholder="请输入手机号/邮箱"
-                    maxlength="30"
+                    placeholder="请输入邮箱"
+                    maxlength="254"
                   />
                   <div
                     class="sms-send"
@@ -132,6 +132,7 @@
 </template>
 
 <script>
+import { isEmail, validLoginAccount } from "@/lib/account-input.mjs";
 import { ElMessage } from "element-plus";
 import {
   fetchSmsCode,
@@ -145,6 +146,7 @@ export default {
   name: "LoginRegister",
   data() {
     return {
+      countdownTimers: [],
       type: 1, // 1登录 2注册
       loginType: 1, // 1密码登录 2验证码登录
       loginForm: {
@@ -184,20 +186,21 @@ export default {
         nickname: [{ required: true, message: "请输入昵称", trigger: "blur" }],
         code: [{ required: true, message: "请输入验证码", trigger: "blur" }],
       },
-      resgAccountIsValid: false, // 注册手机号是否合法
-      loginAccountIsValid: false, // 登录手机号是否合法
       resgCountdown: -1, // 注册验证码倒计时秒数
       loginCountdown: -1, // 登录验证码倒计时秒数
     };
   },
   mounted() {
     // this.init();
-    document.addEventListener("keydown", (e) => this.handleKeyboard(e));
+    document.addEventListener("keydown", this.handleKeyboard);
   },
   beforeUnmount() {
-    document.removeEventListener("keydown", (e) => this.handleKeyboard(e));
+    document.removeEventListener("keydown", this.handleKeyboard);
+    this.countdownTimers.forEach(clearInterval);
   },
   computed: {
+    resgAccountIsValid() { return isEmail(this.registerForm.account); },
+    loginAccountIsValid() { return validLoginAccount(this.loginForm.account, this.loginType); },
     resgCodeText() {
       return this.resgCountdown > 0
         ? `${this.resgCountdown}秒后重试`
@@ -233,9 +236,9 @@ export default {
             return;
           }
           try {
-            const res = await fetchSmsCode(this.loginForm.account);
+            const res = await fetchSmsCode(this.loginForm.account.trim());
             if (res && res.code === 200) {
-              ElMessage.success("验证码已发送，请留意手机或者邮箱信息");
+              ElMessage.success("验证码已发送，请查收邮箱");
               this.loginCountdown = 60;
               //   开始倒计时
               this.startCountdown(type);
@@ -252,9 +255,9 @@ export default {
             return;
           }
           try {
-            const res = await fetchSmsCode(this.registerForm.account);
+            const res = await fetchSmsCode(this.registerForm.account.trim());
             if (res && res.code === 200) {
-              ElMessage.success("验证码已发送，请留意手机或者邮箱信息");
+              ElMessage.success("验证码已发送，请查收邮箱");
               this.resgCountdown = 60;
               //   开始倒计时
               this.startCountdown(type);
@@ -268,30 +271,16 @@ export default {
     },
     // 倒计时
     startCountdown(type) {
-      switch (type) {
-        case "login": {
-          let loginTimer = null;
-          loginTimer = setInterval(() => {
-            this.loginCountdown--;
-            if (this.loginCountdown <= 0) {
-              clearInterval(loginTimer);
-              this.loginCountdown = -1;
-            }
-          }, 1000);
-          break;
+      const field = type === 'login' ? 'loginCountdown' : 'resgCountdown';
+      const timer = setInterval(() => {
+        this[field]--;
+        if (this[field] <= 0) {
+          clearInterval(timer);
+          this[field] = -1;
+          this.countdownTimers = this.countdownTimers.filter(value => value !== timer);
         }
-        case "register": {
-          let resgTimer = null;
-          resgTimer = setInterval(() => {
-            this.resgCountdown--;
-            if (this.resgCountdown <= 0) {
-              clearInterval(resgTimer);
-              this.resgCountdown = -1;
-            }
-          }, 1000);
-          break;
-        }
-      }
+      }, 1000);
+      this.countdownTimers.push(timer);
     },
     // 监听键盘回车触发登录
     handleKeyboard(event) {
@@ -315,7 +304,7 @@ export default {
           }
           try {
             const res = await fetchLoginPsw({
-              account: this.loginForm.account,
+              account: this.loginForm.account.trim(),
               password: this.loginForm.password,
             });
             if (res && res.code === 200) {
@@ -336,7 +325,7 @@ export default {
           }
           try {
             const res = await fetchLoginSms({
-              account: this.loginForm.account,
+              account: this.loginForm.account.trim(),
               code: this.loginForm.code,
             });
             if (res && res.code === 200) {
@@ -371,7 +360,7 @@ export default {
         return;
       }
       try {
-        const res = await fetchRegister(this.registerForm);
+        const res = await fetchRegister({ ...this.registerForm, account: this.registerForm.account.trim() });
         if (res && res.code === 200) {
           ElMessage.success("注册成功");
           this.type = 1;
@@ -394,29 +383,6 @@ export default {
     },
   },
   watch: {
-    "loginForm.account": {
-      handler(newVal) {
-        const phoneRegex = /^1[3-9]\d{9}$/; // 正则匹配中国大陆手机号
-        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/; //匹配邮箱有效
-        if (phoneRegex.test(newVal) || emailRegex.test(newVal)) {
-          this.loginAccountIsValid = true;
-        } else {
-          this.loginAccountIsValid = false;
-        }
-      },
-    },
-    "registerForm.account": {
-      handler(newVal) {
-        const phoneRegex = /^1[3-9]\d{9}$/; // 正则匹配中国大陆手机号
-        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/; //匹配邮箱有效
-
-        if (phoneRegex.test(newVal) || emailRegex.test(newVal)) {
-          this.resgAccountIsValid = true;
-        } else {
-          this.resgAccountIsValid = false;
-        }
-      },
-    },
     // 监听登录类型的变化，同时更改校验规则
     loginType(newVal) {
       if (newVal === 1) {

@@ -21,4 +21,21 @@ public final class VideoLookup {
         ThrowUtils.throwIf(!videos.exists(new LambdaQueryWrapper<Video>().eq(Video::getVideoId, id)
                 .eq(Video::getIsDelete, 0).eq(Video::getStatus, 2)), ErrorCode.VIDEO_NOT_FOUND_ERROR);
     }
+
+    public void lockPublished(Long id) {
+        ThrowUtils.throwIf(videos.selectOne(new LambdaQueryWrapper<Video>().eq(Video::getVideoId,id)
+                .eq(Video::getIsDelete,0).eq(Video::getStatus,2).last("FOR UPDATE"))==null,ErrorCode.VIDEO_NOT_FOUND_ERROR);
+    }
+
+    public void lockExisting(Long id) {
+        ThrowUtils.throwIf(videos.selectOne(new LambdaQueryWrapper<Video>().eq(Video::getVideoId,id)
+                .eq(Video::getIsDelete,0).last("FOR UPDATE"))==null,ErrorCode.VIDEO_NOT_FOUND_ERROR);
+    }
+
+    public java.util.Set<Long> publishedIds(java.util.Collection<Long> ids) {
+        if(ids.isEmpty()) return java.util.Set.of();
+        return videos.selectList(new LambdaQueryWrapper<Video>().select(Video::getVideoId)
+                .in(Video::getVideoId,ids).eq(Video::getIsDelete,0).eq(Video::getStatus,2))
+                .stream().map(Video::getVideoId).collect(java.util.stream.Collectors.toSet());
+    }
 }

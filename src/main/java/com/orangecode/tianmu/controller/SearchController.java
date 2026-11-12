@@ -32,6 +32,9 @@ public class SearchController {
     @Resource
     private ElasticsearchTemplate elasticsearchTemplate;
 
+    @Resource
+    private com.orangecode.tianmu.application.VideoLookup videoLookup;
+
 
 //    @GetMapping("/api/search/user")
 //    public BaseResponse<List<SearchUserListResponse>> searchUser(@NotEmpty(message = "关键字不能为空") @RequestParam String keyword) {
@@ -97,7 +100,10 @@ public class SearchController {
         SearchHits<VideoEs> searchHits = elasticsearchTemplate.search(searchQuery, VideoEs.class, IndexCoordinates.of(VideoConstant.VIDEO_ES_INDEX));
 
         // 3. 处理搜索结果
-        List<SearchVideoListResponse> videoListResponses = searchHits.stream().map(SearchHit::getContent).map(this::convertVideoToResponse).collect(Collectors.toList());
+        var candidates = searchHits.stream().map(SearchHit::getContent).toList();
+        var visible = videoLookup.publishedIds(candidates.stream().map(VideoEs::getId).toList());
+        List<SearchVideoListResponse> videoListResponses = candidates.stream().filter(video -> visible.contains(video.getId()))
+                .map(this::convertVideoToResponse).collect(Collectors.toList());
 
         return ResultUtils.success(videoListResponses);
 

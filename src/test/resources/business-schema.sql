@@ -21,3 +21,11 @@ CREATE TABLE IF NOT EXISTS comment (
   parent_comment_id BIGINT, content VARCHAR(4096) NOT NULL, create_time TIMESTAMP(3) NOT NULL,
   INDEX idx_comment_video_created(video_id,create_time)
 );
+
+CREATE TABLE IF NOT EXISTS deleted_bullet (
+  bullet_id BIGINT PRIMARY KEY,
+  video_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  deleted_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

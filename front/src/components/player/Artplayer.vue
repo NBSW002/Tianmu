@@ -166,9 +166,17 @@ export default {
           container: this.$refs.artRef,
         }));
 
+        this.instance.once("video:loadedmetadata", () => {
+          if (Number.isFinite(this.seekTimePoint) && this.seekTimePoint > 0) {
+            this.instance.seek = Math.min(this.seekTimePoint, this.instance.duration || 0);
+          }
+        });
         this.instance.on("video:timeupdate", () => {
           const milliseconds = Math.round(this.instance.currentTime * 1000);
-          if (Number.isSafeInteger(milliseconds) && milliseconds >= 0) this.$emit('playback-position', milliseconds);
+          if (Number.isSafeInteger(milliseconds) && milliseconds >= 0) {
+            this.$emit('playback-position', milliseconds);
+            if (!this.instance.video.paused && !this.instance.video.ended) this.$emit('watch-progress', milliseconds);
+          }
         });
         this.instance.on("video:loadstart", () => {
           this.loading = true;

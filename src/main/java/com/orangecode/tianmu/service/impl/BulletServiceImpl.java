@@ -1,54 +1,31 @@
 package com.orangecode.tianmu.service.impl;
 
 import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.orangecode.tianmu.common.ErrorCode;
-import com.orangecode.tianmu.exception.ThrowUtils;
 import com.orangecode.tianmu.mapper.BulletMapper;
 import com.orangecode.tianmu.model.dto.bullet.DeleteBulletRequest;
 import com.orangecode.tianmu.model.dto.bullet.SendBulletRequest;
 import com.orangecode.tianmu.model.entity.Bullet;
-import com.orangecode.tianmu.model.entity.User;
-import com.orangecode.tianmu.model.entity.Video;
-import com.orangecode.tianmu.model.entity.VideoStats;
 import com.orangecode.tianmu.model.vo.bullet.OnlineBulletResponse;
 import com.orangecode.tianmu.service.BulletService;
-import com.orangecode.tianmu.service.UserService;
-import com.orangecode.tianmu.service.VideoService;
-import com.orangecode.tianmu.service.VideoStatsService;
 
 import jakarta.annotation.Resource;
-import org.springframework.data.redis.core.DefaultTypedTuple;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 
 @Service
 public class BulletServiceImpl extends ServiceImpl<BulletMapper, Bullet> implements BulletService {
+    @Resource private com.orangecode.tianmu.application.CreatorWorkspace workspace;
+    @Resource private com.orangecode.tianmu.application.CurrentUser currentUser;
     @Resource
     private com.orangecode.tianmu.service.BulletIngestionService ingestion;
 
 
-    @Resource
-    private UserService userService;
-
-    @Resource
-    private com.orangecode.tianmu.application.VideoLookup videoLookup;
-
-    @Resource
-    private VideoStatsService videoStatsService;
-
-
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
-
-    @Override
+@Override
     @Transactional(rollbackFor = Exception.class)
     public void saveBulletToMySQL(SendBulletRequest sendBulletRequest) {
         ingestion.persist(sendBulletRequest);
@@ -57,28 +34,10 @@ public class BulletServiceImpl extends ServiceImpl<BulletMapper, Bullet> impleme
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public boolean deleteVideoBullet(DeleteBulletRequest deleteBulletRequest) {
-
-        Long videoId = deleteBulletRequest.getVideoId();
-        Long userId = deleteBulletRequest.getUserId();
-        Long bulletId = deleteBulletRequest.getBulletId();
-
-        // 校验视频是否存在（优化为 exists 查询）
-        videoLookup.requireExists(videoId);
-
-        // 校验用户是否存在
-        ThrowUtils.throwIf(!userService.lambdaQuery().eq(User::getUserId, userId).exists(), ErrorCode.USER_NOT_EXISTS);
-
-        // 校验弹幕是否存在
-        ThrowUtils.throwIf(!this.lambdaQuery().eq(Bullet::getBulletId, bulletId).exists(), ErrorCode.BULLET_NOT_EXISTS);
-
-        // 使用原子操作更新 VideoStats
-        boolean updated = videoStatsService.lambdaUpdate().setSql("bullet_count = bullet_count - 1").eq(VideoStats::getVideoId, videoId).update();
-        ThrowUtils.throwIf(!updated, ErrorCode.SYSTEM_ERROR, "更新视频统计失败");
-
-        // 保存弹幕
-        boolean result = this.removeById(bulletId);
-        ThrowUtils.throwIf(!result, ErrorCode.SYSTEM_ERROR, "删除弹幕失败");
+    public boolean deleteVideoBullet(DeleteBulletRequest input) {
+        if(input==null || input.getBulletId()==null || input.getVideoId()==null) throw new com.orangecode.tianmu.exception.BusinessException(ErrorCode.PARAMS_ERROR);
+        long actor = currentUser.requireMatchingUser(input.getUserId());
+        workspace.deleteFeedback(actor,"DANMAKU",input.getBulletId(),input.getVideoId());
         return true;
     }
 
@@ -86,64 +45,22 @@ public class BulletServiceImpl extends ServiceImpl<BulletMapper, Bullet> impleme
 
     @Override
     public List<OnlineBulletResponse> getBulletList(Long videoId) {
-        List<OnlineBulletResponse> onlineBulletResponses = new ArrayList<>();
-        String cacheKey = "video:" + videoId + ":bullet";
-
-        if (stringRedisTemplate.hasKey(cacheKey)) {
-            Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet().rangeWithScores(cacheKey, 0, -1);
-            System.out.println(tuples);
-            for (ZSetOperations.TypedTuple<String> tuple : tuples) {
-                String[] parts = tuple.getValue().split(":");
-                OnlineBulletResponse onlineBulletResponse = new OnlineBulletResponse();
-                onlineBulletResponse.setUserId(parts[0]);
-                onlineBulletResponse.setBulletId(parts[1]);
-                onlineBulletResponse.setText(parts[2]);
-                onlineBulletResponse.setPlaybackTime(tuple.getScore());
-                onlineBulletResponses.add(onlineBulletResponse);
-            }
-
-
-
-        } else {
-            QueryWrapper<Bullet> queryWrapper = new QueryWrapper<>();
-            queryWrapper.eq("video_Id", videoId);
-            List<Bullet> bullets = this.list(queryWrapper);
-            if (bullets.isEmpty()) {
-                return onlineBulletResponses;
-            }
-            Set<ZSetOperations.TypedTuple<String>> addTuples = new HashSet<>();
-            for (Bullet bullet : bullets) {
-                String bulletId = bullet.getBulletId().toString();
-                String userId = bullet.getUserId().toString();
-                String content = bullet.getContent();
-                Double playbackTime = bullet.getPlaybackTime();
-                OnlineBulletResponse onlineBulletResponse = new OnlineBulletResponse();
-                onlineBulletResponse.setText(content);
-                onlineBulletResponse.setPlaybackTime(playbackTime);
-                onlineBulletResponse.setBulletId(bulletId);
-                onlineBulletResponse.setUserId(userId);
-                onlineBulletResponses.add(onlineBulletResponse);
-                addTuples.add(new DefaultTypedTuple<>(userId + ":" + bulletId + ":" + content, playbackTime));
-            }
-            try {
-                stringRedisTemplate.opsForZSet().add(cacheKey, addTuples);
-                // 随机设置过期时间，防止缓存雪崩
-                stringRedisTemplate.expire(cacheKey, 72 * 3600 + ThreadLocalRandom.current().nextInt(3600), TimeUnit.SECONDS);
-            } catch (Exception e) {
-                throw new RuntimeException("Redis 保存弹幕失败");
-            }
+        var bullets = this.list(new QueryWrapper<Bullet>().eq("video_id",videoId).orderByAsc("playback_time","bullet_id"));
+        var result = new ArrayList<OnlineBulletResponse>();
+        for (var bullet : bullets) {
+            var item = new OnlineBulletResponse();
+            item.setBulletId(bullet.getBulletId().toString()); item.setUserId(bullet.getUserId().toString());
+            item.setText(bullet.getContent()); item.setPlaybackTime(bullet.getPlaybackTime());
+            result.add(item);
         }
-
-        // 对弹幕按时间排序
-        onlineBulletResponses.sort(Comparator.comparingDouble(OnlineBulletResponse::getPlaybackTime));
-        return onlineBulletResponses;
+        return result;
     }
-
 
     @Override
     public boolean bulletExists(Long bulletId) {
         return this.lambdaQuery().eq(Bullet::getBulletId, bulletId).exists();
     }
+
 }
 
 

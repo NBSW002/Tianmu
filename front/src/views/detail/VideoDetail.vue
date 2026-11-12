@@ -28,7 +28,7 @@
           </div>
         </div>
         <!-- 播放器组件 -->
-        <Artplayer @playback-position="updateAssistantPlayback"
+        <Artplayer @playback-position="updateAssistantPlayback" @watch-progress="recordWatchProgress"
           ref="artplayerRef"
           v-if="videoDetail.fileUrl"
           :videoUrl="mediaVideoUrl(videoDetail.fileUrl)"
@@ -278,6 +278,8 @@ import CommentIndex from "@/components/Comment/CommentIndex.vue";
 import HeaderBar from "@/components/headerBar/HeaderBar.vue";
 import Artplayer from "@/components/player/Artplayer.vue";
 import VAvatar from "@/components/avatar/VAvatar.vue";
+import request from "@/lib/request";
+import { createHistoryRecorder } from "@/lib/watch-history.mjs";
 import DanmuBox from "@/components/danmu/DanmuBox.vue";
 import VideoSmallCard from "@/components/VideoSmallCard/VideoSmallCard.vue";
 import {
@@ -323,6 +325,7 @@ export default {
       socket: null,
       videoDetail: {}, //视频详细信息
       commentCount: 0, //评论数
+      historyRecorder: createHistoryRecorder((video, seconds, owner) => request({ authUserId: owner, url: `/history/${video}`, method: "PUT", data: { seconds } })),
       danmuList: [], //弹幕数据
       likeCount: 0, // 点赞数
       coinCount: 0, // 投币数
@@ -338,7 +341,7 @@ export default {
       },
       playerColumnObserver: null,
       onlineUserCount: 0, //在线人数
-      seekTimePoint: -1, // 双击弹幕跳转的时间点
+      seekTimePoint: Math.max(0, Number(this.$route.query.t) || 0), // 双击弹幕跳转的时间点
       isSelfDanmu: false, //标记websocket传输的弹幕是否自己发的弹幕
       recmVideoList: [], //推荐视频列表
       showAllDesc: false, // 是否展开简介
@@ -447,6 +450,9 @@ export default {
     },
     compactInteractionCount,
     fullInteractionCount,
+    recordWatchProgress(milliseconds) {
+      if (this.isLogin) this.historyRecorder(this.user.userId, this.$route.params.videoId, milliseconds / 1000);
+    },
     updateAssistantPlayback(milliseconds) {
       const store = useAssistantStore();
       if (store.page?.videoId === String(this.$route.params.videoId)) store.page.playbackMs = milliseconds;
@@ -762,11 +768,7 @@ export default {
         ElMessage.error("一键三连失败：" + error);
       }
     },
-    noPage() {
-      ElMessage.warning("该功能暂未开放");
-    },
-
-    // 处理关注和取消关注
+// 处理关注和取消关注
     async handleFocus() {
       if (!this.isLogin) {
         return ElMessage.warning("请先登录");

@@ -9,13 +9,18 @@ const routes = [
   { path: '/', redirect: '' },
   { path: '', name: 'Index', component: () => import('@/views/IndexVue.vue'), meta: { requestAuth: false } },
   { path: '/category/:categoryId', name: 'Category', component: () => import('@/views/category/CategoryVideo.vue'), meta: { requestAuth: false } },
+  { path: '/history', component: () => import('@/views/user/WatchHistory.vue'), meta: { requestAuth: true } },
+  { path: '/user/:userId/history', redirect: '/history' },
   // 创作中心、投稿路由
   {
     path: '/platform',
     redirect: '/platform/home',
     component: () => import('@/views/platform/PlatformView.vue'),
     children: [
-      { path: '/platform/home', component: () => import('@/views/platform/children/PlatformHome.vue'), meta: { requestAuth: true } },
+      { path: '/platform/manuscripts', component: () => import('@/views/platform/children/PlatformManage.vue'), props: { kind: 'videos' }, meta: { requestAuth: true } },
+      { path: '/platform/comment', component: () => import('@/views/platform/children/PlatformManage.vue'), props: { kind: 'COMMENT' }, meta: { requestAuth: true } },
+      { path: '/platform/danmu', component: () => import('@/views/platform/children/PlatformManage.vue'), props: { kind: 'DANMAKU' }, meta: { requestAuth: true } },
+      { path: '/platform/home', redirect: '/platform/manuscripts', meta: { requestAuth: true } },
       {
         path: '/platform/upload',
         component: () => import('@/views/platform/children/PlatformUpload.vue'),
@@ -65,6 +70,7 @@ router.beforeEach(async (to, from, next) => {
   return next();
 });
 router.afterEach((to) => {
+  document.documentElement.classList.toggle('creator-workspace-page', ['/history', '/platform/home', '/platform/manuscripts', '/platform/comment', '/platform/danmu'].includes(to.path))
   document.documentElement.classList.toggle('home-page', to.name === 'Index')
   document.documentElement.classList.toggle('agent-workspace-page', to.name === 'AgentWorkspace')
   document.documentElement.classList.toggle('trace-workspace-page', to.name === 'TraceWorkspace')

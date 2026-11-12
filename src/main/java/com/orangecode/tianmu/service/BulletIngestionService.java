@@ -25,6 +25,13 @@ public class BulletIngestionService {
                 || event.getContent() == null || event.getContent().isBlank() || event.getPlaybackTime() == null || !Double.isFinite(event.getPlaybackTime()) || event.getPlaybackTime() < 0)
             throw new IllegalArgumentException("Invalid bullet event");
         var video = db.queryForList("SELECT video_id FROM video WHERE video_id=? AND is_delete=0 FOR UPDATE", event.getVideoId());
+        var deleted=db.queryForList("SELECT payload_hash FROM deleted_bullet WHERE bullet_id=? FOR UPDATE",event.getBulletId());
+        if(!deleted.isEmpty()) {
+            String hash=com.orangecode.tianmu.application.DeletedBullets.fingerprint(event.getVideoId(),event.getUserId(),event.getContent(),event.getColor(),event.getPlaybackTime());
+            if(!Objects.equals(hash,deleted.get(0).get("payload_hash")))
+                throw new IllegalArgumentException("Bullet event ID conflicts with deleted payload");
+            return;
+        }
         if (video.isEmpty() || db.queryForObject("SELECT COUNT(*) FROM user WHERE user_id=? AND is_delete=0", Long.class, event.getUserId()) != 1)
             throw new IllegalArgumentException("Bullet user or video unavailable");
         var previous = db.queryForList("SELECT video_id,user_id,content,playback_time,color FROM bullet WHERE bullet_id=?", event.getBulletId());
