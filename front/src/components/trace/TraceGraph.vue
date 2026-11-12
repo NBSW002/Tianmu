@@ -37,7 +37,7 @@ async function fit(readable = true) {
   if (!canvas || !nodes.value.length) return
   if (readable !== false && viewport.zoom < 0.8) {
     const ys = nodes.value.map(node => node.position.y)
-    flow.setViewport({ x: 28, y: canvas.clientHeight * 0.38 - (Math.min(...ys) + Math.max(...ys) + 56) / 2, zoom: 1 }, { duration: 0 })
+    flow.setViewport({ x: 28, y: canvas.clientHeight * 0.38 - (Math.min(...ys) + Math.max(...ys) + 64) / 2, zoom: 1 }, { duration: 0 })
     return
   }
   const top = Math.min(...nodes.value.map(node => node.position.y * viewport.zoom + viewport.y))
@@ -55,7 +55,7 @@ function panSegment(direction) {
   if (!flow || !canvas || !nodes.value.length) return
   const viewport = flow.getViewport()
   const left = Math.min(...nodes.value.map(node => node.position.x))
-  const right = Math.max(...nodes.value.map(node => node.position.x + 136))
+    const right = Math.max(...nodes.value.map(node => node.position.x + 156))
   const maxX = 28 - left * viewport.zoom
   const minX = Math.min(maxX, canvas.clientWidth - 28 - right * viewport.zoom)
   const x = Math.max(minX, Math.min(maxX, viewport.x - direction * canvas.clientWidth * 0.7))
@@ -75,8 +75,8 @@ watch(() => props.selectedId, async () => {
   const y = node.position.y * viewport.zoom + viewport.y
   const canvas = panel.value.querySelector('.graph-canvas')
   if (!canvas) return
-  const outsideX = x < 24 || x + 136 * viewport.zoom > canvas.clientWidth - 24
-  const outsideY = y < 24 || y + 56 * viewport.zoom > canvas.clientHeight - 64
+  const outsideX = x < 24 || x + 156 * viewport.zoom > canvas.clientWidth - 24
+  const outsideY = y < 24 || y + 64 * viewport.zoom > canvas.clientHeight - 64
   if (!outsideX && !outsideY) return
   flow.setViewport({ ...viewport,
     x: outsideX ? canvas.clientWidth * .4 - node.position.x * viewport.zoom : viewport.x,
@@ -102,6 +102,7 @@ watch(() => props.selectedId, async () => {
             <Handle type="target" :position="Position.Left" :connectable="false" />
             <span class="node-name" :aria-label="`${cardTitle(data)}，${statusLabel(data.status)}`">{{ cardTitle(data) }}</span>
             <span class="node-highlight" :title="cardHighlight(data)">{{ cardHighlight(data) }}</span>
+            <span class="node-facts"><span :class="{error:['FAILED','TIMED_OUT'].includes(data.status)}">{{ statusLabel(data.status) }}</span><span>{{ data.durationLabel || formatDuration(data.durationMs) }}</span></span>
             <button v-if="data.children?.length || data.collapseId" type="button" class="cluster-toggle nodrag nopan" :aria-expanded="!!data.collapseId || expanded.has(data.id)" :aria-label="`${data.collapseId || expanded.has(data.id) ? '收起' : '展开'} ${data.collapseId ? '执行阶段' : cardTitle(data)}`" :title="data.collapseId || expanded.has(data.id) ? '收起阶段' : `包含 ${stackCount(data)} 个步骤，点击展开`" @click.stop="emit('toggle', data.collapseId || data.id)">{{ data.collapseId || expanded.has(data.id) ? '−' : `×${stackCount(data)}` }}</button>
 
             <Handle type="source" :position="Position.Right" :connectable="false" />
@@ -237,4 +238,14 @@ watch(() => props.selectedId, async () => {
 .trace-node.is-selected,.trace-node.is-stack.is-selected {border-color:var(--workbench-accent);box-shadow:0 0 0 1px var(--workbench-accent);}
 .trace-node.is-selected .node-name {font-weight:600;}
 .trace-node.is-failed.is-selected {border-color:var(--workbench-error);box-shadow:0 0 0 1px var(--workbench-error);}
+</style>
+<style scoped>
+.trace-node{width:156px;height:64px;padding:6px 10px;gap:2px;}
+.node-name{font-size:12px;line-height:17px;letter-spacing:0;}
+.node-highlight{font-size:11px;line-height:14px;letter-spacing:0;}
+.node-facts{display:flex;justify-content:space-between;gap:8px;width:100%;font:400 10px/12px var(--workbench-ui);color:var(--workbench-muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.node-facts .error{color:var(--workbench-error);}
+.graph-canvas{min-height:220px;}
+.trace-node.tone-model,.trace-node.tone-intent{color:var(--workbench-ink);}
+.trace-node.tone-tool,.trace-node.tone-memory{background:var(--workbench-success-soft);color:var(--workbench-success);}
 </style>

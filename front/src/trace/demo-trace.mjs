@@ -1,3 +1,4 @@
+/* global BigInt */
 // Clearly labelled, synthetic examples for frontend development; not experiment results.
 const start = BigInt(Date.parse('2026-10-29T10:24:31+08:00')) * 1000000n
 const id = (n) => `10000000000000${String(n).padStart(2, '0')}`
@@ -31,6 +32,10 @@ function example(failed = false) {
     span(5, 4, 'agent.model', 'llm_inference', 'MODEL', 300, 420, {
       'model.name': 'deepseek-chat', 'model.input_tokens': 128, 'model.output_tokens': 96,
       'model.decision': 'CALL_TOOL', 'model.selected_tool': 'query_danmaku_count', 'loop.step': 1,
+      'model.first_token_ms': 120, 'model.response_ms': 400,
+      'context.schema_version': '1.0', 'context.projection_version': 'chat_native_v3',
+      'context.present_slots': ['system_prompt','tool_catalog','focus','environment_context','current_context','runtime_state'],
+      'context.slot_bytes': ['system_prompt:3355','tool_catalog:2148','focus:588','environment_context:115','current_context:193','runtime_state:135'],
     }),
     span(6, 4, 'agent.tool', 'tool_call', 'TOOL', 740, failed ? 1150 : 130, {
       'tool.name': 'query_danmaku_count', 'tool.success': !failed, 'loop.step': 1,

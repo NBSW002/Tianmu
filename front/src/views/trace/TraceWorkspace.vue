@@ -4,12 +4,16 @@ import { useRoute } from 'vue-router'
 import { getAgentTrace, getTracePayload, getTraceRecords } from '@/api/agent'
 import { useUserStore } from '@/store/user'
 import '@/assets/css/workbench-tokens.css'
-import EchoMark from '@/components/agent/EchoMark.vue'
 import TraceGraph from '@/components/trace/TraceGraph.vue'
 import TraceDivider from '@/components/trace/TraceDivider.vue'
 import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import TraceContext from '@/components/trace/TraceContext.vue'
+import TraceNodeMetrics from '@/components/trace/TraceNodeMetrics.vue'
+import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
+import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
+import TraceInvocationTrail from '@/components/trace/TraceInvocationTrail.vue'
+import { modelResponseDetails } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
 import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
@@ -43,20 +47,17 @@ let queryController, payloadController, recordsController
 const exportingRecords = ref(false)
 const exportError = ref('')
 const studio = ref(null)
-const sidebarWidth = ref(224)
-const inspectorWidth = ref(330)
+const inspectorWidth = ref(Math.min(560, Math.max(440, window.innerWidth * 0.38)))
 const studioWidth = ref(window.innerWidth)
 const resizing = ref(false)
-const maxSidebar = computed(() => Math.max(180, Math.min(440, studioWidth.value - inspectorWidth.value - 380)))
-const maxInspector = computed(() => Math.max(260, Math.min(640, studioWidth.value - sidebarWidth.value - 380)))
-function resizeSidebar(delta) { sidebarWidth.value = Math.max(180, Math.min(maxSidebar.value, sidebarWidth.value + delta)) }
-function resizeInspector(delta) { inspectorWidth.value = Math.max(260, Math.min(maxInspector.value, inspectorWidth.value + delta)) }
+const maxInspector = computed(() => Math.max(360, Math.min(720, studioWidth.value - 560)))
+function resizeInspector(delta) { inspectorWidth.value = Math.max(360, Math.min(maxInspector.value, inspectorWidth.value + delta)) }
 let workspaceObserver
 onMounted(() => {
   workspaceObserver = new ResizeObserver(([entry]) => {
     studioWidth.value = entry.contentRect.width
     nextTick(positionTabIndicator)
-    if (studioWidth.value > 1100) { resizeSidebar(0); resizeInspector(0) }
+    if (studioWidth.value > 1100) resizeInspector(0)
   })
   workspaceObserver.observe(studio.value)
   nextTick(positionTabIndicator)
@@ -77,6 +78,7 @@ const invocations = computed(() => modelInvocations(selected.value, presentation
 const reasoningSources = computed(() => selected.value?.cardKind === 'run' ? [] : modelReasoningSources(selected.value, presentation.value))
 const intentSelection = computed(() => intentDetails(selected.value))
 const contextSelection = computed(() => contextDetails(selected.value))
+const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
 const executionSelection = computed(() => executionFacts(selected.value, presentation.value).filter(fact => fact !== '思考状态未记录'))
@@ -201,37 +203,20 @@ function downloadExample() {
 </script>
 
 <template>
-  <div ref="studio" class="trace-studio" :class="{ resizing }" :style="{ '--sidebar-width': `${sidebarWidth}px`, '--inspector-width': `${inspectorWidth}px` }">
-    <aside class="workspace-sidebar">
-      <router-link class="workspace-brand" to="/">EchoFrame<span>个人助手</span></router-link>
-      <form class="trace-search" @submit.prevent="queryTrace">
-        <label for="trace-id-query">Trace ID</label>
-        <div class="search-field"><input id="trace-id-query" v-model="traceQuery" placeholder="输入 Trace ID" autocomplete="off" spellcheck="false" :aria-invalid="!!queryError" aria-describedby="trace-query-state" @input="cancelQuery(); queryError = ''" /><button type="submit" :disabled="querying" :aria-label="querying ? '正在查询 Trace' : '查询 Trace'" title="查询"><TraceIcon name="arrow" :size="16" /></button></div>
-        <p id="trace-query-state" class="query-state" :class="{ error: queryError }" role="status">{{ queryError || (querying ? '正在查询…' : '查询已有运行，不会启动新任务') }}</p>
-      </form>
-      <div class="history-heading">运行记录<span>{{ traces.length }}</span></div>
-      <nav class="run-list" aria-label="运行记录">
-        <button v-for="item in traces" :key="item.id" type="button" :class="{ selected: activeId === item.id }" :aria-current="activeId === item.id ? 'true' : undefined" @click="cancelQuery(); activeId = item.id; changeTrace()">
-          <span class="run-title" :title="item.title"><i class="run-dot" :class="item.status.toLowerCase()" />{{ item.title }}</span>
-          <span class="run-subtitle">{{ statusLabel(item.status) }} · {{ formatDuration(item.durationMs) }}</span>
-          <span class="run-id" :title="item.id">{{ item.id }}</span>
-        </button>
-      </nav>
-      <select class="mobile-run-select" v-model="activeId" aria-label="当前运行" @change="cancelQuery(); changeTrace()"><option v-for="item in traces" :key="item.id" :value="item.id">{{ item.title }}</option></select>
-      <details class="run-info" open>
-        <summary>运行信息</summary>
-        <dl><div><dt>开始时间 · 北京</dt><dd>{{ date(trace.startMs) }} {{ clock(trace.startMs) }}</dd></div><div><dt>Run ID</dt><dd>{{ trace.runId }}</dd></div><div><dt>Trace ID</dt><dd>{{ trace.id }}</dd></div><div><dt>来源</dt><dd>{{ trace.source }}</dd></div></dl>
-      </details>
-      <button class="example-button" type="button" @click="trace.demo ? downloadExample() : resetDemo()">{{ trace.demo ? '下载示例' : '返回示例' }}<TraceIcon :name="trace.demo ? 'download' : 'arrow'" :size="14" /></button>
-    </aside>
-    <TraceDivider label="调整运行记录宽度" :value="sidebarWidth" :min="180" :max="maxSidebar" @resize="resizeSidebar" @dragging="resizing = $event" @reset="resizeSidebar(224 - sidebarWidth)" />
-
+  <div ref="studio" class="trace-studio" :class="{ resizing }" :style="{ '--inspector-width': `${inspectorWidth}px` }">
     <main class="workspace-main">
       <header class="workspace-header">
-        <div class="workspace-heading"><span class="brand-symbol"><EchoMark /></span><h1>运行追踪</h1><span class="demo-badge">{{ trace.demo ? '示例' : trace.remote ? '在线查询' : '本地日志' }}</span></div>
+        <div class="workspace-heading"><router-link class="trace-wordmark" to="/">EchoFrame</router-link><span class="brand-separator">/</span><h1>运行追踪</h1><span class="demo-badge">{{ trace.demo ? '示例' : trace.remote ? '在线查询' : '本地日志' }}</span></div>
         <router-link class="back-agent" to="/agent">返回助手 ↗</router-link>
         <button v-if="trace.remote" class="export-records" type="button" :disabled="exportingRecords" title="导出状态、计量和受控详情引用，正文仍需权限校验" @click="exportRecords">{{ exportingRecords ? '正在导出…' : '导出结构化记录' }}</button>
       </header>
+      <div class="trace-controlbar">
+        <label class="trace-run-picker">运行记录<select v-model="activeId" aria-label="当前运行" @change="cancelQuery(); changeTrace()"><option v-for="item in traces" :key="item.id" :value="item.id">{{ item.title }} · {{ date(item.startMs) }} {{ clock(item.startMs) }}</option></select></label>
+        <form class="trace-search" @submit.prevent="queryTrace"><label for="trace-id-query">Trace ID</label><div class="search-field"><input id="trace-id-query" v-model="traceQuery" placeholder="输入 Trace ID" autocomplete="off" spellcheck="false" :aria-invalid="!!queryError" aria-describedby="trace-query-state" @input="cancelQuery(); queryError = ''" /><button type="submit" :disabled="querying" :aria-label="querying ? '正在查询 Trace' : '查询 Trace'"><TraceIcon name="arrow" :size="16" /></button></div></form>
+        <details class="trace-run-info"><summary>运行信息</summary><dl><dt>开始时间 · 北京</dt><dd>{{ date(trace.startMs) }} {{ clock(trace.startMs) }}</dd><dt>Run ID</dt><dd>{{ trace.runId }}</dd><dt>Trace ID</dt><dd>{{ trace.id }}</dd><dt>来源</dt><dd>{{ trace.source }}</dd></dl><button type="button" @click="trace.demo ? downloadExample() : resetDemo()">{{ trace.demo ? '下载示例' : '返回示例' }}</button></details>
+        <p v-if="queryError || querying" id="trace-query-state" class="query-state" :class="{error:queryError}" role="status">{{ queryError || '正在查询…' }}</p>
+        <span v-else id="trace-query-state" class="sr-only" role="status"></span>
+      </div>
       <div class="run-toolbar">
         <p v-if="exportError" role="status">{{ exportError }}</p>
         <div class="run-context"><h2 :title="trace.title">{{ trace.title }}</h2><span class="model-name" :title="trace.model">{{ trace.model }}</span></div>
@@ -263,15 +248,22 @@ function downloadExample() {
           </section>
         </section>
 
-        <TraceDivider label="调整节点详情宽度" :value="inspectorWidth" :min="260" :max="maxInspector" reverse @resize="resizeInspector" @dragging="resizing = $event" @reset="resizeInspector(330 - inspectorWidth)" />
+        <TraceDivider label="调整节点详情宽度" :value="inspectorWidth" :min="360" :max="maxInspector" reverse @resize="resizeInspector" @dragging="resizing = $event" @reset="resizeInspector(Math.min(560, studioWidth * 0.38) - inspectorWidth)" />
         <aside ref="inspector" class="inspector-column" aria-label="节点详情" tabindex="0">
-          <div class="inspector-heading">节点详情</div>
+          <div class="inspector-heading">节点详情<span v-if="selected?.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
             <section class="node-overview" aria-label="节点概况">
             <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
-            <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span><TraceIcon name="clock" :size="13" /><span data-testid="inspector-duration">{{ selected.durationLabel || formatDuration(selected.durationMs) }}</span></span><span v-if="selected.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
+            <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span></div>
             <p class="semantic-result">{{ selected.summary }}</p>
+            <TraceNodeMetrics :node="selected" summary-only />
             </section>
+            <div v-if="contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
+              <TraceContext :selection="contextSelection" :show-empty="selected.kind === 'MODEL' || selected.cardKind === 'model'" />
+              <TraceResponseTiming v-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" :duration="selected.durationMs" />
+              <TraceTokenUsage v-if="selected.kind === 'MODEL' || selected.totalTokens != null" :node="selected" />
+              <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
+            </div>
             <section v-if="selected.attributes?.['analysis.raw_records'] != null" class="intent-selection" aria-label="反馈聚类统计">
               <h3>反馈聚类统计</h3>
               <p>原始 {{ selected.attributes['analysis.raw_records'] }} 条 · 过滤 {{ selected.attributes['analysis.filtered_records'] }} 条</p>
@@ -286,8 +278,7 @@ function downloadExample() {
               <p v-if="compactionSelection.prompt">策略 {{ compactionSelection.prompt }}</p>
               <p>原始消息保留；摘要只覆盖标明的范围，失效来源不会继续使用。</p>
             </section>
-            <TraceContext :selection="contextSelection" />
-            <section v-if="standardSelection.length" class="metadata-section" aria-label="统一记录字段"><h3>统一记录字段</h3><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></section>
+            <details v-if="standardSelection.length" class="metadata-section" aria-label="统一记录字段"><summary>统一记录字段</summary><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></details>
             <section v-if="executionSelection.length" class="intent-selection" aria-label="执行与复用情况"><h3>执行与复用情况</h3><p v-for="fact in executionSelection" :key="fact">{{ fact }}</p></section>
             <section v-if="selected.cardKind === 'merge' && preparationSelection.visible" class="intent-selection" aria-label="前置合并与改写">
               <h3>前置合并与改写</h3>
@@ -309,8 +300,8 @@ function downloadExample() {
                 </article>
               </section>
             </section>
-            <section v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
-              <h3>本轮调用 <span>{{ invocations.length }} 项</span></h3>
+            <details v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
+              <summary>调用详情 · {{ invocations.length }} 项</summary>
               <p v-if="!invocations.length" class="invocation-empty">{{ ['FINAL_ANSWER', 'ANSWER'].includes(selected.attributes?.['model.decision']) ? '本轮直接生成回答' : '尚无工具或 Skill 调用记录' }}</p>
               <article v-for="call in invocations" :key="call.id" class="invocation-card">
                 <div class="invocation-heading"><strong>{{ call.label }}</strong><span :class="{ 'invocation-error': call.businessError || ['FAILED', 'TIMED_OUT'].includes(call.status), 'invocation-pending': !call.status }">{{ call.businessError ? '业务错误' : call.status ? statusLabel(call.status) : '未找到执行记录' }}</span></div>
@@ -323,13 +314,12 @@ function downloadExample() {
                 </div>
                 <button v-if="call.toolId" type="button" class="invocation-link" @click="selectNode(call.toolId)">查看执行节点 →</button>
               </article>
-            </section>
+            </details>
             <p v-if="selected.sourceNote || selected.legacy" class="projection-notice">{{ selected.sourceNote || '历史记录缺少任务 ID，按同一运行的父级范围归组；内部阶段可能未记录。' }}</p>
             <section v-if="selectedMembers.length" class="member-section"><h3>内部记录 · {{ selectedMembers.length }}</h3><button v-for="member in selectedMembers" :key="member.id" type="button" @click="selectNode(member.id)"><span>{{ nodeDisplayName(member) }}</span><small :class="{ error: ['FAILED', 'TIMED_OUT'].includes(member.status) }">{{ statusLabel(member.status) }} · {{ formatDuration(member.durationMs) }}</small></button></section>
-            <dl v-if="selected.kind === 'MODEL' || selected.totalTokens != null" class="token-grid"><div><dt>输入 Token</dt><dd>{{ formatValue(selected.inputTokens) }}</dd></div><div><dt>输出 Token</dt><dd>{{ formatValue(selected.outputTokens) }}</dd></div></dl>
             <div v-if="payloadLoading || payloadError" class="payload-state" role="status"><span>{{ payloadError || '正在加载节点正文…' }}</span><button v-if="payloadError && !payloadLoading" type="button" @click="payloadAttempt++">重试加载</button></div>
-            <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
-            <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
+            <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" collapsible :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
+            <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" collapsible :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
             <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
             <TraceCode v-for="(source, index) in reasoningSources" :key="source.id" :title="reasoningSources.length > 1 ? `模型思考 · 第 ${index + 1} 次调用` : '模型思考'" :value="source.reasoning" :state="source.reasoningState" :reference="source.reasoningRef" />
             <TraceCode v-if="selectedSource && selected.provider_outputRef" title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" />
@@ -342,6 +332,27 @@ function downloadExample() {
     </main>
   </div>
 </template>
+
+<style scoped>
+.trace-studio{--trace-card:#faf9f5;--trace-clay:#d97757;--trace-charcoal:#65635d;--trace-sage:#a0ae98;--trace-sand:#ddd0bf;--trace-wait:#c9c3b8;--workbench-ui:'Anthropic Sans','Microsoft YaHei','PingFang SC',Arial,sans-serif;font-family:var(--workbench-ui);}
+.trace-wordmark{font:500 27px/1 Georgia,serif;color:var(--workbench-ink);}
+.brand-separator{font-size:26px;color:var(--workbench-border);font-weight:400;}
+.trace-controlbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px 20px;padding:12px 24px;border-bottom:1px solid var(--workbench-border);background:var(--workbench-paper);}
+.trace-run-picker{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--workbench-muted);min-width:0;}
+.trace-run-picker select{max-width:320px;min-width:0;border:1px solid var(--workbench-border);border-radius:7px;padding:7px 10px;background:var(--workbench-raised);color:var(--workbench-ink);font-size:12px;}
+.trace-controlbar .trace-search{display:flex;align-items:center;gap:10px;margin:0;min-width:0;}
+.trace-controlbar .trace-search label{margin:0;font-size:12px;color:var(--workbench-muted);white-space:nowrap;}
+.trace-controlbar .search-field{width:220px;min-width:0;}
+.trace-controlbar .search-field input{padding:7px 10px;font-family:var(--workbench-ui);color:var(--workbench-ink);}
+.trace-controlbar .query-state{flex-basis:100%;margin:0;}
+.trace-run-info{margin-left:auto;font-size:12px;max-width:100%;}
+.trace-run-info summary{cursor:pointer;color:var(--workbench-muted);}
+.trace-run-info[open]{flex-basis:100%;margin-left:0;}
+.trace-run-info dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 12px;margin:12px 0;}
+.trace-run-info dt{color:var(--workbench-muted);}.trace-run-info dd{margin:0;overflow-wrap:anywhere;}
+.trace-run-info button{border:1px solid var(--workbench-border);border-radius:6px;padding:5px 10px;background:var(--workbench-raised);color:var(--workbench-ink);}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+</style>
 
 <style>
 html.trace-workspace-page, html.trace-workspace-page body { min-width: 0; background: var(--workbench-paper); }
@@ -652,4 +663,59 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .timing-axis,.timing-value,.run-metrics {letter-spacing:0;font-variant-numeric:tabular-nums;}
 @media(max-width:1200px){.trace-legend{display:none;}}
 @media(max-width:700px){.view-tabs{padding:0 10px;gap:10px;}.view-meta{gap:4px;font-size:10px;}.view-count{display:none;}.view-tabs .graph-view-switch button{padding:0 6px;font-size:11px;}}
+.trace-studio{display:block;--trace-card:#faf9f5;--trace-clay:#d97757;--trace-charcoal:#65635d;--trace-sage:#a0ae98;--trace-sand:#ddd0bf;--trace-wait:#c9c3b8;font-family:var(--workbench-ui);}
+.workspace-main{height:100%;display:flex;flex-direction:column;min-width:0;}
+.workspace-header{height:64px;flex-shrink:0;}
+.workspace-heading{gap:16px;}.workspace-heading h1{font-size:20px;font-weight:500;}
+.run-toolbar{padding:10px 24px;gap:12px;flex-wrap:wrap;}
+.run-context h2{font-size:16px;}.run-metrics{flex-wrap:wrap;gap:10px 16px;flex-shrink:1;}
+.workspace-panels{margin:0 24px 20px;grid-template-columns:minmax(0,1fr) 8px var(--inspector-width);}
+.graph-column{overflow:hidden;}
+.timing-panel{flex:0 0 clamp(180px,25dvh,260px);}
+.inspector-column{overflow:auto;container-type:inline-size;}
+.inspector-heading{height:50px;justify-content:space-between;font-size:13px;}
+.inspector-heading>span{font-size:12px;color:var(--workbench-muted);}
+.inspector-content{padding:16px;letter-spacing:0;font-size:12px;}
+.node-overview{padding:0 0 16px;margin-bottom:0;border:0;background:transparent;}
+.node-overview .semantic-result{margin:10px 0;font-size:12px;}
+.node-status-line{flex-wrap:wrap;}
+.inspector-dashboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch;margin-bottom:16px;}
+.inspector-dashboard>*{min-width:0;}
+.metadata-section summary,.invocation-section summary{cursor:pointer;font-size:13px;padding:10px 0;color:var(--workbench-muted);}
+.inspector-content :deep(.trace-donut strong){font-family:var(--workbench-ui);}
+.inspector-dashboard :deep(.context-slots>div){flex-wrap:wrap;}
+@container(max-width:410px){.inspector-dashboard{grid-template-columns:minmax(0,1fr);}}
+@media(max-width:1100px){.trace-studio{height:auto;min-height:100dvh;}.workspace-main{height:auto;min-height:100dvh;}.workspace-panels{display:grid;grid-template-columns:minmax(0,1fr);overflow:visible;flex:none;}.workspace-panels>.trace-divider{display:none;}.graph-column{height:660px;min-height:0;}.inspector-column{border-left:0;border-top:1px solid var(--workbench-border);overflow:visible;}.inspector-heading{position:static;}.inspector-dashboard{grid-template-columns:repeat(2,minmax(0,1fr));}.run-metrics{margin-left:0;}.trace-controlbar{padding-inline:20px;}}
+@media(max-width:600px){.workspace-panels{margin:0 12px 12px;}.workspace-header{padding:0 12px;gap:8px;flex-wrap:wrap;height:auto;min-height:64px;}.trace-wordmark{font-size:22px;}.workspace-heading{gap:8px;}.workspace-heading h1{font-size:17px;}.trace-controlbar{padding:12px;gap:12px;}.trace-run-picker,.trace-controlbar .trace-search{width:100%;}.trace-run-picker select{flex:1;max-width:100%;}.trace-controlbar .search-field{flex:1;width:auto;}.trace-run-info{margin-left:0;}.run-toolbar{padding:10px 12px;}.run-context{width:100%;}.graph-column{height:580px;}.inspector-content{padding:12px;}.inspector-dashboard{gap:10px;}.model-name{white-space:normal;}.view-tabs{height:auto;min-height:48px;flex-wrap:wrap;padding-block:8px;}.view-meta{flex-wrap:wrap;}.trace-run-info dl{grid-template-columns:80px minmax(0,1fr);}}
+@media(max-width:440px){.inspector-dashboard{grid-template-columns:minmax(0,1fr);}}
+.trace-studio {
+  --workbench-paper: #f5f4ef;
+  --workbench-raised: #ffffff;
+  --workbench-sidebar: #eaeae3;
+  --workbench-ink: #242724;
+  --workbench-muted: #70736c;
+  --workbench-tertiary: #70736c;
+  --workbench-border: #deded5;
+  --workbench-border-subtle: #edede7;
+  --workbench-accent: #cf684b;
+  --workbench-success: #56744f;
+  --workbench-success-soft: #edf2ea;
+  --workbench-soft: #faece7;
+  --workbench-connector: #a4a69d;
+  --trace-card: #ffffff;
+  --trace-clay: #cf684b;
+  --trace-charcoal: #70736c;
+  --trace-sage: #8d9d87;
+  --trace-sand: #cbbfae;
+  --trace-wait: #8fa489;
+  --trace-environment: #c2a884;
+  --trace-current: #8da1a6;
+  --trace-runtime: #b39a9c;
+  --trace-skill: #b38f79;
+  --trace-agent: #999cb0;
+  --trace-execution: #a5aa91;
+  --trace-memory: #8d9e98;
+  --trace-reference: #bca795;
+  --trace-output: #b6aa93;
+}
 </style>

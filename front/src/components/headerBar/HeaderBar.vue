@@ -197,7 +197,7 @@
         <VPopover pop-style="padding-top: 17px;">
           <template #reference>
             <div
-              class="right-entry--outside"
+              class="right-entry--outside header-action"
               @click="openNewPage(`/user/${user.userId}/upload`)"
             >
               <i class="iconfont icon-fengche"></i>
@@ -245,7 +245,7 @@
         >
           <template #reference>
             <div
-              class="right-entry--outside"
+              class="right-entry--outside header-action"
               @click="openNewPage(`/user/${user.userId}/favlist`)"
             >
               <i class="iconfont icon-shoucang"></i>
@@ -284,7 +284,7 @@
       </div>
       <HistoryMenu />
       <!-- 创作中心 -->
-      <button type="button" class="creator-entry" @click="openNewPage('/platform/home')"><el-icon><EditPen /></el-icon><span>创作中心</span></button>
+      <button type="button" class="creator-entry header-action" @click="openNewPage('/platform/home')"><el-icon><EditPen /></el-icon><span>创作中心</span></button>
       <!-- <div class="right-entry-item" @click="openNewPage('/platform')">
         <div class="right-entry--outside">
           <i class="iconfont icon-dengpao"></i>

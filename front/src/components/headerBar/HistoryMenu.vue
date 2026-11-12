@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
   >
     <button
       type="button"
-      class="creator-entry history-trigger"
+      class="creator-entry history-trigger header-action"
       aria-label="观看历史"
       :aria-expanded="open"
       @focus="show"

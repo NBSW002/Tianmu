@@ -3,7 +3,7 @@
 import { computed, ref } from 'vue'
 import TraceIcon from './TraceIcon.vue'
 
-const props = defineProps({ title: String, subtitle: String, value: { default: null }, state: String, reference: String })
+const props = defineProps({ title: String, subtitle: String, value: { default: null }, state: String, reference: String, collapsible:Boolean })
 const copied = ref(false)
 const copyError = ref(false)
 const protectedPayload = computed(() => props.value?.memoryProtected === true
@@ -28,22 +28,22 @@ async function copy() {
 </script>
 
 <template>
-  <section class="trace-code">
-    <div class="code-heading">
+  <component :is="collapsible ? 'details' : 'section'" class="trace-code" :class="{collapsible}">
+    <component :is="collapsible ? 'summary' : 'div'" class="code-heading">
       <div class="code-title"><h3>{{ title }}</h3><p v-if="subtitle" class="code-subtitle">{{ subtitle }}</p></div>
       <div class="code-actions">
         <span v-if="value != null && !protectedPayload" class="code-format">{{ typeof value === 'string' ? 'TEXT' : 'JSON' }}</span>
         <span v-if="state === 'TRUNCATED'" class="code-state">已截断</span>
-        <button v-if="value != null && !protectedPayload" type="button" :aria-label="`复制${title}`" :title="copyError ? '复制失败，请手动选择文本' : copied ? '已复制' : '复制内容'" @click="copy"><TraceIcon :name="copied ? 'check' : 'copy'" :size="14" /></button>
+        <button v-if="value != null && !protectedPayload" type="button" :aria-label="`复制${title}`" :title="copyError ? '复制失败，请手动选择文本' : copied ? '已复制' : '复制内容'" @click.stop.prevent="copy"><TraceIcon :name="copied ? 'check' : 'copy'" :size="14" /></button>
       </div>
-    </div>
+    </component>
     <div v-if="protectedPayload" class="code-protected" role="note"><TraceIcon name="info" :size="16" /><div><strong>内容已保护</strong><p>为保护记忆来源，这份详情仅保留运行引用。</p></div></div>
     <pre v-else-if="value != null" tabindex="0" role="region" :aria-label="`${title}内容`"><code><span v-for="(token, index) in tokens" :key="index" :class="`syntax-${token.type}`">{{ token.text }}</span></code></pre>
     <div v-else class="code-empty">
       <TraceIcon name="info" :size="17" />
       <p>{{ reference ? '正文未载入' : '暂无内容' }}<small>{{ stateLabels[state] || '未采集' }}</small></p>
     </div>
-  </section>
+  </component>
 </template>
 
 <style scoped>
@@ -79,4 +79,12 @@ pre:focus-visible {outline:2px solid var(--workbench-focus);outline-offset:-2px;
 .code-empty small {margin-top:2px;}
 pre {line-height:1.85;letter-spacing:0;}
 .code-heading {line-height:1.5;letter-spacing:.01em;}
+</style>
+<style scoped>
+.collapsible{background:transparent;border:0;border-top:1px solid var(--workbench-border);border-radius:0;}
+.collapsible>.code-heading{cursor:pointer;list-style:none;background:transparent;padding:14px 0;}
+.collapsible>.code-heading:after{content:'+';color:var(--workbench-muted);margin-left:4px;}
+.collapsible[open]>.code-heading:after{content:'−';}
+.collapsible .code-actions{margin-left:auto;}
+.collapsible>.code-heading:focus-visible{outline:2px solid var(--workbench-focus);outline-offset:-2px;}
 </style>
