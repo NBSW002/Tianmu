@@ -177,11 +177,16 @@ watch([() => trace.value.id, () => selectedSource.value?.id, payloadAttempt], as
   payloadLoading.value = true
   try {
     const related = invocations.value.map(call => presentation.value.rawById.get(call.toolId)).filter(Boolean)
-    const results = await Promise.allSettled([...new Set([node, ...related, ...reasoningSources.value, ...privateSources.value.map(item=>item.source)])].flatMap(target =>
-      [...new Set([...(target === node ? ['input', 'output', 'error', 'provider_output', 'reasoning'] : related.includes(target) ? ['input', 'output'] : []),...(reasoningSources.value.includes(target)?['reasoning']:[]),...privateSources.value.filter(item=>item.source===target).map(item=>item.direction)])].map(async direction => {
+    const facts=runSummary.value.modelDetails
+    const skillInputs=runSelection.value && facts.skillNames.reduce((sum,call)=>sum+call.count,0)<facts.skillCalls
+      ? runSummary.value.tools.filter(call=>call.name==='read_skill').map(call=>presentation.value.rawById.get(call.id)).filter(Boolean) : []
+    const results = await Promise.allSettled([...new Set([node, ...related, ...skillInputs, ...reasoningSources.value, ...privateSources.value.map(item=>item.source)])].flatMap(target =>
+      [...new Set([...(target === node ? ['input', 'output', 'error', 'provider_output', 'reasoning'] : related.includes(target) ? ['input', 'output'] : skillInputs.includes(target) ? ['input'] : []),...(reasoningSources.value.includes(target)?['reasoning']:[]),...privateSources.value.filter(item=>item.source===target).map(item=>item.direction)])].map(async direction => {
         const reference = target[`${direction}Ref`]
         if (target[direction] != null || !reference || reference === 'UNAVAILABLE') return
-        const data = await getTracePayload(target.attributes['run.id'] || current.runId, reference, controller.signal)
+        let data
+        try {data=await getTracePayload(target.attributes['run.id'] || current.runId, reference, controller.signal)}
+        catch(error){if(skillInputs.includes(target) && !related.includes(target))return;throw error}
         if (!controller.signal.aborted) {
           target[direction] = data.value ?? data.preview ?? null
           target[`${direction}State`] = data.state

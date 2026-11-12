@@ -179,16 +179,34 @@ export function executionSummary(nodes) {
     return result
   }
   const tools=nodes.filter(node => node.kind === 'TOOL' && (node.tool || node.type === 'tool_call'))
-  const roots=tools.filter(node => !ancestors(node).some(parent => tools.some(tool => tool.id === parent.id)))
+  const toolIds=new Set(tools.map(node => node.id))
+  const roots=tools.filter(node => !ancestors(node).some(parent => toolIds.has(parent.id)))
   const unique=[...new Map(roots.map(node => [node.attributes?.['tool.call_id'] || node.id,node])).values()]
-  const skillKeys=new Set(unique.filter(node => node.tool === 'read_skill' || node.attributes?.['tool.name'] === 'read_skill').map(node => node.id))
-  for (const node of nodes.filter(node => node.name === 'agent.skill' || (node.kind === 'SKILL' && node.attributes?.['skill.name']))) {
-    const tool=ancestors(node).find(parent => unique.some(root => root.id === parent.id))
-    skillKeys.add(tool?.id || node.id)
+  const rootIds=new Set(unique.map(node => node.id))
+  const decode=value=>{
+    if(typeof value!=='string')return value || {}
+    try{return JSON.parse(value) || {}}catch{return {}}
   }
+  const skillName=node=>{
+    const input=decode(node.input),output=decode(node.output)
+    return node.attributes?.['skill.name'] || input.arguments?.name || (input.name!=='read_skill'?input.name:null) || output.data?.skill?.name || output.data?.skill_name || output.skill?.name || output.skill_name || null
+  }
+  const skillEntries=new Map(unique.filter(node=>node.tool==='read_skill' || node.attributes?.['tool.name']==='read_skill').map(node=>[node.id,skillName(node)]))
+  for (const node of nodes.filter(node => node.name === 'agent.skill' || (node.kind === 'SKILL' && node.attributes?.['skill.name']))) {
+    const tool=ancestors(node).find(parent => rootIds.has(parent.id))
+    const key=tool?.id || node.id
+    skillEntries.set(key,skillName(node) || skillEntries.get(key) || null)
+  }
+  const grouped=names=>{
+    const counts=new Map()
+    for(const name of names)if(typeof name==='string' && name.trim())counts.set(name,(counts.get(name) || 0)+1)
+    return [...counts].map(([name,count])=>({name,count}))
+  }
+  const toolNames=grouped(unique.map(node=>node.tool || node.attributes?.['tool.name'] || node.name))
+  const skillNames=grouped([...skillEntries.values()])
   const triggered=nodes.some(node => node.name === 'agent.context.compact' || node.type === 'context_compact' || node.attributes?.['compaction.trigger_reason'])
   const compactedResults=nodes.some(node => node.attributes?.['context.results_compacted'] > 0)
   const inherited=nodes.some(node => node.attributes?.['context.compaction_segments'] > 0)
   const observed=nodes.some(node => node.attributes?.['context.results_compacted'] === 0 || node.attributes?.['context.compaction_segments'] === 0)
-  return {toolCalls:unique.length,skillCalls:skillKeys.size,compression:triggered ? '已触发' : compactedResults ? '结果已精简' : inherited ? '沿用历史摘要' : observed ? '未触发' : '—'}
+  return {toolCalls:unique.length,skillCalls:skillEntries.size,toolNames,skillNames,compression:triggered ? '已触发' : compactedResults ? '结果已精简' : inherited ? '沿用历史摘要' : observed ? '未触发' : '—'}
 }

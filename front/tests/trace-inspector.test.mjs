@@ -140,7 +140,7 @@ test('Skill activation nested under read_skill counts once and tools count actua
  const child={...tool,id:'read-child',parentId:'read'}
  const skill={id:'skill',parentId:'read',kind:'SKILL',name:'agent.skill',attributes:{'skill.name':'audience-report'}}
  const other={...tool,id:'report',tool:'generate_feedback_report',attributes:{'tool.call_id':'call2'}}
- assert.deepEqual(executionSummary([tool,child,skill,other]),{toolCalls:2,skillCalls:1,compression:'—'})
+ assert.deepEqual(executionSummary([tool,child,skill,other]),{toolCalls:2,skillCalls:1,toolNames:[{name:'read_skill',count:1},{name:'generate_feedback_report',count:1}],skillNames:[{name:'audience-report',count:1}],compression:'—'})
  const summary=runInspectorSummary({nodes:[tool,child,skill,other]})
  assert.equal(summary.modelDetails.skillCalls,1);assert.equal(summary.modelDetails.toolCalls,2)
 })
@@ -158,4 +158,16 @@ test('model full name comes only from matching provider metadata and keeps its m
  assert.deepEqual(details.models,['DeepSeek-V4.1-Flash']);assert.deepEqual(details.modelIds,['deepseek-flash'])
  const other={...call,attributes:{'model.provider':'compatible'}}
  assert.deepEqual(modelInspectorDetails([other],[other],metadata).models,['deepseek-flash'])
+})
+
+test('executed names aggregate repeated calls and exclude planned tools',()=>{
+ const first={id:'t1',kind:'TOOL',tool:'read_skill',attributes:{},input:{arguments:{name:'audience-report'}}}
+ const nested={id:'s1',parentId:'t1',kind:'SKILL',name:'agent.skill',attributes:{'skill.name':'audience-report'}}
+ const second={id:'t2',kind:'TOOL',tool:'read_skill',attributes:{},input:JSON.stringify({name:'audience-report'})}
+ const planned=model('m',null,{'model.selected_tools':['never_executed']})
+ const summary=executionSummary([planned,first,nested,second])
+ assert.deepEqual(summary.toolNames,[{name:'read_skill',count:2}])
+ assert.deepEqual(summary.skillNames,[{name:'audience-report',count:2}])
+ assert.equal(summary.skillCalls,2)
+ assert.deepEqual(executionSummary([planned]).toolNames,[])
 })

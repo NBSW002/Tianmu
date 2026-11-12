@@ -241,7 +241,7 @@ watch(() => props.selectedId, async () => {
 </style>
 <style scoped>
 .trace-node{width:156px;height:64px;padding:6px 10px;gap:2px;}
-.node-name{font-size:12px;line-height:17px;letter-spacing:0;}
+.node-name{font-size:12px;font-weight:600;line-height:17px;letter-spacing:0;}
 .node-highlight{font-size:11px;line-height:14px;letter-spacing:0;}
 .node-facts{display:flex;justify-content:space-between;gap:8px;width:100%;font:400 10px/12px var(--workbench-ui);color:var(--workbench-muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .node-facts .error{color:var(--workbench-error);}
