@@ -34,11 +34,12 @@ public final class TraceDetails {
             @Value("${harness.trace.details.enabled:true}") boolean enabled,
             @Value("${harness.trace.details.max-run-bytes:8388608}") long maxRunBytes,
             @Value("${agent.memory.enabled:false}") boolean memoryEnabled,
-            @Value("${agent.compaction.enabled:false}") boolean compactionEnabled) {
+            @Value("${agent.compaction.enabled:true}") boolean compactionEnabled,
+            @Value("${agent.storage.mode:memory}") String storageMode) {
         this(objects.getIfAvailable(() -> new FileObjectStore(properties.directory().resolve("details"))), mapper, maxBytes, enabled);
         if (maxRunBytes < maxBytes || maxRunBytes > 67108864) throw new IllegalArgumentException("Invalid per-run trace detail limit");
         this.maxRunBytes = maxRunBytes;
-        this.protectDerived=memoryEnabled || compactionEnabled;
+        this.protectDerived=memoryEnabled || compactionEnabled && "mysql".equals(storageMode);
     }
     public TraceDetails(ObjectStore objects, ObjectMapper mapper, int maxBytes, boolean enabled) {
         if (maxBytes < 4096 || maxBytes > 524288) throw new IllegalArgumentException("Trace detail limit must be 4 KiB to 512 KiB");

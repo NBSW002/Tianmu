@@ -6,7 +6,7 @@ import org.springframework.context.annotation.*;
 import javax.sql.DataSource;
 
 @Configuration
-@org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("${agent.memory.enabled:false} or ${agent.compaction.enabled:false}")
+@org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("(${agent.memory.enabled:false} or ${agent.compaction.enabled:true}) and '${agent.storage.mode:memory}' == 'mysql'")
 public class PersonalMemoryConfiguration {
     @Bean @DependsOn("agentMigrations")
     PersonalMemoryStore personalMemoryStore(DataSource source,ObjectMapper json,MemoryRuntimeProperties governance) {

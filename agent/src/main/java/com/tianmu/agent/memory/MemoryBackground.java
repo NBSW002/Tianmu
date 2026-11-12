@@ -23,7 +23,7 @@ import java.util.*;
 import java.util.concurrent.atomic.*;
 
 /** At-least-once outbox -> durable leased jobs. No model call runs on a scheduler or in a SQL transaction. */
-@Service @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("${agent.memory.enabled:false} or ${agent.compaction.enabled:false}")
+@Service @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("(${agent.memory.enabled:false} or ${agent.compaction.enabled:true}) and '${agent.storage.mode:memory}' == 'mysql'")
 public final class MemoryBackground {
     private final com.tianmu.agent.memory.MemoryRuntimeProperties governance;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private CompactionService compaction;

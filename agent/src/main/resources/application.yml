@@ -38,7 +38,7 @@ agent:
       enabled: ${AGENT_TOOLS_PARALLEL_ENABLED:true}
       per-run: ${AGENT_TOOLS_PARALLEL_PER_RUN:2}
   compaction:
-    enabled: ${AGENT_COMPACTION_ENABLED:false}
+    enabled: ${AGENT_COMPACTION_ENABLED:true}
     trigger-bytes: ${AGENT_COMPACTION_TRIGGER_BYTES:5632}
   video:
     cache:
