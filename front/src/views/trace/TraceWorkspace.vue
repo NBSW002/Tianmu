@@ -17,7 +17,7 @@ import TraceRunCalls from '@/components/trace/TraceRunCalls.vue'
 import { modelResponseDetails, runInspectorSummary, modelInspectorDetails, executionSummary } from '@/trace/trace-inspector.mjs'
 import { demoFiles } from '@/trace/demo-trace.mjs'
 import { parseTraceFile, formatDuration, formatValue, statusLabel, nodeDisplayName } from '@/trace/trace-data.mjs'
-import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardIcon } from '@/trace/trace-presentation.mjs'
+import { buildTracePresentation, buildTraceOverview, defaultExpandedStages, layoutPresentation, modelInvocations, modelReasoningSources, intentDetails, contextDetails, compactionDetails, preparationDetails, executionFacts, presentNode, cardTitle, cardHighlight, cardIcon } from '@/trace/trace-presentation.mjs'
 import { traceDetailSources, recordDetails } from '@/trace/trace-presentation.mjs'
 
 const examples = demoFiles.flatMap((data) => parseTraceFile(JSON.stringify(data), '内置演示日志'))
@@ -115,7 +115,16 @@ watch([() => trace.value.remote, () => userStore.user?.token], async ([remote,to
     if (!controller.signal.aborted && Array.isArray(result)) providerMetadata.value=result
   } catch { /* The Trace remains readable if provider discovery is unavailable. */ }
 }, { immediate:true })
-const contextSelection = computed(() => runSelection.value ? (modelDetails.value.peakContext || {visible:false,slots:[]}) : contextDetails(selected.value))
+const contextSelection = computed(() => {
+  if (runSelection.value) return modelDetails.value.peakContext || {visible:false,slots:[]}
+  const context=contextDetails(selected.value)
+  if (context.visible) return context
+  const request=selectedMembers.value.find(node => node.name === 'model.request') || selectedSource.value
+  const attrs=request?.attributes || {}
+  const slots=[['context.system_bytes','系统消息'],['context.user_bytes','用户消息'],['context.assistant_bytes','助手消息'],['context.tool_result_bytes','工具结果'],['context.tools_bytes','工具定义']]
+    .filter(([key]) => Number.isFinite(attrs[key]) && attrs[key]>0).map(([name,label])=>({name,label,bytes:attrs[name]}))
+  return {...context,visible:slots.length>0,slots}
+})
 const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
@@ -295,18 +304,22 @@ function downloadExample() {
         <aside ref="inspector" class="inspector-column" aria-label="节点详情" tabindex="0">
           <div class="inspector-heading"><span class="inspector-label">节点详情</span><div v-if="selected" class="inspector-selection"><TraceIcon :name="cardIcon(selected)" :size="15" /><strong data-testid="inspector-node-name" :title="mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected)">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</strong><span v-if="!runSelection" class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span v-if="!runSelection && selected.durationMs != null" class="selection-duration" title="节点耗时">{{ formatDuration(selected.durationMs) }}</span></div></div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
+            <p v-if="!runSelection && (cardHighlight(selected) || selected.summary)" class="selected-result">{{ cardHighlight(selected) || selected.summary }}</p>
 
             <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
               <TraceContext :selection="contextSelection" :show-empty="runSelection || selected.kind === 'MODEL' || selected.cardKind === 'model'" :aggregate="runSelection" :window-usage="modelDetails.window" />
               <div class="model-performance">
               <TraceResponseTiming v-if="runSelection" :timing="runSummary.ttftTiming" aggregate />
-              <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" />
+              <TraceResponseTiming v-else-if="selected.kind === 'MODEL' || selected.cardKind === 'model'" :timing="responseSelection" :non-streaming="modelDetails.types.length === 1 && modelDetails.types[0] === '非流式'" />
               <TraceTokenUsage v-if="runSelection || selected.kind === 'MODEL' || selected.totalTokens != null" :node="runSelection ? trace : selected" :partial="runSelection && !trace.usageComplete" />
               </div>
               <TraceModelDetails :details="modelDetails" />
               <TraceRunCalls v-if="runSelection" :calls="runSummary.events" @select="selectNode" />
               <TraceInvocationTrail v-if="selected.cardKind === 'model'" :calls="invocations" :decision="selected.attributes?.['model.decision']" @select="selectNode" />
             </div>
+            <div v-if="payloadLoading || payloadError" class="payload-state" role="status"><span>{{ payloadError || '正在加载节点正文…' }}</span><button v-if="payloadError && !payloadLoading" type="button" @click="payloadAttempt++">重试加载</button></div>
+            <TraceCode v-if="selectedSource && (selected.input != null || selected.inputRef)" :key="`${selected.id}-input`" title="输入" :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
+            <TraceCode v-if="selectedSource && (selected.output != null || selected.outputRef)" :key="`${selected.id}-output`" title="输出" :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
             <section v-if="selected.attributes?.['analysis.raw_records'] != null" class="intent-selection" aria-label="反馈聚类统计">
               <h3>反馈聚类统计</h3>
               <p>原始 {{ selected.attributes['analysis.raw_records'] }} 条 · 过滤 {{ selected.attributes['analysis.filtered_records'] }} 条</p>
@@ -321,7 +334,7 @@ function downloadExample() {
               <p v-if="compactionSelection.prompt">策略 {{ compactionSelection.prompt }}</p>
               <p>原始消息保留；摘要只覆盖标明的范围，失效来源不会继续使用。</p>
             </section>
-            <details v-if="standardSelection.length" class="metadata-section" aria-label="统一记录字段"><summary>统一记录字段</summary><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></details>
+            <section v-if="standardSelection.length" class="metadata-section" aria-label="统一记录字段"><h3>统一记录字段</h3><dl class="node-metadata"><div v-for="row in standardSelection" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></section>
             <section v-if="executionSelection.length" class="intent-selection" aria-label="执行与复用情况"><h3>执行与复用情况</h3><p v-for="fact in executionSelection" :key="fact">{{ fact }}</p></section>
             <section v-if="selected.cardKind === 'merge' && preparationSelection.visible" class="intent-selection" aria-label="前置合并与改写">
               <h3>前置合并与改写</h3>
@@ -343,8 +356,8 @@ function downloadExample() {
                 </article>
               </section>
             </section>
-            <details v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
-              <summary>调用详情 · {{ invocations.length }} 项</summary>
+            <section v-if="selected.cardKind === 'model'" class="invocation-section" aria-label="本轮调用">
+              <h3>调用详情 · {{ invocations.length }} 项</h3>
               <p v-if="!invocations.length" class="invocation-empty">{{ ['FINAL_ANSWER', 'ANSWER'].includes(selected.attributes?.['model.decision']) ? '本轮直接生成回答' : '尚无工具或 Skill 调用记录' }}</p>
               <article v-for="call in invocations" :key="call.id" class="invocation-card">
                 <div class="invocation-heading"><strong>{{ call.label }}</strong><span :class="{ 'invocation-error': call.businessError || ['FAILED', 'TIMED_OUT'].includes(call.status), 'invocation-pending': !call.status }">{{ call.businessError ? '业务错误' : call.status ? statusLabel(call.status) : '未找到执行记录' }}</span></div>
@@ -357,12 +370,9 @@ function downloadExample() {
                 </div>
                 <button v-if="call.toolId" type="button" class="invocation-link" @click="selectNode(call.toolId)">查看执行节点 →</button>
               </article>
-            </details>
+            </section>
             <p v-if="selected.sourceNote || selected.legacy" class="projection-notice">{{ selected.sourceNote || '历史记录缺少任务 ID，按同一运行的父级范围归组；内部阶段可能未记录。' }}</p>
             <section v-if="selectedMembers.length" class="member-section"><h3>内部记录 · {{ selectedMembers.length }}</h3><button v-for="member in selectedMembers" :key="member.id" type="button" @click="selectNode(member.id)"><span>{{ nodeDisplayName(member) }}</span><small :class="{ error: ['FAILED', 'TIMED_OUT'].includes(member.status) }">{{ statusLabel(member.status) }} · {{ formatDuration(member.durationMs) }}</small></button></section>
-            <div v-if="payloadLoading || payloadError" class="payload-state" role="status"><span>{{ payloadError || '正在加载节点正文…' }}</span><button v-if="payloadError && !payloadLoading" type="button" @click="payloadAttempt++">重试加载</button></div>
-            <TraceCode v-if="selectedSource" :key="`${selected.id}-input`" title="输入" collapsible :value="selected.input" :state="selected.inputState" :reference="selected.inputRef" />
-            <TraceCode v-if="selectedSource" :key="`${selected.id}-output`" title="输出" collapsible :value="selected.output" :state="selected.outputState" :reference="selected.outputRef" />
             <TraceCode v-if="selectedSource && selected.errorRef" :key="`${selected.id}-error`" title="错误详情" :value="selected.error" :state="selected.errorState" :reference="selected.errorRef" />
             <TraceCode v-for="(source, index) in reasoningSources" :key="source.id" :title="reasoningSources.length > 1 ? `模型思考 · 第 ${index + 1} 次调用` : '模型思考'" :value="source.reasoning" :state="source.reasoningState" :reference="source.reasoningRef" />
             <TraceCode v-if="selectedSource && selected.provider_outputRef" title="模型原始返回" :value="selected.provider_output" :state="selected.provider_outputState" :reference="selected.provider_outputRef" />
@@ -768,6 +778,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
 .inspector-heading{gap:12px;}
 .inspector-label{white-space:nowrap;flex-shrink:0;}
 .inspector-selection{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;}
+.selected-result{margin:0 0 16px;padding:10px 12px;border:1px solid var(--workbench-border);border-radius:8px;color:var(--workbench-ink);overflow-wrap:anywhere;}
 .inspector-selection strong{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
 .inspector-selection>svg{flex-shrink:0;color:var(--workbench-muted);}
 .inspector-selection .status-pill{font-size:10px;padding:2px 5px;}

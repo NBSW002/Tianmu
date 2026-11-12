@@ -488,9 +488,11 @@ export function buildTraceOverview(presentation) {
   return { ...presentation, cards, allCards, groups }
 }
 
-// Keep the agent loop visible while retaining the compact background groups.
 export function defaultExpandedStages(presentation) {
-  return new Set(presentation.cards.filter(card => card.cardKind === 'execution').map(card => card.id))
+  const expanded = new Set()
+  const visit = card => { if (card.children?.length) { expanded.add(card.id); card.children.forEach(visit) } }
+  presentation.cards.forEach(visit)
+  return expanded
 }
 
 // This view represents recorded span ancestry, not execution order.

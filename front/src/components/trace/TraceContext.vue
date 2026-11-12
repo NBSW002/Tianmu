@@ -10,6 +10,9 @@ const colors = {
   memory_context:'var(--trace-memory)', environment_context:'var(--trace-environment)',
   reference_context:'var(--trace-reference)', current_context:'var(--trace-current)',
   runtime_state:'var(--trace-runtime)', output_contract:'var(--trace-output)',
+  'context.system_bytes':'var(--trace-clay)', 'context.user_bytes':'var(--trace-sage)',
+  'context.assistant_bytes':'var(--trace-charcoal)', 'context.tool_result_bytes':'var(--trace-current)',
+  'context.tools_bytes':'var(--trace-environment)',
 }
 const total = computed(() => props.selection.slots.reduce((sum, slot) => sum + (Number.isFinite(slot.bytes) && slot.bytes >= 0 ? slot.bytes : 0), 0))
 const complete = computed(() => props.selection.slots.every(slot => Number.isFinite(slot.bytes) && slot.bytes >= 0))
@@ -46,10 +49,6 @@ const bytes = value => value == null ? '未记录' : `${new Intl.NumberFormat('z
         <dd>{{ bytes(slot.bytes) }}<span v-if="slot.share != null">{{ slot.share.toFixed(1) }}%</span></dd>
       </div>
     </dl>
-    <details v-if="selection.visible && !aggregate" class="context-protocol" aria-label="上下文技术信息">
-      <summary>技术信息</summary>
-      <dl><div><dt>结构版本</dt><dd>{{ selection.version || '未记录' }}</dd></div><div><dt>投影协议</dt><dd>{{ selection.projection || '未记录' }}</dd></div></dl>
-    </details>
   </section>
 </template>
 

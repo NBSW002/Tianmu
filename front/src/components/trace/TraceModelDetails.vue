@@ -12,9 +12,9 @@ const tokens = value => value == null ? '—' : `${new Intl.NumberFormat('zh-CN'
       <div><dt>模型</dt><dd :title="(details.modelIds || []).join(' / ')">{{ details.models.join(' / ') || '—' }}</dd></div>
       <div><dt>调用类型</dt><dd>{{ details.types.join(' / ') || '—' }}</dd></div>
       <div><dt>模型调用</dt><dd>{{ details.count }} 次</dd></div>
-      <div class="named-calls"><dt>Skill 调用<span>{{ details.skillCalls }} 次</span></dt><dd v-if="details.skillNames?.length"><ul><li v-for="call in details.skillNames" :key="call.name"><span>{{ call.name }}</span><small v-if="call.count > 1">×{{ call.count }}</small></li></ul></dd></div>
-      <div class="named-calls"><dt>Tool 调用<span>{{ details.toolCalls }} 次</span></dt><dd v-if="details.toolNames?.length"><ul><li v-for="call in details.toolNames" :key="call.name"><span>{{ call.name }}</span><small v-if="call.count > 1">×{{ call.count }}</small></li></ul></dd></div>
-      <div><dt>上下文压缩</dt><dd>{{ details.compression }}</dd></div>
+      <div v-if="details.skillCalls" class="named-calls"><dt>Skill 调用<span>{{ details.skillCalls }} 次</span></dt><dd v-if="details.skillNames?.length"><ul><li v-for="call in details.skillNames" :key="call.name"><span>{{ call.name }}</span><small v-if="call.count > 1">×{{ call.count }}</small></li></ul></dd></div>
+      <div v-if="details.toolCalls" class="named-calls"><dt>Tool 调用<span>{{ details.toolCalls }} 次</span></dt><dd v-if="details.toolNames?.length"><ul><li v-for="call in details.toolNames" :key="call.name"><span>{{ call.name }}</span><small v-if="call.count > 1">×{{ call.count }}</small></li></ul></dd></div>
+      <div v-if="details.compression !== '—'"><dt>上下文压缩</dt><dd>{{ details.compression }}</dd></div>
     </dl>
   </section>
 </template>
