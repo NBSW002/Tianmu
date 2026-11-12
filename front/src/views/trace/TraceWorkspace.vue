@@ -9,7 +9,6 @@ import TraceDivider from '@/components/trace/TraceDivider.vue'
 import TraceIcon from '@/components/trace/TraceIcon.vue'
 import TraceCode from '@/components/trace/TraceCode.vue'
 import TraceContext from '@/components/trace/TraceContext.vue'
-import TraceNodeMetrics from '@/components/trace/TraceNodeMetrics.vue'
 import TraceModelDetails from '@/components/trace/TraceModelDetails.vue'
 import TraceResponseTiming from '@/components/trace/TraceResponseTiming.vue'
 import TraceTokenUsage from '@/components/trace/TraceTokenUsage.vue'
@@ -109,7 +108,6 @@ watch([() => trace.value.remote, () => userStore.user?.token], async ([remote,to
 }, { immediate:true })
 const contextSelection = computed(() => runSelection.value ? (modelDetails.value.peakContext || {visible:false,slots:[]}) : contextDetails(selected.value))
 const responseSelection = computed(() => modelResponseDetails(selected.value,presentation.value.rawById))
-const metricSelection = computed(() => runSelection.value ? {...selected.value,durationMs:trace.value.durationMs,totalTokens:trace.value.totalTokens} : selected.value)
 const compactionSelection = computed(() => compactionDetails(selected.value))
 const preparationSelection = computed(() => preparationDetails(selected.value))
 const executionSelection = computed(() => executionFacts(selected.value, presentation.value).filter(fact => fact !== '思考状态未记录'))
@@ -255,12 +253,6 @@ function downloadExample() {
         <div class="run-metrics"><span title="运行自身记录的耗时；可能与所有节点覆盖的时间跨度不同"><TraceIcon name="clock" :size="14" /><small>运行耗时</small>{{ formatDuration(trace.durationMs) }}</span><span><TraceIcon name="token" :size="14" />{{ formatValue(trace.totalTokens) }}<small>Token</small><small v-if="!trace.usageComplete" title="部分节点未提供用量">部分</small></span><span v-if="trace.foregroundModelCalls != null || trace.preparationModelCalls != null || trace.backgroundModelCalls != null" title="来源任务的历史调用不计入本次"><small>本次模型调用：</small>前台 {{ trace.foregroundModelCalls ?? '未知' }} · 前置 {{ trace.preparationModelCalls ?? '未知' }} · 后台 {{ trace.backgroundModelCalls ?? '未知' }}</span></div>
       </div>
 
-            <section v-if="selected" class="node-overview selected-summary" aria-label="节点概况">
-            <div class="selected-node-heading"><span class="selected-node-icon" :class="selected.kind.toLowerCase()"><TraceIcon :name="cardIcon(selected)" :size="19" /></span><div><h2 data-testid="inspector-node-name">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</h2><small>{{ selected.executionLabel || selected.tool || selected.model || selected.name }}</small></div></div>
-            <div class="node-status-line"><span class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span></div>
-            <p class="semantic-result">{{ selected.summary }}</p>
-            <TraceNodeMetrics :node="metricSelection" :partial="runSelection && !trace.usageComplete" summary-only />
-            </section>
       <div class="workspace-panels">
         <section class="graph-column" aria-label="执行过程">
           <div ref="viewTabs" class="view-tabs">
@@ -287,7 +279,7 @@ function downloadExample() {
 
         <TraceDivider label="调整节点详情宽度" :value="inspectorWidth" :min="360" :max="maxInspector" reverse @resize="resizeInspector" @dragging="resizing = $event" @reset="resizeInspector(Math.min(560, studioWidth * 0.38) - inspectorWidth)" />
         <aside ref="inspector" class="inspector-column" aria-label="节点详情" tabindex="0">
-          <div class="inspector-heading">节点详情<span v-if="selected?.turn != null">{{ selected.turn === 0 ? '前置处理' : `第 ${selected.turn} 轮` }}</span></div>
+          <div class="inspector-heading"><span class="inspector-label">节点详情</span><div v-if="selected" class="inspector-selection"><TraceIcon :name="cardIcon(selected)" :size="15" /><strong data-testid="inspector-node-name" :title="mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected)">{{ mode === 'list' ? nodeDisplayName(selected) : cardTitle(selected) }}</strong><span v-if="!runSelection" class="status-pill" :class="selected.status.toLowerCase()">{{ statusLabel(selected.status) }}</span><span v-if="!runSelection && selected.durationMs != null" class="selection-duration" title="节点耗时">{{ formatDuration(selected.durationMs) }}</span></div></div>
           <div v-if="selected" class="inspector-content" :key="selected.id">
 
             <div v-if="runSelection || contextSelection.visible || selected.kind === 'MODEL' || selected.cardKind === 'model' || selected.totalTokens != null" class="inspector-dashboard">
@@ -756,18 +748,14 @@ h1 { margin: 0; font-size: 15px; font-weight: 650; }
   --trace-output: #b6aa93;
 }
 
-.selected-summary{width:fit-content;max-width:calc(100% - 48px);align-self:flex-start;display:flex;align-items:center;gap:20px;margin:0 24px 10px;padding:8px 14px;border:1px solid var(--workbench-border);border-radius:9px;background:var(--trace-card);flex-shrink:0;}
-.selected-summary .selected-node-heading{min-width:0;flex:0 1 auto;}
-.selected-summary .semantic-result{max-width:240px;margin:0;}
-.selected-summary .node-status-line{margin:0;}
-.selected-summary :deep(.node-visuals){margin:0;min-width:280px;}
-.selected-summary :deep(.metric-row){padding:0;border:0;gap:20px;}
-.selected-summary .selected-node-icon{width:30px;height:30px;}
-.selected-summary .selected-node-heading h2{font-size:13px;}
-.selected-summary :deep(.metric-row dd){font-size:15px;margin-top:2px;}
 .model-performance{display:flex;flex-direction:column;gap:12px;min-width:0;}
 .model-performance :deep(.response-card){flex:1;}
-.selected-summary :deep(.metric-row>div){flex:none;}
-@media(max-width:1100px){.selected-summary{flex-wrap:wrap;}}
-@media(max-width:600px){.selected-summary{max-width:calc(100% - 24px);margin-inline:12px;gap:10px;}.selected-summary .semantic-result{max-width:100%;}}
+ .inspector-heading{gap:12px;}
+.inspector-label{white-space:nowrap;flex-shrink:0;}
+.inspector-selection{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;}
+.inspector-selection strong{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.inspector-selection>svg{flex-shrink:0;color:var(--workbench-muted);}
+.inspector-selection .status-pill{font-size:10px;padding:2px 5px;}
+.selection-duration{white-space:nowrap;font-size:11px;color:var(--workbench-muted);font-variant-numeric:tabular-nums;}
+@container(max-width:410px){.inspector-selection{gap:5px;}.inspector-heading{padding-inline:12px;gap:8px;}.inspector-selection .status-pill.succeeded{display:none;}}
 </style>
