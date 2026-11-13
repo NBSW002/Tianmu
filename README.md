@@ -2,187 +2,52 @@
 
 # EchoFrame
 
-**开源视频社区 · 个人助手 · 可追溯的创作者工具**
+**视频社区与创作者个人助手**
 
-发布视频，与观众互动，让弹幕和评论成为下一次创作的线索。
+观看与发布视频，理解观众反馈，查看助手的每一步执行。
 
 [![Build and verify](https://github.com/blackirlsama/EchoFrame/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/blackirlsama/EchoFrame/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 17](https://img.shields.io/badge/Java-17-orange.svg)](pom.xml)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883.svg)](front/package.json)
 
-[产品体验](#产品体验) · [快速开始](#快速开始) · [系统如何工作](#系统如何工作) · [文档导航](#文档导航) · [参与贡献](#参与贡献)
+[界面预览](#界面预览) · [快速开始](#快速开始) · [系统概览](#系统概览) · [文档导航](#文档导航)
 
 </div>
 
-![EchoFrame 视频社区首页](images/echoframe-home-current.jpg)
+## 界面预览
 
-EchoFrame 将视频发布与观看、弹幕评论和个人助手放在同一个产品里。创作者可以让助手阅读自己视频的观众反馈、结合采样画面生成报告，再把观察转成下一次创作的线索。任务执行过程可在 Trace 中检查。
+**视频社区** · 发现视频、分类浏览、播放与互动。
 
-> 当前是持续开发中的开源项目。下方截图来自已部署的真实网站；本地 Agent Demo 使用模拟身份和数据。完整网站与真实模型需要单独配置依赖和凭据。
+![EchoFrame 视频社区首页](images/echoframe-home-current.png)
 
-## 产品体验
+**视频与个人助手** · 在观看页面讨论内容，创作者可以整理弹幕和评论、生成反馈报告及互动草稿。
 
-| 场景 | 当前能力 |
+![视频页中的 EchoFrame 个人助手和反馈报告](images/echoframe-assistant-current.png)
+
+**Trace Studio** · 执行图、时间线与节点详情联动，查看模型和工具调用、上下文、Token 用量及响应耗时。
+
+![EchoFrame 运行追踪：执行图、时间线和节点详情](images/echoframe-trace-current.png)
+
+截图来自实际部署。项目持续开发中；本地 Demo 使用模拟数据，真实模型与完整网站需要额外配置。
+
+## 可以做什么
+
+| 能力 | 用法 |
 | --- | --- |
-| 视频社区 | 上传、播放、搜索与分类浏览视频；弹幕、评论、回复和用户互动 |
-| 个人助手 | 在视频页讨论内容与指定片段，生成评论或弹幕草稿；创作者可分析自己的观众反馈 |
-| 反馈报告 | 评论与弹幕去重后联合向量分桶，选取最多五个显著主题；每桶向模型提供有界候选，报告展示最多三条代表原话及建议 |
-| 记忆 | 后台整理适合长期保留的信息；由服务端按权限召回，可在记忆管理页查看、修改、忘记或暂停 |
-| 运行追踪 | 查看任务进度，并按 Trace ID 查询已授权的运行，检查节点、模型调用与时间线；也可导入日志离线查看 |
+| 视频社区 | 上传、播放、搜索与分类浏览，发送弹幕、评论和回复 |
+| 视频助手 | 讨论当前视频或指定片段，生成评论与弹幕草稿，由用户确认后发送 |
+| 观众反馈报告 | 创作者分析自己的评论与弹幕，结合采样画面生成带原话引用的报告，支持预览和 HTML 下载 |
+| 个人记忆 | 查看、修改、忘记或暂停记忆，让后续对话使用相关信息 |
+| 运行追踪 | 按 Trace ID 查询有权限的运行，也可以离线导入 JSON / JSONL |
 
-### 视频与助手
-
-![视频页中的 EchoFrame 个人助手和反馈报告](images/echoframe-assistant-current.jpg)
-
-登录后可以在视频页提问。创作者在自己的视频上可以尝试：
+可以向助手提问：
 
 ```text
 分析这个视频的弹幕和评论，结合画面生成观众反馈报告。
-概括这个视频的画面内容，重点描述最后一个片段。
-结合当前视频，给我几个下一条视频的选题方向。
+概括这个视频最后一个片段的画面内容。
 生成几条引导观众讨论的作者评论，先给我草稿。
 ```
-
-报告使用实际入库的互动；视频理解依据采样画面。未配置转写时不包含音频理解。报告主题来自有相似度约束的代表反馈，未归类反馈不会被强行写进主题。发送评论或弹幕前，用户仍需检查并确认草稿。
-
-### 运行追踪
-
-![EchoFrame 运行追踪：执行图、时间线和节点详情](images/echoframe-trace-current.jpg)
-
-Trace Studio 展示准备阶段、记忆召回、模型与工具调用、后台分析和交付。登录用户可以查询自己有权限查看的 Trace；本地也能打开示例或导入 JSON / JSONL。它帮助定位一次任务为什么慢、用了哪些证据，不能代替报告本身的内容质量评估。
-
-## 系统如何工作
-
-### 业务后端：服务与依赖
-
-业务后端是一个 Spring Boot 服务，负责用户、视频、评论、上传和搜索；Netty 处理弹幕 WebSocket。业务记录写入 MySQL，其他组件各有明确职责：Redis 保存会话与热点数据，MinIO 保存媒体，Elasticsearch 提供检索，RocketMQ 承接弹幕消息，Canal 订阅数据库变更。
-
-```mermaid
-flowchart TB
-    Gateway["Nginx：HTTP / WebSocket 入口"]
-    Gateway --> Business["Spring Boot 业务接口<br/>用户 · 视频 · 评论 · 上传 · 搜索"]
-    Gateway --> Netty["Netty 弹幕服务<br/>连接、鉴权与房间广播"]
-    Business --> Mysql[("MySQL<br/>权威业务记录")]
-    Business --> Redis[("Redis<br/>会话与热点数据")]
-    Business --> Minio[("MinIO<br/>视频与封面")]
-    Business --> Es[("Elasticsearch + IK<br/>用户与视频检索")]
-    Netty --> Rocket["RocketMQ<br/>弹幕消息"]
-    Rocket --> Consumer["弹幕消费者<br/>幂等入库"]
-    Consumer --> Mysql
-    Mysql -.-> Canal["Canal<br/>订阅 Binlog"]
-    Canal --> Redis
-    Canal --> Es
-```
-
-弹幕在这套组件中按下面的顺序流转。发送成功后，Netty 将弹幕加入房间广播；消费者负责持久化，数据库提交后 Canal 再更新播放缓存。广播与持久化属于两个阶段，不能把房间广播当作已经入库。
-
-```mermaid
-flowchart TB
-    Send["播放器发送弹幕"] --> WS["Netty 校验登录、视频与内容"]
-    WS --> MQ["RocketMQ 接收事件"]
-    MQ --> Broadcast["Netty 向房间广播"]
-    MQ --> Consumer["消费者按弹幕 ID 幂等处理"]
-    Consumer --> DB[("MySQL 弹幕记录")]
-    DB -.-> Canal["Canal 读取提交后的变更"]
-    Canal --> Cache[("Redis 播放弹幕缓存")]
-    Cache --> Read["后续播放读取"]
-```
-
-更完整的后端模块与部署说明见[架构说明](docs/ARCHITECTURE.md)和[网站部署](deploy/site/README.md)。独立 Agent 的请求和报告流程见下方三节。
-
-### 一次请求如何执行
-
-```mermaid
-flowchart TB
-    A["用户消息与当前页面"] --> B["身份与视频范围校验"]
-    B --> C{"FAQ 或记忆总览<br/>可直接回答？"}
-    C -->|是| D["宿主直接交付"]
-    C -->|否| E["同一请求快照"]
-    E --> F["意图识别"]
-    E --> G["情绪识别"]
-    E --> H["澄清识别"]
-    F --> I["识别结果汇合"]
-    G --> I
-    H --> I
-    I --> J["服务端召回记忆<br/>组装任务与上下文"]
-    J --> K{"条件齐全？"}
-    K -->|否| L["澄清并等待补充"]
-    K -->|是| M["模型决策 → 授权工具 → 结果回填"]
-    M -->|需要下一轮| M
-    M --> N["完成裁决与交付"]
-    D --> O["SSE 正文与进度"]
-    L --> O
-    N --> O
-    B -.-> T["Trace：节点、父子关系和时间线"]
-    I -.-> T
-    M -.-> T
-    N -.-> T
-```
-
-FAQ 命中或纯记忆总览可由宿主直接回答；其他请求的三路识别共享同一输入，汇合后才固定任务范围。模型与工具循环受轮次、时限、权限和预算控制。Trace 记录真实执行，节点并非额外模型步骤。
-
-### 观众反馈如何变成报告
-
-```mermaid
-flowchart TB
-    R["作者请求反馈报告"] --> V["视频分析 Tool<br/>授权视频与采样画面"]
-    R --> P["反馈材料 Tool<br/>冻结授权快照"]
-    P --> C["评论预处理"]
-    P --> D["弹幕预处理"]
-    C --> U["清洗、去重与联合向量池"]
-    D --> U
-    U --> B["相似度约束分桶<br/>最多五个显著主题"]
-    B --> X["每桶最多八条候选<br/>输入模型"]
-    X --> J["主题分析与结构化报告 JSON"]
-    V --> J
-    J --> Q["权限与证据校验"]
-    Q --> H["网页报告与下载 HTML<br/>每桶最多三条原话"]
-    J -.-> T["Trace：来源、缓存和分析阶段"]
-```
-
-评论与弹幕的来源准备可以重叠；视频 Tool 与材料 Tool 在当前原生调用批次中可能顺序执行，图中两路箭头只表示生成报告需要两类证据。未满足相似度要求的反馈留在桶外；全量文本只用于程序统计和向量处理，不送入报告模型。数据稀少时按实际数量生成，不凑满五桶。
-
-### 记忆如何写入与召回
-
-写入和读取是两条独立链路。对话提交后，只有开启自动整理且内容合格，才会入后台整理队列；用户明确说“请记住”也可进入保存流程。后台提取候选事实后，再核对来源、权限和重复项，写入带版本的 MySQL 记忆。索引工作器扫描已提交版本生成向量；向量是可重建的检索索引。
-
-```mermaid
-flowchart TB
-    Message["已提交的对话"] --> Eligible{"开启自动整理<br/>且值得长期保留？"}
-    Explicit["明确请求保存"] --> Job["持久化后台整理任务"]
-    Eligible -->|是| Job
-    Eligible -->|否| End["本轮不自动写入"]
-    Job --> Extract["模型提取候选事实"]
-    Extract --> Validate["来源、授权与重复检查"]
-    Validate --> Revision[("MySQL<br/>记忆版本与来源")]
-    Revision --> Index["独立索引工作器"]
-    Index --> Vector[("MySQL<br/>模型版本对应向量")]
-```
-
-下一轮请求由 Agent 宿主先读取授权快照。问“你了解我吗”一类个人总览时，宿主直接分页列出可读原文；普通问题则合并核心事实、关键词与语义候选，按相关性和上下文预算选择，再交给模型回答。两条路径都重新检查来源和当前权限。
-
-```mermaid
-flowchart TB
-    Ask["下一轮请求"] --> Guard{"记忆模式与授权快照"}
-    Guard -->|暂停| None["不读取记忆"]
-    Guard -->|个人总览| Overview["读取可用原文<br/>服务端分页清单"]
-    Overview --> Direct["宿主直接回答"]
-    Guard -->|相关问题| Candidates["核心事实 + 关键词候选"]
-    Vector[("当前版本的可用向量")] --> Semantic["语义候选"]
-    Guard -->|相关问题| Semantic
-    Candidates --> Fuse["融合排序、去重与预算限制"]
-    Semantic --> Fuse
-    Fuse --> Recheck["再次核对来源与权限"]
-    Recheck --> Context["选中的事实进入模型上下文"]
-    Manage["管理页：修改 / 忘记 / 暂停"] --> Revision["更新版本或撤销授权"]
-    Revision -.->|旧版本失效| Vector
-    Revision -.-> Guard
-```
-
-“只使用”模式允许读取已有记忆，但不自动新增。管理页修改、忘记或暂停后，旧版本与对应向量不能继续作为可读事实。模型不持有搜索、保存或删除记忆的 Tool。
-
-更细的边界、失败与恢复规则见[架构说明](docs/ARCHITECTURE.md)、[报告实现](agent/docs/代表材料三工具实施与验收.md)和[记忆方案](agent/docs/记忆召回重构技术方案.md)。
 
 ## 快速开始
 
@@ -248,6 +113,29 @@ npm run serve
 完整网站需要 MySQL、Redis、MinIO、Elasticsearch（IK）、RocketMQ 与 Canal；真实 Agent 还需要模型凭据，持久化模式使用 Agent 专用 MySQL、Redis 和私有对象存储。画面理解另需 FFmpeg / ffprobe 与视觉模型，转写单独配置。
 
 按[运行与接入指南](docs/QUICKSTART.md#方式三运行完整网站)准备依赖、配置登录与模型，再启动业务后端、Agent 和前端。模型调用可能产生费用。现有[网站容器部署](deploy/site/README.md)依赖既有共享网络与服务，不是空环境的一键启动脚本。
+
+## 系统概览
+
+前端使用 Vue 3，业务后端与独立 Agent 使用 Java 17 / Spring Boot。业务服务负责视频、用户和互动；Agent 通过授权接口读取业务数据，执行模型与工具调用。Trace 记录执行过程，便于检查耗时与证据来源。
+
+反馈报告的主要处理过程：
+
+```mermaid
+flowchart LR
+    A["授权反馈快照"] --> B["主评论与弹幕筛选"]
+    B --> C["附加真实子评论"]
+    C --> D["确认主题与证据"]
+    V["视频采样分析"] --> D
+    V --> E["撰写报告"]
+    D --> E
+    E --> F["校验与保存"]
+```
+
+大材料使用向量粗排与精排，每桶最多选取五个素材，再附加子评论；报告每主题最多展示三个素材。视频理解依据采样画面和可选转写，主题结论依据代表反馈，不等于逐条分析全部互动。
+
+- [业务与 Agent 架构](docs/ARCHITECTURE.md)：服务依赖、任务执行与数据边界。
+- [反馈报告工程说明](agent/docs/Agent架构与工程治理技术设计.md)：当前选材、回复关联及两阶段写作规则。
+- [记忆方案](agent/docs/记忆召回重构技术方案.md)：记忆整理、召回和管理。
 
 ## 开发与测试
 
