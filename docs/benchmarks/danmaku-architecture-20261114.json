@@ -1,0 +1,123 @@
+{
+  "date": "2026-11-14",
+  "scope": "Local Windows Java17 + Docker real dependencies; direct API/WS; shared host",
+  "tests": [
+    {
+      "name": "application.BulletWindowsTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "websocket.RoomBatchBroadcasterTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "websocket.WebSocketHandlerTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "websocket.DanmakuSocketIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "application.CreatorWorkspaceTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "client.CanalStatsBatchTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agentbridge.BusinessIntegrationTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "frontendTests": 158,
+  "frontendBuild": "passed",
+  "windowRead": [
+    {
+      "concurrency": 5,
+      "total": 7229,
+      "seconds": 15.0133629,
+      "qps": 481.50391209439715,
+      "p50": 10.562699999999495,
+      "p95": 16.259000000000015,
+      "p99": 20.295199999999994,
+      "codes": {
+        "200": 7229
+      },
+      "bytes": 346355848
+    }
+  ],
+  "windowReadFixture": {
+    "videoId": 100,
+    "historyItems": 6000,
+    "windowSeconds": 60,
+    "firstPageItems": 500,
+    "fullPagination": {
+      "pages": 20,
+      "uniqueItems": 6000
+    },
+    "detailWithoutBullets": true
+  },
+  "connectionRun": [
+    {
+      "rate": 60,
+      "connections": 2000,
+      "senders": 20,
+      "sent": 1800,
+      "sendSeconds": 29.9882014,
+      "actualWriteQps": 60.02360648411545,
+      "maxScheduleLagMs": 47.877434,
+      "persisted": 1800,
+      "expectedDeliveries": 3600000,
+      "observedDeliveries": 3600000,
+      "deliveryRate": 1,
+      "minReceived": 1800,
+      "duplicates": 0,
+      "errors": 0,
+      "closed": 0,
+      "p50": "242.4",
+      "p95": "430.2",
+      "p99": "518.9",
+      "prefix": "ltmwf95atc-60-1-"
+    }
+  ],
+  "sourceHashes": {
+    "src/main/java/com/orangecode/tianmu/websocket/RoomBatchBroadcaster.java": "d03d25d56b033a84b6416d2a084e4ea3c829805081b29d1d9e2c612c355c0352",
+    "src/main/java/com/orangecode/tianmu/application/BulletWindows.java": "9bba828cfeaf582d2c0d3838255106a0637affd04acd31dfad7d9a9fa59c1b2f",
+    "src/main/java/com/orangecode/tianmu/client/CanalClient.java": "412935e6d7ea1e8d0f342af77e527cd6351d91e9d993763250c3ab75da0b25e3",
+    "src/main/java/com/orangecode/tianmu/service/BulletIngestionService.java": "4f9522160c799717d57e3a11d5566f94c6d1c38e8db788161f2b5e50ae7eaa69",
+    "front/src/lib/danmaku-history.mjs": "5c89be67bb62e6c0d217adfacc60d47b232ad0953b082e69e45ec05f3d20046d",
+    "front/src/views/detail/VideoDetail.vue": "3a2615c0343639d4f4eef9320e84991ad0a28797c8234efdf0cdcb9d9229df96"
+  },
+  "limits": [
+    "Window throughput is first 500-item page only; not complete-video retrieval",
+    "Cache versions remain video-wide; per-window invalidation is deferred",
+    "Paging does not freeze a cross-request database snapshot",
+    "Receive latency sampled every 100th connection",
+    "Count after 10-second drain; 30-second load only",
+    "No browser playback manual QA and no failure-recovery soak",
+    "Counters are diagnostic attempts, not client ACKs"
+  ]
+}

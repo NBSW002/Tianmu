@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-14",
+  "environment": {
+    "cpu": "Intel Core Ultra 7 155H, 16 cores / 22 logical processors",
+    "memoryBytes": 33786552320,
+    "architecture": "Windows local business process; Docker MySQL 8.0, Redis 7.4, RocketMQ 4.9.4, Canal 1.1.7, Elasticsearch 8.18.1",
+    "clientSharesHost": true,
+    "nginxExcluded": true
+  },
+  "historicalRead": {
+    "interface": "POST /api/video/detail",
+    "datasetBullets": 76218,
+    "approxResponseBytes": 7388424,
+    "cacheState": "warm; no writes during reads",
+    "runs": [
+      {
+        "concurrency": 1,
+        "requests": 50,
+        "qps": 3.2719706,
+        "p95Ms": 351.1859,
+        "bytes": 369421198
+      },
+      {
+        "concurrency": 5,
+        "requests": 96,
+        "qps": 6.132384,
+        "p95Ms": 1334.9222,
+        "bytes": 709288713
+      }
+    ],
+    "coldProbe": {
+      "datasetBullets": 83418,
+      "requests": 2,
+      "firstAndSubsequentNotSeparatelyRecorded": true,
+      "maxMs": 932.0162,
+      "cacheRebuilt": true
+    }
+  },
+  "liveSoak": [
+    {
+      "rate": 60,
+      "connections": 1000,
+      "senders": 20,
+      "sent": 7200,
+      "sendSeconds": 119.9855715,
+      "actualWriteQps": 60.00721511752769,
+      "maxScheduleLagMs": 70.294667,
+      "persisted": 7200,
+      "expectedDeliveries": 7200000,
+      "observedDeliveries": 7200000,
+      "deliveryRate": 1,
+      "minReceived": 7200,
+      "duplicates": 0,
+      "errors": 0,
+      "closed": 0,
+      "p50": "128.0",
+      "p95": "223.9",
+      "p99": "259.2",
+      "prefix": "ltmwf806qm-60-1-"
+    }
+  ],
+  "connectionScale": {
+    "attempted": 2000,
+    "reachedAtLeast": 1000,
+    "result": "connection reset during ramp-up",
+    "serverRejectedExecutionExceptionObserved": true
+  },
+  "limitations": [
+    "10 second drain; latency sampled at 10 connections",
+    "two minute soak only, not long-term capacity",
+    "cold and warm not separately instrumented in same cold probe",
+    "cache freshness, failure recovery, multiroom and controlled Nginx benchmarks not tested",
+    "cache state inferred from warmed key; no per-request hit instrumentation",
+    "client/server share host"
+  ]
+}
