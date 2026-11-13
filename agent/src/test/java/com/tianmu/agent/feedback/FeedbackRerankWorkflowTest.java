@@ -24,6 +24,35 @@ import static org.mockito.Mockito.*;
 class FeedbackRerankWorkflowTest {
     @TempDir Path directory;
 
+    @Test void reportAdviceRequiresReferencesFromItsOwnConfirmedTopic() throws Exception {
+        var json=new ObjectMapper().findAndRegisterModules();
+        var citation=new java.util.concurrent.atomic.AtomicReference<List<String>>(List.of());
+        var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/chat/completions",exchange->{
+            try(exchange){
+                var content=json.writeValueAsString(Map.of("topics",List.of(Map.of("topicId","T1","observation","观众提出了具体反馈。",
+                        "recommendation","调整字幕。","recommendationEvidence",citation.get()))));
+                byte[] body=json.writeValueAsBytes(Map.of("choices",List.of(Map.of("finish_reason","stop","message",Map.of("content",content))),
+                        "usage",Map.of("prompt_tokens",100,"completion_tokens",30)));
+                exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);
+            }
+        });
+        server.start();
+        try{
+            var properties=new DeepSeekProperties(URI.create("http://127.0.0.1:"+server.getAddress().getPort()),"fixture","fixture","fixture",Duration.ofSeconds(3),384,1536,"fixture",false);
+            var models=new DeepSeekFeedbackModels(new DeepSeekClient(properties,json),properties,json,new PromptCatalog());
+            var group=new FeedbackModels.Group("C:1",Source.COMMENT,"字幕看不清","",false,null,1,List.of("C:1"),"B1");
+            var topic=new Topic("topic","字幕","观众反馈字幕。","",List.of("C:1"),1,0,null);
+            var input=new FeedbackModels.Input(WorkKind.MERGE,List.of(group),List.of(topic),null);
+            var control=new CallControl(Instant.now().plusSeconds(20),new CancellationToken());
+            assertEquals("",models.writeReport(input,control).get(0).recommendation());
+            citation.set(List.of("C:other"));
+            assertEquals("",models.writeReport(input,control).get(0).recommendation());
+            citation.set(List.of("C:1"));
+            assertEquals("调整字幕。",models.writeReport(input,control).get(0).recommendation());
+        }finally{server.stop(0);}
+    }
+
     @Test void preparesFiveBucketsThenConfirmsAndWritesBeforeDelivery() throws Exception {
         verifyWorkflow(false);
     }
@@ -43,6 +72,8 @@ class FeedbackRerankWorkflowTest {
         var qwenCalls=new AtomicInteger();
         var deepseekCalls=new AtomicInteger();
         var sentEvidence=new AtomicInteger();
+        var confirmationEvidence=new java.util.concurrent.atomic.AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var writingEvidence=new java.util.concurrent.atomic.AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/reranks",exchange->{
             try(exchange){
@@ -62,6 +93,7 @@ class FeedbackRerankWorkflowTest {
                 var input=json.readTree(exchange.getRequestBody());
                 var payload=json.readTree(input.path("messages").get(1).path("content").asText());
                 if(payload.has("topics")){
+                    writingEvidence.set(payload.path("topics").get(0).path("evidence"));
                     if(failWriter){exchange.sendResponseHeaders(503,-1);return;}
                     var output=new ArrayList<Map<String,String>>();
                     for(var topic:payload.path("topics"))output.add(Map.of("topicId",topic.path("topicId").asText(),
@@ -72,11 +104,12 @@ class FeedbackRerankWorkflowTest {
                     exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);return;
                 }
                 var evidence=payload.path("evidence");
+                confirmationEvidence.set(evidence);
                 sentEvidence.set(evidence.size());
                 var edges=new ArrayList<Map<String,String>>();
-                for(int i=0;i<2;i++)edges.add(Map.of("groupId",evidence.get(i).path("groupId").asText(),"expressionId",evidence.get(i).path("expressionId").asText()));
+                for(int i=0;i<5;i++)edges.add(Map.of("groupId",evidence.get(i).path("groupId").asText(),"expressionId",evidence.get(i).path("expressionId").asText()));
                 var topic=Map.of("title","反馈主题","observation","观众描述了实际体验。","recommendation","",
-                        "evidence",edges,"quotes",List.of(attempt==1?evidence.get(0).path("text").asText():edges.get(0).get("expressionId")));
+                        "evidence",edges,"quotes",edges.stream().limit(3).map(edge->edge.get("expressionId")).toList());
                 var content=json.writeValueAsString(Map.of("topics",List.of(topic)));
                 byte[] body=json.writeValueAsBytes(Map.of("choices",List.of(Map.of("finish_reason","stop","message",Map.of("content",content))),
                         "usage",Map.of("prompt_tokens",200,"completion_tokens",40)));
@@ -95,7 +128,7 @@ class FeedbackRerankWorkflowTest {
             var rows=new ArrayList<Unit>();
             for(int bucket=0;bucket<5;bucket++)for(int i=0;i<6;i++){
                 int id=bucket*6+i+1;
-                rows.add(new Unit("C:"+id,Source.COMMENT,""+id,"方向"+bucket+"有具体体验"+i+"观众描述了具体内容和感受".repeat(3),"",false,null,"viewer"+id,Instant.parse("2026-11-01T01:00:00Z"),null));
+                rows.add(new Unit("C:"+id,Source.COMMENT,""+id,"方向"+bucket+"有具体体验"+i+"观众描述了具体内容和感受".repeat(3),"",false,null,"viewer"+id,Instant.parse("2026-11-01T01:00:00Z"),10L));
             }
             FeedbackSnapshotPort source=new FeedbackSnapshotPort(){
                 public void authorize(AccessScope scope,long video){
@@ -128,7 +161,7 @@ class FeedbackRerankWorkflowTest {
             var material=prep.materials(job.id(),owner,control);
             assertEquals(FeedbackCompression.RERANK_VERSION,material.version());
             assertEquals(direct?0:5,qwenCalls.get());
-            assertEquals(direct?30:15,material.representativeCount());
+            assertEquals(direct?30:25,material.representativeCount());
             assertTrue(material.modelBytes()>2700,"All selected evidence survives beyond the former tail-cut limit");
             assertEquals(0,deepseekCalls.get());
             prep.startCompressedReport(job.id(),owner,null,control);
@@ -148,15 +181,21 @@ class FeedbackRerankWorkflowTest {
             }
             assertEquals(Phase.READY,jobs.get(job.id()).phase(),()->String.valueOf(jobs.get(job.id()).errorCode()));
             assertEquals(2,deepseekCalls.get());
-            assertEquals(direct?30:15,sentEvidence.get());
+            assertEquals(direct?30:25,sentEvidence.get());
             assertTrue(jobs.hasLevel(job.id(),1));
             assertTrue(objects.get(jobs.completedLevel(job.id(),1).get(0).result(),ResultNode.class).topics().get(0).observation().startsWith("报告正文"));
             var report=prep.reportJson(job.id(),owner,control);
-            assertEquals(2L,report.method().get("confirmed_records"));
-            assertEquals(28L,report.method().get("unclassified"));
+            assertEquals(5L,report.method().get("confirmed_records"));
+            assertEquals(25L,report.method().get("unclassified"));
             assertEquals(!direct,report.method().get("rerank_degraded"));
-            assertEquals(2,report.topics().get(0).commentCount());
-            assertEquals(2,report.topics().get(0).representatives().size());
+            assertEquals(5,report.topics().get(0).commentCount());
+            assertEquals(3,report.topics().get(0).representatives().size());
+            assertEquals(5,writingEvidence.get().size(),"All confirmed evidence reaches the writer even when only three quotes are displayed");
+            for(var evidence:List.of(confirmationEvidence.get(),writingEvidence.get()))for(var row:evidence){
+                assertTrue(row.has("playbackMs"));assertTrue(row.path("playbackMs").isNull());
+                assertEquals(1,row.path("exactMessages").asInt());
+                assertEquals(10,row.path("likes").asInt());assertTrue(row.path("likesAvailable").asBoolean());
+            }
             assertTrue(new String(report.html(),StandardCharsets.UTF_8).contains("本节引用"));
 
             if(direct){

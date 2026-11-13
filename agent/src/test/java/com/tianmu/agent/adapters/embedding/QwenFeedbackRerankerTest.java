@@ -38,7 +38,7 @@ class QwenFeedbackRerankerTest {
                     "test","qwen3.7-text-rerank",json);
             var control=new CallControl(Instant.now().plusSeconds(10),new CancellationToken());
             var result=adapter.rank("画面卡顿",List.of("背景音乐","播放掉帧"),control);
-            assertEquals(List.of(1,0),FeedbackReranker.topThree(2,result));
+            assertEquals(List.of(1,0),FeedbackReranker.topEvidence(2,result));
             assertEquals(38L,result.inputTokens());
             assertEquals("qwen3.7-text-rerank",request.get().path("model").asText());
             assertEquals("画面卡顿",request.get().path("input").path("query").asText());
@@ -93,8 +93,8 @@ class QwenFeedbackRerankerTest {
             var control = new CallControl(Instant.now().plusSeconds(10), new CancellationToken());
             var documents = List.of("候选甲", "候选乙", "候选丙", "候选丁");
             var ranked = adapter.rank("中心原话", documents, control);
-            assertEquals(List.of(1, 2, 3), FeedbackReranker.topThree(4, ranked));
-            assertEquals(List.of(0, 1, 2), FeedbackReranker.topThree(4, null));
+            assertEquals(List.of(1, 2, 3, 0), FeedbackReranker.topEvidence(4, ranked));
+            assertEquals(List.of(0, 1, 2, 3), FeedbackReranker.topEvidence(4, null));
             assertEquals(23L, ranked.inputTokens());
             assertEquals("中心原话", request.get().path("query").asText());
             assertEquals(json.valueToTree(documents), request.get().path("documents"));

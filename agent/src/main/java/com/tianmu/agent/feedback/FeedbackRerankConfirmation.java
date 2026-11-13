@@ -7,8 +7,12 @@ import java.util.*;
 public final class FeedbackRerankConfirmation {
     private FeedbackRerankConfirmation(){}
     public static Map<String,Object> modelEvidence(FeedbackModels.Group group){
-        return Map.of("expressionId",group.id(),"groupId",group.candidateCluster(),"source",group.source(),
-                "text",group.text(),"context",group.replyContext());
+        var row=new LinkedHashMap<String,Object>();
+        row.put("expressionId",group.id());row.put("groupId",group.candidateCluster());row.put("source",group.source());
+        row.put("text",group.text());row.put("context",group.replyContext());
+        row.put("playbackMs",group.playbackMs());row.put("exactMessages",group.messages());
+        row.put("likes",group.likes());row.put("likesAvailable",group.likes()!=null);
+        return Collections.unmodifiableMap(row);
     }
 
     public static ResultNode validate(String workId,FeedbackModels.Input input,List<FeedbackModels.Proposal> proposals){

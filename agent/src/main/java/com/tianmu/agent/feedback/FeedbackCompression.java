@@ -36,7 +36,7 @@ public final class FeedbackCompression {
     public record RerankBucket(String id,Representative anchor,List<Candidate> candidates) {
         public RerankBucket {candidates=List.copyOf(candidates);}
         public List<Candidate> evidence(FeedbackReranker.Result ranking){
-            return FeedbackReranker.topThree(candidates.size(),ranking).stream().map(candidates::get).toList();
+            return FeedbackReranker.topEvidence(candidates.size(),ranking).stream().map(candidates::get).toList();
         }
     }
     public record RerankPlan(Material material,List<RerankBucket> buckets) {
@@ -70,7 +70,7 @@ public final class FeedbackCompression {
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1|substantive-feedback-v3").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v7").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String materialRevision(String version){
-        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top3-text256-context256-no-tail-cut-v3"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top5-text256-context256-metadata-v4"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return FIVE_VERSION.equals(version)?fiveRevision():revision();
     }
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
@@ -126,7 +126,7 @@ public final class FeedbackCompression {
                     row.replyContext().codePointCount(0,row.replyContext().length()));
             var ids = members.stream().map(Unit::id).toList();
             var group = new FeedbackModels.Group(rep.id(),rep.source(),rep.text(),rep.context(),
-                    false,rep.playbackMs(),members.size(),ids,clusterId);
+                    false,rep.playbackMs(),members.size(),ids,clusterId,rep.likes());
             bytes += write(FeedbackRerankConfirmation.modelEvidence(group))
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 48;
             if (bytes > tiered.directInputBytes()) return null;

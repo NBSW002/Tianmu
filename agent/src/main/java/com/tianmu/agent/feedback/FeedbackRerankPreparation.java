@@ -52,7 +52,7 @@ final class FeedbackRerankPreparation {
             for(var item:selected){
                 var rep=item.representative();
                 groups.add(new FeedbackModels.Group(rep.id(),rep.source(),rep.text(),rep.context(),false,rep.playbackMs(),
-                        item.originalIds().size(),item.originalIds(),bucket.id()));
+                        item.originalIds().size(),item.originalIds(),bucket.id(),rep.likes()));
             }
         }
         var ordered=new ArrayList<FeedbackModels.Group>();
@@ -136,7 +136,7 @@ final class FeedbackRerankPreparation {
             }
         }
         var pool=result==null?candidates:candidates.subList(0,documents.size());
-        var selected=FeedbackReranker.topThree(pool.size(),result).stream().map(pool::get).toList();
+        var selected=FeedbackReranker.topEvidence(pool.size(),result).stream().map(pool::get).toList();
         return new BucketResult(selected,result==null && candidates.size()>=2,
                 result!=null && result.inputTokens()!=null && result.inputTokens()>REQUEST_TOKEN_RESERVATION);
     }

@@ -8,7 +8,7 @@ import java.util.stream.IntStream;
 /** Relevance scores correspond to the frozen document order. */
 public interface FeedbackReranker {
     int CANDIDATES_PER_BUCKET = 20;
-    int EVIDENCE_PER_BUCKET = 3;
+    int EVIDENCE_PER_BUCKET = 5;
 
     record Result(List<Double> scores, Long inputTokens) {
         public Result {
@@ -22,7 +22,7 @@ public interface FeedbackReranker {
 
     Result rank(String query, List<String> documents, CallControl control);
 
-    static List<Integer> topThree(int candidates, Result result) {
+    static List<Integer> topEvidence(int candidates, Result result) {
         if (candidates < 0 || candidates > CANDIDATES_PER_BUCKET
                 || result != null && result.scores().size() != candidates) {
             throw new AgentException("RERANK_PROTOCOL_ERROR", "Invalid candidate count");

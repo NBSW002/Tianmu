@@ -8,7 +8,8 @@ import java.util.*;
 /** Workers have no arbitrary tools. Semantic decisions and deterministic validation are separate. */
 public interface FeedbackModels {
     record Group(String id, Source source, String text, String replyContext, boolean author, Long playbackMs,
-                 long messages, List<String> originalIds,String candidateCluster) {
+                 long messages, List<String> originalIds,String candidateCluster,Long likes) {
+        public Group(String id,Source source,String text,String replyContext,boolean author,Long playbackMs,long messages,List<String> originalIds,String candidateCluster){this(id,source,text,replyContext,author,playbackMs,messages,originalIds,candidateCluster,null);}
         public Group(String id,Source source,String text,String replyContext,boolean author,Long playbackMs,long messages,List<String> originalIds){this(id,source,text,replyContext,author,playbackMs,messages,originalIds,null);}
         public Group { originalIds = List.copyOf(originalIds); }
     }

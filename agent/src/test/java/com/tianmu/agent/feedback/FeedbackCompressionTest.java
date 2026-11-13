@@ -168,11 +168,11 @@ class FeedbackCompressionTest {
         for(var bucket:plan.buckets()){
             assertEquals(20,bucket.candidates().size());
             assertTrue(bucket.candidates().stream().noneMatch(candidate->candidate.representative().id().equals(bucket.anchor().id())));
-            assertEquals(bucket.candidates().subList(0,3),bucket.evidence(null));
-            assertEquals(List.of(bucket.candidates().get(19),bucket.candidates().get(18),bucket.candidates().get(17)),bucket.evidence(ranking));
+            assertEquals(bucket.candidates().subList(0,5),bucket.evidence(null));
+            assertEquals(List.of(bucket.candidates().get(19),bucket.candidates().get(18),bucket.candidates().get(17),bucket.candidates().get(16),bucket.candidates().get(15)),bucket.evidence(ranking));
             selected+=bucket.evidence(ranking).size();
         }
-        assertEquals(15,selected);
+        assertEquals(25,selected);
         assertEquals(110,plan.material().clusters().stream().mapToInt(bucket->bucket.members().size()).sum());
     }
     @Test void provenanceSurvivesPrewarmingAndReportWritesWhileLegacyStaysUnknown(){
