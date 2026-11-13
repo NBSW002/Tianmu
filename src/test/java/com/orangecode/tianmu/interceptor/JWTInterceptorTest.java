@@ -100,6 +100,12 @@ class JWTInterceptorTest {
         }
     }
 
+    @Test void publicBulletWindowAllowsGuests() throws Exception {
+        var request = new MockHttpServletRequest("GET", "/api/video/bullets/window");
+        assertTrue(interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
+        verifyNoInteractions(values);
+    }
+
     private MockHttpServletRequest request(String header) {
         var request = new MockHttpServletRequest("POST", "/api/video/like");
         request.addHeader("Authorization", header); return request;

@@ -29,6 +29,7 @@ public class JWTInterceptor implements HandlerInterceptor {
             "/api/user/loginPassword",
             "/api/video/list",
             "/api/video/detail",
+            "/api/video/bullets/window",
             "/api/video/comment/list",
             "/api/video/submit/list",
             "/api/video/coin/list",
