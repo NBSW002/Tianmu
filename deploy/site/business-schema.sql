@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS `bullet` (
   `color` VARCHAR(255) NOT NULL DEFAULT '',
   `playback_time` DOUBLE NOT NULL DEFAULT 0,
   `create_time` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  INDEX idx_bullet_video_created(video_id,create_time)
+  INDEX idx_bullet_video_created(video_id,create_time),
+  INDEX idx_bullet_video_playback(video_id,playback_time,bullet_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `category` (
@@ -120,6 +121,7 @@ CREATE TABLE IF NOT EXISTS `video_stats` (
   `video_id` BIGINT PRIMARY KEY,
   `view_count` INT NOT NULL DEFAULT 0,
   `bullet_count` INT NOT NULL DEFAULT 0,
+  `bullet_revision` BIGINT NOT NULL DEFAULT 0,
   `like_count` INT NOT NULL DEFAULT 0,
   `coin_count` INT NOT NULL DEFAULT 0,
   `favorite_count` INT NOT NULL DEFAULT 0,

@@ -29,6 +29,8 @@ docker compose --env-file /opt/tianmu-site/config/release.env -f deploy/site/com
 
 `business-schema.sql` 是当前实体对应的新库初始化结构，不是既有业务库的升级迁移。`--initialize-db` 只创建验收账号，不创建验收视频或模拟弹幕；需要验收时请从网站正常上传测试视频并导入测试弹幕。该脚本不应指向其他业务库。验收账号密码仅写入私有 `acceptance.json`。
 
+弹幕窗口功能升级既有库前，先停止所有旧业务写入与弹幕消费，检查并按需执行 `migrations/20261113_bullet_revision.sql` 和 `migrations/20261114_bullet_windows.sql`；确认版本列和窗口索引存在后再切换新实例。新库初始化结构已包含二者，不要重复执行迁移。旧实例不更新弹幕缓存版本，不能与新实例混合写入；恢复旧数据库备份或回滚后再启用新版时，需清除对应 `video:*:bullets:v2` 和 `video:*:bullets:window:*` 缓存，避免版本号重用。
+
 业务与 Agent 分别使用 `tianmu_site`、`tianmu_site_agent`；网站登录使用 Redis database 1。业务文件与 Agent 报告共用同一 MinIO 实例，报告和 Trace 明细放在私有 `tianmu-agent-artifacts` 桶。
 
 ### 创作中心与观看历史

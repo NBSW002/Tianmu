@@ -106,6 +106,20 @@ class CreatorWorkspaceTest {
         event.setContent("changed payload");
         assertThrows(IllegalArgumentException.class,()->ingestion.persist(event));
     }
+    @Test void deletionInvalidatesCachedHistoryByAdvancingRevision() throws Exception {
+        db.update("INSERT INTO bullet(bullet_id,video_id,user_id,content,playback_time) VALUES(301,11,2,'message',15)");
+        var values=mock(org.springframework.data.redis.core.ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper();
+        var videos=mock(VideoLookup.class);
+        var windows=new BulletWindows(db,redis,mapper,videos);
+        var before=windows.read(11,0,0,0);
+        assertEquals(1,before.items().size());
+        when(values.get("video:11:bullets:window:0")).thenReturn(mapper.writeValueAsString(before));
+        creator.deleteFeedback(2,"DANMAKU",301,11L);
+        assertEquals(1L,db.queryForObject("SELECT bullet_revision FROM video_stats WHERE video_id=11",Long.class));
+        assertTrue(windows.read(11,0,0,0).items().isEmpty());
+    }
     @Test void historyIsPrivateUpsertsProgressAndRechecksPublication() {
         history.record(1,11,10); history.record(1,11,25); history.record(2,11,5);
         assertEquals(25,history.list(1,1).items().get(0).positionSeconds());

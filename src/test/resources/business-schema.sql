@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS bullet (
   INDEX idx_bullet_video_created(video_id,create_time)
 );
 CREATE TABLE IF NOT EXISTS video_stats (
-  video_id BIGINT PRIMARY KEY, view_count INT NOT NULL DEFAULT 0, bullet_count INT NOT NULL DEFAULT 0,
+  video_id BIGINT PRIMARY KEY, view_count INT NOT NULL DEFAULT 0, bullet_count INT NOT NULL DEFAULT 0, bullet_revision BIGINT NOT NULL DEFAULT 0,
   like_count INT NOT NULL DEFAULT 0, coin_count INT NOT NULL DEFAULT 0, favorite_count INT NOT NULL DEFAULT 0,
   comment_count INT NOT NULL DEFAULT 0, create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_delete INT NOT NULL DEFAULT 0

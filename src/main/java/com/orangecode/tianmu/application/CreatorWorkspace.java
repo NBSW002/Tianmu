@@ -105,7 +105,7 @@ public class CreatorWorkspace {
         var remaining = new java.util.concurrent.atomic.AtomicLong();
         db.query("SELECT "+key+" FROM "+table+" WHERE video_id=? FOR UPDATE",
                 (org.springframework.jdbc.core.RowCallbackHandler) row -> remaining.incrementAndGet(), video);
-        if(db.update("UPDATE video_stats SET "+count+"=? WHERE video_id=?",remaining.get(),video)!=1)
+        if(db.update("UPDATE video_stats SET "+count+"=?"+(source.equals("DANMAKU")?",bullet_revision=bullet_revision+1":"")+" WHERE video_id=?",remaining.get(),video)!=1)
             throw new BusinessException(ErrorCode.SYSTEM_ERROR);
         db.update("UPDATE video SET update_time=GREATEST(CURRENT_TIMESTAMP(3),TIMESTAMPADD(MICROSECOND,1000,update_time)) WHERE video_id=?",video);
         invalidate(video);
