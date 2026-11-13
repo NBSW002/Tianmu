@@ -11,7 +11,7 @@
 [![Java 17](https://img.shields.io/badge/Java-17-orange.svg)](pom.xml)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883.svg)](front/package.json)
 
-[界面预览](#界面预览) · [快速开始](#快速开始) · [系统概览](#系统概览) · [文档导航](#文档导航)
+[界面预览](#界面预览) · [系统概览](#系统概览) · [快速开始](#快速开始) · [文档导航](#文档导航)
 
 </div>
 
@@ -48,6 +48,145 @@
 概括这个视频最后一个片段的画面内容。
 生成几条引导观众讨论的作者评论，先给我草稿。
 ```
+
+## 系统概览
+
+### 业务后端：服务与依赖
+
+业务后端是一个 Spring Boot 服务，负责用户、视频、评论、上传和搜索；Netty 处理弹幕 WebSocket。业务记录写入 MySQL，其他组件各有明确职责：Redis 保存会话与热点数据，MinIO 保存媒体，Elasticsearch 提供检索，RocketMQ 承接弹幕消息，Canal 订阅数据库变更。
+
+```mermaid
+flowchart TB
+    Gateway["Nginx：HTTP / WebSocket 入口"]
+    Gateway --> Business["Spring Boot 业务接口<br/>用户 · 视频 · 评论 · 上传 · 搜索"]
+    Gateway --> Netty["Netty 弹幕服务<br/>连接、鉴权与房间广播"]
+    Business --> Mysql[("MySQL<br/>权威业务记录")]
+    Business --> Redis[("Redis<br/>会话与热点数据")]
+    Business --> Minio[("MinIO<br/>视频与封面")]
+    Business --> Es[("Elasticsearch + IK<br/>用户与视频检索")]
+    Netty --> Rocket["RocketMQ<br/>弹幕消息"]
+    Rocket --> Consumer["弹幕消费者<br/>幂等入库"]
+    Consumer --> Mysql
+    Mysql -.-> Canal["Canal<br/>订阅 Binlog"]
+    Canal --> Redis
+    Canal --> Es
+```
+
+弹幕在这套组件中按下面的顺序流转。发送成功后，Netty 将弹幕加入房间广播；消费者负责持久化，数据库提交后 Canal 再更新播放缓存。广播与持久化属于两个阶段，不能把房间广播当作已经入库。
+
+```mermaid
+flowchart TB
+    Send["播放器发送弹幕"] --> WS["Netty 校验登录、视频与内容"]
+    WS --> MQ["RocketMQ 接收事件"]
+    MQ --> Broadcast["Netty 向房间广播"]
+    MQ --> Consumer["消费者按弹幕 ID 幂等处理"]
+    Consumer --> DB[("MySQL 弹幕记录")]
+    DB -.-> Canal["Canal 读取提交后的变更"]
+    Canal --> Cache[("Redis 播放弹幕缓存")]
+    Cache --> Read["后续播放读取"]
+```
+
+更完整的后端模块与部署说明见[架构说明](docs/ARCHITECTURE.md)和[网站部署](deploy/site/README.md)。独立 Agent 的请求和报告流程见下方三节。
+
+### 一次请求如何执行
+
+```mermaid
+flowchart TB
+    A["用户消息与当前页面"] --> B["身份与视频范围校验"]
+    B --> C{"FAQ 或记忆总览<br/>可直接回答？"}
+    C -->|是| D["宿主直接交付"]
+    C -->|否| E["同一请求快照"]
+    E --> F["意图识别"]
+    E --> G["情绪识别"]
+    E --> H["澄清识别"]
+    F --> I["识别结果汇合"]
+    G --> I
+    H --> I
+    I --> J["服务端召回记忆<br/>组装任务与上下文"]
+    J --> K{"条件齐全？"}
+    K -->|否| L["澄清并等待补充"]
+    K -->|是| M["模型决策 → 授权工具 → 结果回填"]
+    M -->|需要下一轮| M
+    M --> N["完成裁决与交付"]
+    D --> O["SSE 正文与进度"]
+    L --> O
+    N --> O
+    B -.-> T["Trace：节点、父子关系和时间线"]
+    I -.-> T
+    M -.-> T
+    N -.-> T
+```
+
+FAQ 命中或纯记忆总览可由宿主直接回答；其他请求的三路识别共享同一输入，汇合后才固定任务范围。模型与工具循环受轮次、时限、权限和预算控制。Trace 记录真实执行，节点并非额外模型步骤。
+
+### 观众反馈如何变成报告
+
+```mermaid
+flowchart TB
+    R["创作者请求反馈报告"] --> P["冻结授权范围内的反馈快照"]
+    R --> V["视频采样分析<br/>画面概览、时间点观察与可选转写"]
+    P --> C["清洗与去重<br/>保留原文、来源和回复关系"]
+    C --> S{"主评论与弹幕材料<br/>可直接放入预算？"}
+    S -->|是| D["直接阅读材料"]
+    S -->|否| B["主评论与弹幕向量聚类<br/>最多五个候选桶"]
+    B --> X["粗排：每桶最多二十个候选"]
+    X --> F["精排：每桶最多五个素材"]
+    D --> A["按真实 ID 附加子评论<br/>每个主评论最多五条不同回复"]
+    F --> A
+    A --> T["确认主题与证据引用"]
+    V -->|简短概览| T
+    T --> W["独立撰写报告"]
+    V -->|完整采样分析结果| W
+    W --> Q["核对主题、引用和计数"]
+    Q --> H["网页预览与 HTML 下载<br/>每主题最多展示三个素材"]
+```
+
+主评论和弹幕参与向量粗排、精排，选中后再附加真实子评论。候选桶用于筛选，确认模型可以跨桶整理主题。小材料按预算直接阅读，候选不足时按实际数量处理。
+
+一段主评论讨论占一个素材位置，主评论和实际采用的子评论仍按原始 ID 分别计数。视频理解依据采样画面和可选转写，主题结论依据代表反馈，不等于逐条分析全部互动。
+
+详细选材与回复关联规则见[反馈报告工程说明](agent/docs/Agent架构与工程治理技术设计.md)。
+
+### 记忆如何写入与召回
+
+写入和读取是两条独立链路。对话提交后，只有开启自动整理且内容合格，才会入后台整理队列；用户明确说“请记住”也可进入保存流程。后台提取候选事实后，再核对来源、权限和重复项，写入带版本的 MySQL 记忆。索引工作器扫描已提交版本生成向量；向量是可重建的检索索引。
+
+```mermaid
+flowchart TB
+    Message["已提交的对话"] --> Eligible{"开启自动整理<br/>且值得长期保留？"}
+    Explicit["明确请求保存"] --> Job["持久化后台整理任务"]
+    Eligible -->|是| Job
+    Eligible -->|否| End["本轮不自动写入"]
+    Job --> Extract["模型提取候选事实"]
+    Extract --> Validate["来源、授权与重复检查"]
+    Validate --> Revision[("MySQL<br/>记忆版本与来源")]
+    Revision --> Index["独立索引工作器"]
+    Index --> Vector[("MySQL<br/>模型版本对应向量")]
+```
+
+下一轮请求由 Agent 宿主先读取授权快照。问“你了解我吗”一类个人总览时，宿主直接分页列出可读原文；普通问题则合并核心事实、关键词与语义候选，按相关性和上下文预算选择，再交给模型回答。两条路径都重新检查来源和当前权限。
+
+```mermaid
+flowchart TB
+    Ask["下一轮请求"] --> Guard{"记忆模式与授权快照"}
+    Guard -->|暂停| None["不读取记忆"]
+    Guard -->|个人总览| Overview["读取可用原文<br/>服务端分页清单"]
+    Overview --> Direct["宿主直接回答"]
+    Guard -->|相关问题| Candidates["核心事实 + 关键词候选"]
+    Vector[("当前版本的可用向量")] --> Semantic["语义候选"]
+    Guard -->|相关问题| Semantic
+    Candidates --> Fuse["融合排序、去重与预算限制"]
+    Semantic --> Fuse
+    Fuse --> Recheck["再次核对来源与权限"]
+    Recheck --> Context["选中的事实进入模型上下文"]
+    Manage["管理页：修改 / 忘记 / 暂停"] --> Revision["更新版本或撤销授权"]
+    Revision -.->|旧版本失效| Vector
+    Revision -.-> Guard
+```
+
+“只使用”模式允许读取已有记忆，但不自动新增。管理页修改、忘记或暂停后，旧版本与对应向量不能继续作为可读事实。模型不持有搜索、保存或删除记忆的 Tool。
+
+更细的边界、失败与恢复规则见[架构说明](docs/ARCHITECTURE.md)、[报告实现](agent/docs/代表材料三工具实施与验收.md)和[记忆方案](agent/docs/记忆召回重构技术方案.md)。
 
 ## 快速开始
 
@@ -113,29 +252,6 @@ npm run serve
 完整网站需要 MySQL、Redis、MinIO、Elasticsearch（IK）、RocketMQ 与 Canal；真实 Agent 还需要模型凭据，持久化模式使用 Agent 专用 MySQL、Redis 和私有对象存储。画面理解另需 FFmpeg / ffprobe 与视觉模型，转写单独配置。
 
 按[运行与接入指南](docs/QUICKSTART.md#方式三运行完整网站)准备依赖、配置登录与模型，再启动业务后端、Agent 和前端。模型调用可能产生费用。现有[网站容器部署](deploy/site/README.md)依赖既有共享网络与服务，不是空环境的一键启动脚本。
-
-## 系统概览
-
-前端使用 Vue 3，业务后端与独立 Agent 使用 Java 17 / Spring Boot。业务服务负责视频、用户和互动；Agent 通过授权接口读取业务数据，执行模型与工具调用。Trace 记录执行过程，便于检查耗时与证据来源。
-
-反馈报告的主要处理过程：
-
-```mermaid
-flowchart LR
-    A["授权反馈快照"] --> B["主评论与弹幕筛选"]
-    B --> C["附加真实子评论"]
-    C --> D["确认主题与证据"]
-    V["视频采样分析"] --> D
-    V --> E["撰写报告"]
-    D --> E
-    E --> F["校验与保存"]
-```
-
-大材料使用向量粗排与精排，每桶最多选取五个素材，再附加子评论；报告每主题最多展示三个素材。视频理解依据采样画面和可选转写，主题结论依据代表反馈，不等于逐条分析全部互动。
-
-- [业务与 Agent 架构](docs/ARCHITECTURE.md)：服务依赖、任务执行与数据边界。
-- [反馈报告工程说明](agent/docs/Agent架构与工程治理技术设计.md)：当前选材、回复关联及两阶段写作规则。
-- [记忆方案](agent/docs/记忆召回重构技术方案.md)：记忆整理、召回和管理。
 
 ## 开发与测试
 
