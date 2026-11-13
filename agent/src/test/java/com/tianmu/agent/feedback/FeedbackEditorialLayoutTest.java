@@ -11,7 +11,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class FeedbackEditorialLayoutTest {
     @Test void rendersNavigableReportWithoutRequiringAdviceForEveryTopic() throws Exception {
         var quote=new FeedbackCompression.Representative("C:1",Source.COMMENT,"人声很清晰，副歌这一段尤其好听。","",null,12L,1,false,null,null);
-        var topic=new FeedbackReportJson.TopicView("T1","演唱获得认可","观众具体提到了副歌和人声的清晰度。","下一条作品可延续目前的人声与伴奏比例。",1,0,List.of(quote));
+        var second=new FeedbackCompression.Representative("C:3",Source.COMMENT,"演唱情绪很自然。","",null,null,1,false,null,null);
+        var third=new FeedbackCompression.Representative("C:4",Source.COMMENT,"歌词清楚。","",null,null,1,false,null,null);
+        var topic=new FeedbackReportJson.TopicView("T1","演唱获得认可","观众具体提到了副歌和人声的清晰度。","下一条作品可延续目前的人声与伴奏比例。",3,0,List.of(quote,second,third));
         var reaction=new FeedbackCompression.Representative("C:2",Source.COMMENT,"一开口就惊到了，反差太大了。","",null,null,1,false,null,null);
         var observation=new FeedbackReportJson.TopicView("T2","声音与形象形成反差","部分观众表达了听到歌声之后的惊讶。","",1,0,List.of(reaction));
         var report=new FeedbackReportJson("feedback-report-json-v1","观众反馈报告","主要反馈涉及演唱表现与声音反差。",List.of(topic,observation),List.of(),
@@ -39,7 +41,10 @@ class FeedbackEditorialLayoutTest {
         assertTrue(html.contains("<section id='creation'>"));assertFalse(html.contains("<div class='action'>"));
         assertEquals(1,html.split(topic.recommendation(),-1).length-1);
         assertFalse(html.contains("更多原话与片段依据"));
-        assertTrue(html.contains("不代表逐条阅读全部反馈"));assertTrue(html.contains("不代表观众留存率"));
+        assertFalse(html.contains("关于本次分析"));
+        String topicHtml=html.substring(html.indexOf("<article id='topic-1'"),html.indexOf("</article>"));
+        assertTrue(topicHtml.contains(quote.text()));assertTrue(topicHtml.contains(second.text()));assertTrue(topicHtml.contains(third.text()));
+        assertFalse(topicHtml.contains("<details"));
         assertTrue(html.contains("一身肌肉之下，藏着碇真嗣"));
         Files.createDirectories(Path.of("target"));Files.writeString(Path.of("target/report-editorial-quality-preview.html"),html,StandardCharsets.UTF_8);
     }

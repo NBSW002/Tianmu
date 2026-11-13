@@ -75,12 +75,13 @@ class RepresentativeReportPipelineTest {
             assertEquals(1,exports.get());assertEquals(2,requests.size());assertFalse(requests.get(0).contains("originalIds"));assertTrue(requests.get(0).contains("背景音乐盖住人声了"));assertTrue(requests.get(1).contains("representative_review"));
             assertEquals(22,report.topics().get(0).commentCount());assertEquals(1,report.topics().get(0).danmakuCount());assertEquals(3,report.topics().get(0).representatives().size());assertEquals("D:24",report.topics().get(0).representatives().get(0).id());
             assertEquals(24L,report.daily().values().stream().mapToLong(Long::longValue).sum());assertEquals(1,report.playback().plotted());assertEquals(0,report.playback().omitted());assertFalse(requests.get(0).contains("playbackMissing"));assertFalse(requests.get(0).contains("raw_unique_audience"));
-            assertEquals(report,preparation.storedReportJson(job.id(),owner));var html=new String(report.html(),java.nio.charset.StandardCharsets.UTF_8);assertTrue(html.contains("根据本次已采集的反馈归纳"));assertTrue(html.contains("/video/1001?t=1.0"));assertTrue(html.contains("更多原话与片段依据"));
+            assertEquals(report,preparation.storedReportJson(job.id(),owner));var html=new String(report.html(),java.nio.charset.StandardCharsets.UTF_8);assertFalse(html.contains("关于本次分析"));assertTrue(html.contains("/video/1001?t=1.0"));assertFalse(html.contains("更多原话与片段依据"));
             assertFalse(html.contains("阅读说明"));assertFalse(html.contains("按发送日期查看反馈"));
             assertTrue(html.contains("创作建议"));assertFalse(html.contains("可以尝试"));assertTrue(html.contains("ReportSans"));
             assertTrue(html.indexOf("观众关注的")<html.indexOf("弹幕集中在哪些片段"));
             int topicStart=html.indexOf("<article id='topic-1'");
-            assertTrue(html.indexOf("<blockquote>",topicStart)<html.indexOf("<details class='topic-detail'>",topicStart));
+            String topicHtml=html.substring(topicStart,html.indexOf("</article>",topicStart));
+            assertEquals(3,topicHtml.split("<blockquote>",-1).length-1);
             assertTrue(html.indexOf("<blockquote>",topicStart)<html.indexOf("<section id='creation'>",topicStart));
             assertEquals(1,html.split("建议检查配乐和人声的平衡。",-1).length-1);
             assertTrue(html.contains("<rect class='playback-bar'"));assertFalse(html.contains("SAMPLED_FRAMES"));

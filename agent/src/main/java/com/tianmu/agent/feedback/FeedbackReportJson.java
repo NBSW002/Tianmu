@@ -96,23 +96,20 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
             for(var topic:actions)h.append("<div class='advice-row'><h3>").append(escape(topic.title())).append("</h3><p>").append(escape(topic.recommendation())).append("</p></div>");
             h.append("</section>");
         }
-        h.append("<details class='report-method'><summary>关于本次分析</summary><p>共采集 ").append(number(method.get("raw"))).append(" 条反馈，去除纯表情、刷屏等低信息互动后，保留 ")
-                .append(number(method.get("eligible"))).append(" 条；报告依据其中选取的代表原话归纳。筛选不改变弹幕时间图的原始计数。</p>");
-        h.append("<p>根据本次已采集的反馈归纳，所列原话为部分摘录；不代表逐条阅读全部反馈，也不据此推断全体观众的观点比例。弹幕时间分布统计包含未进入主题分析的刷屏等互动，不代表观众留存率。</p></details><footer class='report-footer'>EchoFrame · 观众反馈报告</footer></div></div></main></body></html>");return h.toString().getBytes(StandardCharsets.UTF_8);
+        h.append("<footer class='report-footer'>EchoFrame · 观众反馈报告</footer></div></div></main></body></html>");return h.toString().getBytes(StandardCharsets.UTF_8);
     }
     private void card(StringBuilder h,TopicView topic,int ordinal){
         h.append("<article id='topic-").append(ordinal).append("' class='topic'><div class='topic-head'><span class='topic-number'>").append(String.format(java.util.Locale.ROOT,"%02d",ordinal)).append("</span><h3>").append(escape(topic.title()))
                 .append("</h3></div><p class='observation'>").append(escape(topic.observation())).append("</p>");
-        if(!topic.representatives().isEmpty())quote(h,topic.representatives().get(0));
+        for(var representative:topic.representatives())quote(h,representative);
         h.append("<p class='evidence-note'>本节引用：");
         if(topic.commentCount()>0)h.append("评论 ").append(topic.commentCount()).append(" 条");
         if(topic.commentCount()>0 && topic.danmakuCount()>0)h.append(" · ");
         if(topic.danmakuCount()>0)h.append("弹幕 ").append(topic.danmakuCount()).append(" 条");
         h.append("</p>");
         var more=new StringBuilder();
-        for(int i=1;i<topic.representatives().size();i++)quote(more,topic.representatives().get(i));
         appendMoments(more,topic);
-        if(!more.isEmpty())h.append("<details class='topic-detail'><summary>更多原话与片段依据</summary>").append(more).append("</details>");
+        if(!more.isEmpty())h.append("<details class='topic-detail'><summary>视频片段依据</summary>").append(more).append("</details>");
 
         h.append("</article>");
     }

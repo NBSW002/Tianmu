@@ -196,14 +196,6 @@
                     scrolling="no"
                     @load="sizeReportPreview"
                   />
-                  <div v-if="answerPresentation(turn.snapshot?.answer).notes.length" class="report-sources">
-                    <strong>数据依据</strong>
-                    <div v-for="(note, index) in answerPresentation(turn.snapshot.answer).notes" :key="index">
-                      <span v-if="note.label">{{ note.label }}</span>
-                      <p>{{ note.text }}</p>
-                      <time v-if="formatDataUpdatedAt(note.updatedAt)">更新于 {{ formatDataUpdatedAt(note.updatedAt) }}</time>
-                    </div>
-                  </div>
                 </div>
               </section>
             </article>
