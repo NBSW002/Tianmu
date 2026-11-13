@@ -1,5 +1,7 @@
 package com.orangecode.tianmu.websocket;
 
+import com.orangecode.tianmu.common.DanmakuMetrics;
+
 import com.fasterxml.jackson.databind.*;
 import com.orangecode.tianmu.application.SessionAuthentication;
 import com.orangecode.tianmu.application.VideoLookup;
@@ -44,7 +46,9 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<TextWebSocketF
             // Browsers cannot set WebSocket Authorization headers. Credentials belong only
             // in the private send frame, never in URLs, broadcasts or persisted events.
             JsonNode credential = input.path("authorization");
-            Long userId = authentication.authenticate(credential.isTextual() ? credential.textValue() : null);
+            Long userId; long authStart=System.nanoTime();
+            try { userId=authentication.authenticate(credential.isTextual() ? credential.textValue() : null); }
+            finally { DanmakuMetrics.observe(DanmakuMetrics.Stage.AUTH,System.nanoTime()-authStart); }
             if (userId == null) { reply(ctx, WebSocketConstant.LOGIN_MESSAGE, "登录已失效，请重新登录"); return; }
             if (!matches(input.get("userId"), userId) || !matches(input.get("videoId"), room)) {
                 error(ctx, "弹幕身份或视频房间不一致"); return;
@@ -55,14 +59,18 @@ public class WebSocketHandler extends SimpleChannelInboundHandler<TextWebSocketF
                     || (color != null && (!color.isTextual() || !color.textValue().matches("#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")))) {
                 error(ctx, "请检查弹幕内容、播放时间和颜色"); return;
             }
-            videos.requirePublished(room);
+            long videoStart=System.nanoTime();
+            try { videos.requirePublished(room); }
+            finally { DanmakuMetrics.observe(DanmakuMetrics.Stage.VIDEO_CHECK,System.nanoTime()-videoStart); }
             // Explicit projection prevents credentials and client timestamps leaking to MQ.
             var event = new SendBulletRequest();
             event.setUserId(userId); event.setVideoId(room); event.setContent(content.textValue());
             event.setPlaybackTime(position.doubleValue()); event.setColor(color == null ? "#ffffff" : color.textValue());
             event.setBulletId(IdUtil.getSnowflake(SnowflakeConstant.WORKER_ID, SnowflakeConstant.DATA_CENTER_ID).nextId());
             event.setCreateTime(new Date());
-            producer.sendMessage("tianmu-topic", JSONUtil.toJsonStr(event));
+            long mqStart=System.nanoTime();
+            try { producer.sendMessage("tianmu-topic", JSONUtil.toJsonStr(event)); }
+            finally { DanmakuMetrics.observe(DanmakuMetrics.Stage.MQ_SEND,System.nanoTime()-mqStart); }
             var output = new OnlineBulletResponse();
             output.setUserId(userId.toString()); output.setBulletId(event.getBulletId().toString());
             output.setPlaybackTime(event.getPlaybackTime()); output.setText(event.getContent());

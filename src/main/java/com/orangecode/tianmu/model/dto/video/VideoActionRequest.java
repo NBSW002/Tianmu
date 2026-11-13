@@ -6,6 +6,7 @@ import lombok.Data;
 
 @Data
 public class VideoActionRequest implements Serializable {
+    private Boolean includeBullets = true;
 
 
     /**

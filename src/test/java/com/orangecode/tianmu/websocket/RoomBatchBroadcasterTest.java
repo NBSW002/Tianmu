@@ -45,6 +45,18 @@ class RoomBatchBroadcasterTest {
         assertEquals(5,frames.get(0).path("type").asInt());
     }
 
+    @Test void joiningBurstBroadcastsOneLatestCountAndNewcomersGetImmediateSnapshots() throws Exception {
+        start(50,16384); var first=join(99);
+        for(int i=0;i<99;i++) {
+            var channel=new EmbeddedChannel(DefaultChannelId.newInstance());channels.add(channel);broadcasts.join(99,channel);
+            var snapshot=frames(channel);assertEquals(1,snapshot.size());assertEquals(i+2,snapshot.get(0).path("data").asInt());
+        }
+        assertTrue(frames(first).isEmpty());assertEquals(1,timers.size());
+        verify(scheduler).schedule(any(Runnable.class),eq(1000L),eq(TimeUnit.MILLISECONDS));
+        timers.get(0).action.run();
+        var update=frames(first);assertEquals(1,update.size());assertEquals(100,update.get(0).path("data").asInt());
+    }
+
     @Test void countLimitFlushesImmediatelyAndStaleTimerCannotFlushTheNextBatch() throws Exception {
         start(2,16384);var viewer=join(99);
         broadcasts.append(99,item(1,"a"));broadcasts.append(99,item(2,"b"));

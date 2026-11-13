@@ -278,6 +278,7 @@ import { fetchUserInfo } from "@/api/user";
 
 import {
   fetchVideoDetail,
+  fetchBulletWindow,
   fetchVideoList,
   fetchLikeVideo,
   fetchLikeVideoCancel,
@@ -287,7 +288,8 @@ import {
   fetchTripleVideo,
   fetchDelDanmu,
 } from "@/api/video";
-import { toRaw } from "vue";
+import { toRaw, markRaw } from "vue";
+import { createDanmakuHistoryLoader } from "@/lib/danmaku-history.mjs";
 import { useAssistantStore } from '@/store/assistant';
 import { useUserStore } from "@/store/user";
 import { mapState, mapActions } from "pinia";
@@ -310,6 +312,10 @@ export default {
       videoDetail: {}, //视频详细信息
       commentCount: 0, //评论数
       historyRecorder: createHistoryRecorder((video, seconds, owner) => request({ authUserId: owner, url: `/history/${video}`, method: "PUT", data: { seconds } })),
+      connectionTimer: null,
+      disposed: false,
+      historyLoader: null,
+      historyErrorShown: false,
       danmuList: [], //弹幕数据
       likeCount: 0, // 点赞数
       coinCount: 0, // 投币数
@@ -376,15 +382,17 @@ export default {
     });
     this.playerColumnObserver.observe(this.$refs.playerColumn);
     // 延时100ms，确保组件渲染完成，再连接websocket
-    setTimeout(() => {
-      // 连接WebSocket
-      this.connectWebSocket();
+    this.connectionTimer = setTimeout(() => {
+      if (!this.disposed && !this.socket) this.connectWebSocket();
     }, 100);
 
     // 初始化三连动画变量
     this.initAllinVar();
   },
   beforeUnmount() {
+    this.disposed = true;
+    clearTimeout(this.connectionTimer);
+    this.historyLoader?.stop();
     document.removeEventListener('pointerdown', this.dismissAuthorSource);
     this.playerColumnObserver?.disconnect();
     // 关闭websocket
@@ -412,6 +420,13 @@ export default {
     },
   },
   watch: {
+    async "$route.params.videoId"(value, previous) {
+      if (value === previous || !value) return;
+      await this.closeWebSocket();
+      if (String(this.$route.params.videoId) !== String(value) || this.disposed) return;
+      this.getVideoDetail();
+      this.connectWebSocket();
+    },
     videoDetail: {
       deep: true,
       handler(video) {
@@ -440,6 +455,7 @@ export default {
       if (this.isLogin) this.historyRecorder(this.user.userId, this.$route.params.videoId, milliseconds / 1000);
     },
     updateAssistantPlayback(milliseconds) {
+      this.historyLoader?.ensure(milliseconds / 1000);
       const store = useAssistantStore();
       if (store.page?.videoId === String(this.$route.params.videoId)) store.page.playbackMs = milliseconds;
     },
@@ -460,21 +476,32 @@ export default {
     ]),
     // 获取视频详细信息
     async getVideoDetail() {
+      this.historyLoader?.stop();
+      this.danmuList = [];
+      const videoId = String(this.$route.params.videoId);
+      this.historyErrorShown = false;
+      this.historyLoader = markRaw(createDanmakuHistoryLoader(
+        (bucket, time, id, signal) => fetchBulletWindow(videoId, bucket, time, id, signal),
+        items => {
+          if (String(this.$route.params.videoId) !== videoId || !items.length) return;
+          this.danmuList.push(...items);
+          const player = this.$refs.artplayerRef?.instance;
+          if (player?.isReady) toRaw(player).plugins.artplayerPluginDanmuku.load(items);
+        }, () => { if (!this.historyErrorShown) { this.historyErrorShown = true; ElMessage.warning("弹幕加载失败，稍后将自动重试"); } }));
+      const history = this.historyLoader;
       try {
         const res = await fetchVideoDetail(
           this.user.userId,
-          this.$route.params.videoId
+          this.$route.params.videoId, false
         );
+        if (history !== this.historyLoader || String(this.$route.params.videoId) !== videoId) return;
         if (res.code === 200) {
           this.videoDetail = res.data.videoDetailsResponse;
           this.commentCount = res.data.videoDetailsResponse.commentCount;
           this.likeCount = res.data.videoDetailsResponse.likeCount;
           this.coinCount = res.data.videoDetailsResponse.coinCount;
           this.favoriteCount = res.data.videoDetailsResponse.favoriteCount;
-          this.danmuList = res.data.onlineBulletList.map((item) => ({
-            ...item,
-            time: item.playbackTime,
-          }));
+          this.historyLoader.ensure(Math.max(0, Number(this.$route.query.t) || 0));
           this.isLike = res.data.tripleActionResponse.likeId ? true : false;
           this.isCoin = res.data.tripleActionResponse.coin;
           this.isFavorite = res.data.tripleActionResponse.favoriteId
@@ -552,15 +579,18 @@ export default {
       const socketUrl = getDanmuWSUrl(this.$route.params.videoId);
       this.socket = new WebSocket(socketUrl);
       this.socket.onopen = this.handleWSOpen;
-      this.socket.onmessage = this.handleWSMessage;
+      const active = this.socket;
+      const videoId = String(this.$route.params.videoId);
+      this.socket.onmessage = event => {
+        if (this.socket === active && String(this.$route.params.videoId) === videoId && !this.disposed) this.handleWSMessage(event);
+      };
       this.socket.onerror = this.handleWSError;
       this.socket.onclose = this.handleWSClose;
     },
     async closeWebSocket() {
-      if (this.socket != null) {
-        await this.socket.close();
-        this.socket = null;
-      }
+      const socket = this.socket;
+      this.socket = null;
+      socket?.close();
     },
     handleWSOpen() {
       console.log("WebSocket 连接成功");
@@ -576,7 +606,9 @@ export default {
             break;
           case 2:
           case 5: {
-            const items = danmakuItems(msgData);
+            const rawItems = danmakuItems(msgData);
+            if (splitDanmaku(rawItems, this.user.userId).own.length) this.isSelfDanmu = true;
+            const items = this.historyLoader ? this.historyLoader.accept(rawItems) : rawItems;
             this.danmuList.push(...items);
             const { own, others } = splitDanmaku(items, this.user.userId);
             // Keep the current self-send mechanism; mixed batches must also load others.

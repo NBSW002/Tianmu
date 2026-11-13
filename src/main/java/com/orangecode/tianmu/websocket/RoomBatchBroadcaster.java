@@ -1,5 +1,7 @@
 package com.orangecode.tianmu.websocket;
 
+import com.orangecode.tianmu.common.DanmakuMetrics;
+
 import cn.hutool.json.JSONUtil;
 import com.orangecode.tianmu.constants.WebSocketConstant;
 import com.orangecode.tianmu.model.vo.bullet.OnlineBulletResponse;
@@ -60,6 +62,7 @@ public class RoomBatchBroadcaster implements AutoCloseable {
         int bytes = ENVELOPE_BYTES;
         long generation;
         ScheduledFuture<?> timer;
+        ScheduledFuture<?> onlineTimer;
         boolean disposed;
     }
 
@@ -69,7 +72,9 @@ public class RoomBatchBroadcaster implements AutoCloseable {
             Room room = previous == null ? new Room() : previous;
             synchronized (room) {
                 room.channels.add(channel);
-                online(room);
+                // Newcomer gets an immediate snapshot; existing viewers get one coalesced update.
+                channel.writeAndFlush(new TextWebSocketFrame("{\"type\":1,\"data\":" + room.channels.size() + "}"));
+                if (room.channels.size() > 1) scheduleOnline(room);
             }
             return room;
         });
@@ -80,9 +85,9 @@ public class RoomBatchBroadcaster implements AutoCloseable {
             synchronized (room) {
                 room.channels.remove(channel);
                 if (room.channels.isEmpty()) {
-                    discard(room); room.disposed = true; return null;
+                    discard(room); cancelOnline(room); room.disposed = true; return null;
                 }
-                online(room); return room;
+                scheduleOnline(room); return room;
             }
         });
     }
@@ -117,7 +122,12 @@ public class RoomBatchBroadcaster implements AutoCloseable {
         if (room.pending.isEmpty()) return;
         String frame = PREFIX + String.join(",", room.pending) + "]}";
         discard(room);
-        room.channels.writeAndFlush(new TextWebSocketFrame(frame));
+        DanmakuMetrics.frames.increment();
+        DanmakuMetrics.recipients.add(room.channels.size());
+        for (Channel channel : room.channels) if (!channel.isWritable()) DanmakuMetrics.nonWritable.increment();
+        room.channels.writeAndFlush(new TextWebSocketFrame(frame)).addListener((ChannelGroupFutureListener) future -> {
+            for (var result : future) if (!result.isSuccess()) DanmakuMetrics.writeFailures.increment();
+        });
     }
 
     private void discard(Room room) {
@@ -127,7 +137,22 @@ public class RoomBatchBroadcaster implements AutoCloseable {
     }
 
     private void online(Room room) {
+        DanmakuMetrics.onlineFrames.increment();
         room.channels.writeAndFlush(new TextWebSocketFrame("{\"type\":1,\"data\":" + room.channels.size() + "}"));
+    }
+
+    private void scheduleOnline(Room room) {
+        if (room.onlineTimer != null) return;
+        room.onlineTimer = scheduler.schedule(() -> {
+            synchronized (room) {
+                room.onlineTimer = null;
+                if (!room.disposed && !closed.get()) online(room);
+            }
+        }, 1000, TimeUnit.MILLISECONDS);
+    }
+    private void cancelOnline(Room room) {
+        if (room.onlineTimer != null) room.onlineTimer.cancel(false);
+        room.onlineTimer = null;
     }
 
     int roomCount() { return rooms.size(); }
@@ -136,7 +161,7 @@ public class RoomBatchBroadcaster implements AutoCloseable {
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
         for (Room room : rooms.values()) {
-            synchronized (room) { flush(room); discard(room); room.disposed = true; }
+            synchronized (room) { flush(room); discard(room); cancelOnline(room); room.disposed = true; }
             room.channels.close().awaitUninterruptibly();
         }
         rooms.clear(); scheduler.shutdownNow();

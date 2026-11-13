@@ -230,7 +230,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
         VideoResponse videoResponse = new VideoResponse();
         videoResponse.setVideoDetailsResponse(videoDetails);
         videoResponse.setTripleActionResponse(getTripleActionResponse(videoActionRequest));
-        videoResponse.setOnlineBulletList(getVideoBullets(videoActionRequest.getVideoId()));
+        videoResponse.setOnlineBulletList(Boolean.FALSE.equals(videoActionRequest.getIncludeBullets()) ? java.util.List.of() : getVideoBullets(videoActionRequest.getVideoId()));
         videoResponse.setVideoRecommendListResponse(getRecommendVideos(video.getCategoryId(), videoActionRequest.getVideoId()));
         videoResponse.setFollow(followService.getFollowType(videoActionRequest.getUserId(), video.getUserId()));
 
@@ -298,7 +298,7 @@ public class VideoServiceImpl extends ServiceImpl<VideoMapper, Video>
         VideoResponse videoResponse = new VideoResponse();
         videoResponse.setVideoDetailsResponse(videoDetails);
         videoResponse.setTripleActionResponse(getTripleActionResponse(videoActionRequest));
-        videoResponse.setOnlineBulletList(getVideoBullets(videoActionRequest.getVideoId()));
+        videoResponse.setOnlineBulletList(Boolean.FALSE.equals(videoActionRequest.getIncludeBullets()) ? java.util.List.of() : getVideoBullets(videoActionRequest.getVideoId()));
         videoResponse.setVideoRecommendListResponse(getRecommendVideos(video.getCategoryId(), video.getVideoId()));
         videoResponse.setFollow(followService.getFollowType(videoActionRequest.getUserId(), video.getUserId()));
 

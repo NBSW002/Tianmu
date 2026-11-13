@@ -185,6 +185,7 @@ public class CanalClient implements CommandLineRunner {
 
 
     private void handleMessage(List<CanalEntry.Entry> entries) {
+        Map<String,List<CanalEntry.Column>> latestStats=new LinkedHashMap<>();
         for (CanalEntry.Entry entry : entries) {
             if (entry.getEntryType() == CanalEntry.EntryType.TRANSACTIONBEGIN || entry.getEntryType() == CanalEntry.EntryType.TRANSACTIONEND) {
                 continue;
@@ -204,14 +205,23 @@ public class CanalClient implements CommandLineRunner {
                 continue;
             }
 
-            System.out.println("表名：" + tableName);
+            log.debug("表名：{}", tableName);
             CanalEntry.EventType eventType = rowChange.getEventType();
             String schemaName = entry.getHeader().getSchemaName();
+            // Coalesce display statistics only inside this already-fetched batch. Content and
+            // deletion events remain ordered barriers, so stale stats cannot follow a video deletion.
+            if (tableName.equals("video") || (tableName.equals("video_stats") && eventType != CanalEntry.EventType.UPDATE))
+                flushStats(latestStats);
 
-            log.info("======> binlog[{}:{}], name[{},{}], eventType: {}", entry.getHeader().getLogfileName(), entry.getHeader().getLogfileOffset(), schemaName, tableName, eventType);
+            log.debug("======> binlog[{}:{}], name[{},{}], eventType: {}", entry.getHeader().getLogfileName(), entry.getHeader().getLogfileOffset(), schemaName, tableName, eventType);
 
 
             for (CanalEntry.RowData rowData : rowChange.getRowDatasList()) {
+                if (tableName.equals("video_stats") && eventType == CanalEntry.EventType.UPDATE) {
+                    String video=rowData.getAfterColumnsList().stream().filter(c->c.getName().equals("video_id")).findFirst().orElseThrow().getValue();
+                    latestStats.put(schemaName+":"+video,rowData.getAfterColumnsList());
+                    continue;
+                }
                 // Persist before ACK; failure rolls the Canal batch back for redelivery.
                 if(Set.of("bullet","comment","video").contains(tableName)){
                     var work=vectorWork.getIfAvailable();
@@ -228,6 +238,12 @@ public class CanalClient implements CommandLineRunner {
                 }
             }
         }
+        flushStats(latestStats);
+    }
+
+    private void flushStats(Map<String,List<CanalEntry.Column>> latestStats) {
+        for (var columns : latestStats.values()) handleUpdate(columns,"video_stats");
+        latestStats.clear();
     }
 
 
@@ -236,7 +252,7 @@ public class CanalClient implements CommandLineRunner {
         for (CanalEntry.Column column : columns) {
             map.put(column.getName(), column.getValue());
         }
-        log.info("表名：{}，数据：{}", tableName, map);
+        log.debug("表名：{}，数据：{}", tableName, map);
         switch (tableName) {
             case "user" -> insertUserToEs(map);
             case "video" -> insertVideoToEs(map);
@@ -285,7 +301,7 @@ public class CanalClient implements CommandLineRunner {
             // 预防缓存雪崩
             stringRedisTemplate.opsForZSet().add(cacheKey, value, timePoint);
             stringRedisTemplate.expire(cacheKey, 72 * 3600 + ThreadLocalRandom.current().nextInt(3600), TimeUnit.SECONDS);
-            log.info("Redis 插入弹幕成功: {}", value);
+            log.debug("Redis 插入弹幕成功: {}", value);
         } catch (Exception e) {
             log.error("Redis 插入失败: ", e);
         }
@@ -296,7 +312,7 @@ public class CanalClient implements CommandLineRunner {
         for (CanalEntry.Column column : columns) {
             map.put(column.getName(), column.getValue());
         }
-        log.info("表名：{}，数据：{}", tableName, map);
+        log.debug("表名：{}，数据：{}", tableName, map);
         switch (tableName) {
             case "user" -> updateUser(map);
             case "video" -> updateVideo(map);
@@ -379,9 +395,10 @@ public class CanalClient implements CommandLineRunner {
                 stringRedisTemplate.expire(cacheKey, VideoConstant.VIDEO_DETAIL_DAYS, TimeUnit.DAYS);
             }
 
-            log.info("Redis 更新视频详情成功");
+            log.debug("Redis 更新视频详情成功");
         } catch (Exception e) {
             log.error("Redis 更新视频详情失败", e);
+            throw new IllegalStateException("Video statistics cache update failed", e);
         }
     }
 
@@ -405,9 +422,10 @@ public class CanalClient implements CommandLineRunner {
 
             // 3. 再保存回去
             VideoEs saved = videoEsDao.save(videoEs);
-            log.info("ES 局部更新视频统计成功: {}", saved);
+            log.debug("ES 局部更新视频统计成功: {}", saved);
         } catch (Exception e) {
             log.error("ES 更新视频统计失败", e);
+            throw new IllegalStateException("Video statistics index update failed", e);
         }
     }
 

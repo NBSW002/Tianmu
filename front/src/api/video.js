@@ -13,13 +13,13 @@ export const fetchVideoList = (current, pageSize) => {
 }
 
 // 获取视频详情
-export const fetchVideoDetail = (userId, videoId) => {
+export const fetchVideoDetail = (userId, videoId, includeBullets = true) => {
     return request({
         url: `/video/detail`,
         method: "POST",
         data: {
             userId,
-            videoId
+            videoId, includeBullets
         }
     })
 }
@@ -219,3 +219,7 @@ export const fetchVideoCateList = (categoryId) => {
         }
     })
 }
+
+export const fetchBulletWindow = (videoId, bucket, afterTime, afterId, signal) => request({
+    url: '/video/bullets/window', params: { videoId, bucket, afterTime, afterId }, signal,
+}).then(result => result.data)

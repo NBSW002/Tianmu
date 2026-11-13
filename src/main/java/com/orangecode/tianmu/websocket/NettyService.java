@@ -1,5 +1,7 @@
 package com.orangecode.tianmu.websocket;
 
+import com.orangecode.tianmu.common.DanmakuMetrics;
+
 import java.util.concurrent.TimeUnit;
 
 import com.orangecode.tianmu.producer.RocketMQProducer;
@@ -42,7 +44,17 @@ public class NettyService {
     private final EventLoopGroup workerGroup = new NioEventLoopGroup(NettyRuntime.availableProcessors() * 2);
     // Redis, video lookups and MQ sends must not block socket IO threads.
     private final EventExecutorGroup messageGroup = new DefaultEventExecutorGroup(4,
-            new DefaultThreadFactory("danmaku-business"), 1024, RejectedExecutionHandlers.reject());
+            new DefaultThreadFactory("danmaku-business"), 1024, (task, executor) -> {
+                DanmakuMetrics.rejected.increment();
+                throw new java.util.concurrent.RejectedExecutionException("Danmaku business queue full or stopped");
+            });
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay=1000)
+    public void sampleQueue() {
+        long pending=0;
+        for (var executor : messageGroup) if (executor instanceof SingleThreadEventExecutor single) pending+=single.pendingTasks();
+        DanmakuMetrics.pendingTasks.set(pending);
+    }
 
     private final RocketMQProducer rocketMQProducer;
 

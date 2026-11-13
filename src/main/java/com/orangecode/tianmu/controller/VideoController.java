@@ -23,6 +23,12 @@ public class VideoController {
 
     @Resource
     private VideoService videoService;
+    @Resource private com.orangecode.tianmu.application.BulletWindows bulletWindows;
+
+    @GetMapping("/bullets/window")
+    public BaseResponse<com.orangecode.tianmu.application.BulletWindows.Page> bulletWindow(@RequestParam long videoId,@RequestParam int bucket,@RequestParam double afterTime,@RequestParam(defaultValue="0") long afterId) {
+        return ResultUtils.success(bulletWindows.read(videoId,bucket,afterTime,afterId));
+    }
 
     @Resource
     private LikeService likeService;

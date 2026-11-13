@@ -4,7 +4,7 @@ spring:
     name: tianmu
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${TIANMU_JDBC_URL:jdbc:mysql://127.0.0.1:3306/tianmu?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
+    url: ${TIANMU_JDBC_URL:jdbc:mysql://127.0.0.1:3306/tianmu?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true}
     username: ${TIANMU_DB_USER:tianmu}
     password: ${TIANMU_DB_PASSWORD}
   elasticsearch:
