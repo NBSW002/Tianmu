@@ -127,6 +127,12 @@ public record FeedbackReportJson(String schemaVersion,String title,String summar
                     .append("' target='_blank' rel='noopener noreferrer'>查看对应片段 ↗</a>");
         if(quote.excerpt())h.append(" · 原话节选");
         h.append("</footer>");
+        for(var reply:quote.replies()){
+            h.append("<p class='child-reply'>").append(quote.id().equals(reply.parentId())?"↳ ":"↳ 回复评论：").append(escape(reply.text()));
+            if(reply.likes()!=null && reply.likes()>0)h.append(" <small>").append(reply.likes()).append(" 赞</small>");
+            if(reply.excerpt())h.append(" <small>回复节选</small>");
+            h.append("</p>");
+        }
         if(!quote.context().isBlank())h.append("<details class='reply-context'><summary>查看回复上文</summary><p>")
                 .append(escape(FeedbackReportDocument.replyContext(quote.context()))).append("</p></details>");
         h.append("</blockquote>");

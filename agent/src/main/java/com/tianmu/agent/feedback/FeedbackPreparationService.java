@@ -150,7 +150,11 @@ public final class FeedbackPreparationService {
                         ?rerank.select(claim,control,()->compression.planRerank(job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls())),
                                 ()->analysis.owned(id,job.owner()),job)
                         :boundedMaterial(objects,compression.compress(id,job.owner(),job.request(),manifest.result(),shared.counts(),parts,control,()->store.reserveEmbedding(id,settings.embeddingCalls())));
-                result=objects.put(id,material,control);
+                if(FeedbackCompression.RERANK_VERSION.equals(job.request().rulesVersion())){
+                    material=FeedbackDiscussionMaterials.attach(material,parts,new com.fasterxml.jackson.databind.ObjectMapper());
+                    material=new FeedbackCompression.Material(material.version(),material.policy(),material.protocolRevision(),material.manifest(),material.rawCounts(),material.eligibleCounts(),material.excluded(),material.exactExpressions(),material.clusters(),material.inputs(),material.representativeCount(),objects.bytes(material.inputs().stream().flatMap(i->i.groups().stream()).map(FeedbackRerankConfirmation::modelEvidence).toList()),material.unclassified(),material.unclassifiedExamples(),material.bucketMetric(),material.stats());
+                }
+                result=objects.put(id,boundedMaterial(objects,material),control);
                 com.tianmu.agent.harness.trace.TraceAttributes.apply(io.opentelemetry.api.trace.Span.current(),Map.of("analysis.raw_records",shared.counts().total(),"analysis.filtered_records",material.excluded().size(),"analysis.exact_expressions",material.exactExpressions(),"analysis.clusters",material.clusters().size(),"analysis.representatives",material.representativeCount(),"analysis.representative_bytes",material.modelBytes(),"analysis.unclassified_records",material.unclassified().size()));
             }
             else {

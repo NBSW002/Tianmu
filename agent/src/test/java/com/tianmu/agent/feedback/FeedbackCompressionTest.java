@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FeedbackCompressionTest {
-    @Test void rerankAnchorAndCandidatesKeep256CodePointsOfTextAndContext(){
+    @Test void rerankUsesOnlyRootTextAndLeavesRepliesForAttachment(){
         var embedding=mock(FeedbackEmbedding.class);
         var vectors=mock(FeedbackVectorIndex.class);
         when(embedding.dimension()).thenReturn(3);
@@ -26,11 +26,12 @@ class FeedbackCompressionTest {
         var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
         var rows=new ArrayList<Unit>();
         for(int id=1;id<=4;id++)rows.add(new Unit("C:"+id,Source.COMMENT,""+id,
-                "具体反馈"+id+"😀".repeat(300),"上文"+"父".repeat(300),false,null,"u"+id,Instant.now()));
+                "具体反馈"+id+"😀".repeat(300),"",false,null,"u"+id,Instant.now()));
+        rows.add(new Unit("C:5",Source.COMMENT,"5","子评论只做附加","[{\"id\":\"1\",\"text\":\"主评论\",\"author\":false}]",false,null,"u5",Instant.now()));
         var c=control();
         var scope=new Request(request.query(),Set.of(Source.COMMENT),Grounding.FEEDBACK_ONLY,null,null,FeedbackCompression.RERANK_VERSION);
         var plan=compression.planRerank(owner,scope,new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
-                new Counts(4,0,0,0,4),List.of(compression.prepare(Source.COMMENT,rows,c)),c,()->{});
+                new Counts(5,0,0,0,5),List.of(compression.prepare(Source.COMMENT,rows,c)),c,()->{});
         assertFalse(plan.buckets().isEmpty());
         var all=new ArrayList<FeedbackCompression.Representative>();
         for(var bucket:plan.buckets()){
@@ -40,10 +41,12 @@ class FeedbackCompressionTest {
         assertEquals(4,all.size());
         for(var representative:all){
             assertEquals(256,representative.text().codePointCount(0,representative.text().length()));
-            assertEquals(256,representative.context().codePointCount(0,representative.context().length()));
+            assertTrue(representative.context().isEmpty());
             assertEquals(256,representative.textProvenance().endCodePoint());
-            assertEquals(256,representative.contextProvenance().endCodePoint());
+            assertNull(representative.contextProvenance());
         }
+        assertEquals(List.of("C:5"),plan.material().unclassified());
+        verify(embedding).embed(argThat(texts->texts.size()==4 && texts.stream().noneMatch(t->t.contains("子评论"))),any());
     }
 
     @Test void filtersPureCheersBeforeAnalysisWhileRetainingPlaybackCounts(){
@@ -104,7 +107,7 @@ class FeedbackCompressionTest {
                 new HashSet<>(part.excluded().stream().map(FeedbackCompression.Excluded::reason).toList()));
     }
 
-    @Test void tieredDirectRetainsFullTextAndContextWithoutCallingProviders(){
+    @Test void tieredDirectRetainsFullRootTextWithoutCallingProviders(){
         var embedding=mock(FeedbackEmbedding.class);
         var vectors=mock(FeedbackVectorIndex.class);
         when(embedding.dimension()).thenReturn(1024);
@@ -112,14 +115,14 @@ class FeedbackCompressionTest {
         var compression=new FeedbackCompression(embedding,vectors,FeedbackCompressionProperties.defaults(),json);
         compression.tieredPolicy(new FeedbackTieredProperties(true,32768));
         String text="画面切得太快了".repeat(50);
-        var row=new Unit("C:1",Source.COMMENT,"1",text,"上文原话",false,null,"u1",Instant.now());
+        var row=new Unit("C:1",Source.COMMENT,"1",text,"",false,null,"u1",Instant.now());
         var c=control();
         var material=compression.directMaterial(new Blob("fb_"+"0".repeat(32)+".json",1,"0".repeat(64)),
                 new Counts(1,0,0,0,1),List.of(compression.prepare(Source.COMMENT,List.of(row),c)),c);
         assertNotNull(material);
         assertEquals("DIRECT_LLM",material.summary().get("route"));
         assertEquals(text,material.inputs().get(0).groups().get(0).text());
-        assertEquals("上文原话",material.inputs().get(0).groups().get(0).replyContext());
+        assertEquals("",material.inputs().get(0).groups().get(0).replyContext());
         var proposal=new FeedbackModels.Proposal("T1","节奏太快","观众明确提出画面切换太快。","尝试延长对应镜头。",
                 List.of("C:1"),new Selection(List.of("C:1"),List.of(),"COHERENT",true,"直接证据"));
         assertEquals(1,FeedbackRerankConfirmation.validate("direct",material.inputs().get(0),List.of(proposal)).topics().size());

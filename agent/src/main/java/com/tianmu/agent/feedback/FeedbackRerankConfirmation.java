@@ -10,8 +10,13 @@ public final class FeedbackRerankConfirmation {
         var row=new LinkedHashMap<String,Object>();
         row.put("expressionId",group.id());row.put("groupId",group.candidateCluster());row.put("source",group.source());
         row.put("text",group.text());row.put("context",group.replyContext());
-        row.put("playbackMs",group.playbackMs());row.put("exactMessages",group.messages());
+        row.put("playbackMs",group.playbackMs());row.put("exactMessages",group.messages()-group.replies().size());
         row.put("likes",group.likes());row.put("likesAvailable",group.likes()!=null);
+        row.put("replies",group.replies());
+        if(!group.replies().isEmpty()){
+            var replyIds=group.replies().stream().map(FeedbackModels.Reply::id).collect(java.util.stream.Collectors.toSet());
+            row.put("rootCommentIds",group.originalIds().stream().filter(id->!replyIds.contains(id)).toList());
+        }
         return Collections.unmodifiableMap(row);
     }
 

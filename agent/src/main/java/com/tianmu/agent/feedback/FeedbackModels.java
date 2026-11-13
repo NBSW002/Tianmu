@@ -7,11 +7,15 @@ import java.util.*;
 
 /** Workers have no arbitrary tools. Semantic decisions and deterministic validation are separate. */
 public interface FeedbackModels {
+    record Reply(String id,String parentId,String text,Long likes,boolean excerpt) {
+        public Reply(String id,String parentId,String text,Long likes){this(id,parentId,text,likes,false);}
+    }
     record Group(String id, Source source, String text, String replyContext, boolean author, Long playbackMs,
-                 long messages, List<String> originalIds,String candidateCluster,Long likes) {
+                 long messages, List<String> originalIds,String candidateCluster,Long likes,List<Reply> replies) {
+        public Group(String id,Source source,String text,String replyContext,boolean author,Long playbackMs,long messages,List<String> originalIds,String candidateCluster,Long likes){this(id,source,text,replyContext,author,playbackMs,messages,originalIds,candidateCluster,likes,List.of());}
         public Group(String id,Source source,String text,String replyContext,boolean author,Long playbackMs,long messages,List<String> originalIds,String candidateCluster){this(id,source,text,replyContext,author,playbackMs,messages,originalIds,candidateCluster,null);}
         public Group(String id,Source source,String text,String replyContext,boolean author,Long playbackMs,long messages,List<String> originalIds){this(id,source,text,replyContext,author,playbackMs,messages,originalIds,null);}
-        public Group { originalIds = List.copyOf(originalIds); }
+        public Group { originalIds = List.copyOf(originalIds);replies=replies==null?List.of():List.copyOf(replies); }
     }
     record Correction(List<Proposal> previousTopics,List<String> missing,List<String> duplicates,List<String> unknown,String issue,int round) {
         public Correction(List<Proposal> previousTopics,List<String> missing,List<String> duplicates,List<String> unknown,String issue){this(previousTopics,missing,duplicates,unknown,issue,0);}

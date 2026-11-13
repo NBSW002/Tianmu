@@ -39,6 +39,7 @@ public final class FeedbackNarrativePolicy {
     private static String corpus(Input input){
         var text=new StringBuilder();
         input.groups().forEach(g->text.append(g.text()).append('\n').append(g.replyContext()).append('\n'));
+        input.groups().forEach(g->g.replies().forEach(r->text.append(r.text()).append('\n')));
         input.children().forEach(t->text.append(t.title()).append('\n').append(t.observation()).append('\n').append(t.recommendation()).append('\n'));
         if(input.video()!=null){text.append(input.video().summary()).append('\n').append(input.video().transcript());input.video().moments().forEach(m->text.append('\n').append(m.observation()));}
         return text.toString();

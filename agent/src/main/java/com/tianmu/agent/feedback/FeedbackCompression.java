@@ -25,7 +25,10 @@ public final class FeedbackCompression {
     }
     public record Excerpt(String memberId,String field,String snapshotHash,String valueHash,int startCodePoint,int endCodePoint,int originalCodePoints) {}
     public record Representative(String id,Source source,String text,String context,Long playbackMs,
-                                 Long likes,long exactMessages,boolean excerpt,Excerpt textProvenance,Excerpt contextProvenance) {}
+                                 Long likes,long exactMessages,boolean excerpt,Excerpt textProvenance,Excerpt contextProvenance,List<FeedbackModels.Reply> replies) {
+        public Representative(String id,Source source,String text,String context,Long playbackMs,Long likes,long exactMessages,boolean excerpt,Excerpt textProvenance,Excerpt contextProvenance){this(id,source,text,context,playbackMs,likes,exactMessages,excerpt,textProvenance,contextProvenance,List.of());}
+        public Representative {replies=replies==null?List.of():List.copyOf(replies);}
+    }
     public record Cluster(String id,List<String> members,List<Representative> representatives) {
         public Cluster {members=List.copyOf(members);representatives=List.copyOf(representatives);}
     }
@@ -70,7 +73,7 @@ public final class FeedbackCompression {
     public String revision(){return FeedbackObjects.sha((policy.revision()+"|"+(embedding==null?"none":embedding.version()+":"+embedding.dimension())+"|representatives-text-v1|cosine-normalized-star-v1|substantive-feedback-v3").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String fiveRevision(){return FeedbackObjects.sha((revision()+"|"+buckets.revision()+"|five-buckets-expression-equal-supported-contextguard-candidates-eight-v7").getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public String materialRevision(String version){
-        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|top20-top5-text256-context256-metadata-v4"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if(RERANK_VERSION.equals(version))return FeedbackObjects.sha((fiveRevision()+"|"+rerankProviderRevision+"|root-only-top5-replies5-v5"+(tiered!=null && tiered.enabled()?"|tiered-v1|"+tiered.directInputBytes():"")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return FIVE_VERSION.equals(version)?fiveRevision():revision();
     }
     public SourceMaterial prepare(Source source,List<Unit> rows,CallControl control){
@@ -108,6 +111,7 @@ public final class FeedbackCompression {
             excluded.addAll(part.excluded());
             for (var row : part.eligible()) {
                 check(control);
+                if(FeedbackDiscussionMaterials.isReply(row))continue;
                 var key = new Exact(row.source(), row.text(), row.replyContext(), row.author(),
                         row.playbackMs() == null ? null : row.playbackMs() / policy.playbackBucketMs());
                 exact.computeIfAbsent(key, ignored -> new ArrayList<>()).add(row);
@@ -138,9 +142,11 @@ public final class FeedbackCompression {
         }
         var input = new FeedbackModels.Input(WorkKind.CLASSIFY,groups,List.of(),null);
         var metric = new BucketMetric("DIRECT","NONE",0,exact.size(),"direct-reading-v1");
+        var all=parts.stream().flatMap(p->p.eligible().stream()).toList();
+        long allComments=all.stream().filter(u->u.source()==Source.COMMENT).count();
         return new Material(RERANK_VERSION,policy,materialRevision(RERANK_VERSION),manifest,raw,
-                new Counts(comments,danmaku,0,0,people.size()),excluded,exact.size(),clusters,
-                List.of(input),groups.size(),bytes,List.of(),List.of(),metric,mergeStats(parts));
+                new Counts(allComments,all.size()-allComments,0,0,all.stream().map(Unit::userId).filter(Objects::nonNull).distinct().count()),excluded,exact.size(),clusters,
+                List.of(input),groups.size(),bytes,all.stream().filter(FeedbackDiscussionMaterials::isReply).map(Unit::id).toList(),List.of(),metric,mergeStats(parts));
     }
 
     public RerankPlan planRerank(AccessScope owner,Request request,Blob manifest,Counts raw,List<SourceMaterial> partitions,
@@ -158,7 +164,7 @@ public final class FeedbackCompression {
         if(!sourceSet.equals(request.sources()) || rows.size()+excluded.size()!=raw.total())throw new AgentException("INVALID_EVIDENCE","Material counts differ from shared snapshot");
         rows.sort(Comparator.comparing(Unit::id));
         var exact=new LinkedHashMap<Exact,List<Unit>>();
-        for(var u:rows){check(control);var key=new Exact(u.source(),u.text(),u.replyContext(),u.author(),u.playbackMs()==null?null:u.playbackMs()/policy.playbackBucketMs());exact.computeIfAbsent(key,k->new ArrayList<>()).add(u);}
+        for(var u:rows){check(control);if(rerank!=null && FeedbackDiscussionMaterials.isReply(u))continue;var key=new Exact(u.source(),u.text(),u.replyContext(),u.author(),u.playbackMs()==null?null:u.playbackMs()/policy.playbackBucketMs());exact.computeIfAbsent(key,k->new ArrayList<>()).add(u);}
         var expressions=new ArrayList<Expression>();
         Comparator<Unit> ranking=Comparator.<Unit,Boolean>comparing(u->u.likeCount()==null).thenComparing(u->u.likeCount()==null?0L:u.likeCount(),Comparator.reverseOrder()).thenComparing(Unit::id);
         for(var members:exact.values()){members.sort(ranking);expressions.add(new Expression(members.get(0),List.copyOf(members)));}
@@ -234,6 +240,7 @@ public final class FeedbackCompression {
     private SourceStats mergeStats(List<SourceMaterial> parts){var daily=new TreeMap<String,Long>();var playback=new TreeMap<Long,Long>();long missing=0;for(var part:parts){if(part.stats()==null)return null;part.stats().daily().forEach((k,v)->daily.merge(k,v,Math::addExact));part.stats().playback().forEach((k,v)->playback.merge(k,v,Math::addExact));missing=Math.addExact(missing,part.stats().playbackMissing());if(daily.size()+playback.size()>MAX_STATS_KEYS)return null;}return new SourceStats(daily,playback,missing);}
     private Material fiveBuckets(Blob manifest,Counts raw,List<Excluded> excluded,List<Unit> rows,List<Expression> expressions,List<float[]> encoded,CallControl control,SourceStats stats,List<RerankBucket> rerank){
         var eligibleIndices=new ArrayList<Integer>();var unclassified=new ArrayList<String>();
+        if(rerank!=null)rows.stream().filter(FeedbackDiscussionMaterials::isReply).map(Unit::id).forEach(unclassified::add);
         for(int n=0;n<expressions.size();n++){if(contextDependent(expressions.get(n).exemplar()))expressions.get(n).members().forEach(u->unclassified.add(u.id()));else eligibleIndices.add(n);}
         var transformed=FeedbackVectorTransform.apply(eligibleIndices.stream().map(encoded::get).toList(),buckets,control);
         if(transformed.mode().equals("TASK_CENTERED_COSINE")){
@@ -326,7 +333,7 @@ public final class FeedbackCompression {
     public void warm(AccessScope owner,long video,List<Unit> rows,CallControl control,Runnable reserve){
         if(rows.size()>16)throw new IllegalArgumentException("Warm batch exceeds 16 records");
         var accepted=new ArrayList<Unit>();
-        for(var source:Source.values())accepted.addAll(prepare(source,rows.stream().filter(u->u.source()==source).toList(),control).eligible());
+        for(var source:Source.values())accepted.addAll(prepare(source,rows.stream().filter(u->u.source()==source).toList(),control).eligible().stream().filter(u->!FeedbackDiscussionMaterials.isReply(u)).toList());
         var query=new com.tianmu.agent.core.DanmakuTypes.Query(video,com.tianmu.agent.core.DanmakuTypes.ALL_TIME_START,java.time.LocalDateTime.of(2100,1,1,0,0));
         var request=new Request(query,EnumSet.allOf(Source.class),Grounding.FEEDBACK_ONLY,null,null,FIVE_VERSION);
         encode(owner,request,accepted.stream().map(u->new Expression(u,List.of(u))).toList(),control,reserve,FeedbackVectorIndex.Origin.PREWARM);
