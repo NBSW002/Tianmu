@@ -46,7 +46,8 @@ class AnswerDataNotesTest {
             assertEquals(Status.SUCCEEDED, run.snapshot().status());
             var notes = run.snapshot().answer().dataNotes();
             assertEquals(1, notes.size());
-            assertTrue(notes.get(0).label().contains("2000–6000ms"));
+            assertEquals("画面分析", notes.get(0).label());
+            assertTrue(notes.get(0).text().contains("2.0–6.0 秒"));
             assertTrue(notes.get(0).text().contains("仅采样2帧"));
             assertTrue(notes.get(0).text().contains("未提供可用音频转写"));
             assertEquals(asOf, notes.get(0).updatedAt());

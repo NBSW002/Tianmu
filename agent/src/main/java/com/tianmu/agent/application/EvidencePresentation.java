@@ -37,9 +37,9 @@ public final class EvidencePresentation {
             if (video != null) {
                 String audio = video.transcript().isBlank() ? "未提供可用音频转写，不能据此判断对白或音效。"
                         : "音频转写仅覆盖该区间，未提供逐句时间定位。";
-                notes.add(new AnswerNote("视频" + video.videoId() + " · 播放区间" + video.startMs() + "–" + video.endMs() + "ms",
-                        "来源版本：" + video.sourceVersion() + "；仅采样" + video.sampledAtMs().size() + "帧，位置：" + video.sampledAtMs()
-                                + "ms；可能遗漏短暂事件，不能代表逐帧或连续动作分析。" + audio, video.analyzedAt(), "Asia/Shanghai"));
+                notes.add(new AnswerNote("画面分析",
+                        "分析范围为 " + (video.startMs() / 1000.0) + "–" + (video.endMs() / 1000.0) + " 秒，仅采样" + video.sampledAtMs().size() + "帧，可能遗漏画面变化，不能代表逐帧或连续动作分析。" + audio
+                                + " 具体内容和时间点请结合视频核对。", video.analyzedAt(), "Asia/Shanghai"));
             }
         }
         return List.copyOf(notes);

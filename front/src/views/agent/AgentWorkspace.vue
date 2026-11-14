@@ -128,7 +128,7 @@
                   <div v-for="(note, index) in answerPresentation(turn.snapshot.answer).notes" :key="index">
                     <span v-if="note.label">{{ note.label }}</span>
                     <p>{{ note.text }}</p>
-                    <time v-if="formatDataUpdatedAt(note.updatedAt)">更新于 {{ formatDataUpdatedAt(note.updatedAt) }}</time>
+                    <time v-if="formatDataUpdatedAt(note.updatedAt)">{{ note.label === '画面分析' ? '画面分析时间' : '数据时间' }}：{{ formatDataUpdatedAt(note.updatedAt) }}</time>
                   </div>
                 </details>
                 <p v-if="turn.snapshot?.status === 'FAILED'" class="failure-message">

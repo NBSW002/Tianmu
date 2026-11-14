@@ -1,14 +1,15 @@
 <template>
-  <section class="creator-draft" aria-label="作者互动草稿">
+  <section ref="draftRoot" class="creator-draft" aria-label="作者互动草稿">
     <header><strong>{{ kindLabel }}预览</strong><span>{{ stateLabel }}</span></header>
     <p class="draft-hint">请逐条核对内容{{ draft?.kind === 'DANMAKU' ? '和时间点' : '' }}，确认后以作者身份发送。</p>
+    <p v-if="draft?.kind === 'DANMAKU'" class="draft-hint">时间点由模型建议，请跳转视频核对后再发送。</p>
     <p v-if="loading" role="status">正在读取草稿…</p>
     <template v-if="draft">
       <div v-if="displayTitle || authorName" class="draft-meta">{{ displayTitle }}<template v-if="displayTitle && authorName"> · </template><template v-if="authorName">作者：{{ authorName }}</template></div>
       <div class="draft-selection"><span>已选 {{ selected.length }} / {{ items.length }} 条</span><button v-if="!locked" type="button" class="text-button" @click="toggleAll">{{ selected.length === items.length ? '取消全选' : '全选' }}</button></div>
       <div v-for="(item, index) in items" :key="item.id" class="draft-item">
         <label class="draft-item-heading"><input v-model="item.selected" type="checkbox" :disabled="locked" /> 第 {{ index + 1 }} 条 <span>{{ item.text.length }} / {{ draft.kind === 'COMMENT' ? 500 : 80 }}</span></label>
-        <textarea v-model="item.text" :maxlength="draft.kind === 'COMMENT' ? 500 : 80" :disabled="locked" :aria-label="`第${index + 1}条${kindLabel}`" rows="2" />
+        <textarea v-model="item.text" :maxlength="draft.kind === 'COMMENT' ? 500 : 80" :disabled="locked" :aria-label="`第${index + 1}条${kindLabel}`" rows="2" @input="resizeText($event.target)" />
         <div v-if="draft.kind === 'DANMAKU'" class="draft-time"><label>播放时间（秒）<input v-model.number="item.seconds" type="number" min="0" step="0.001" :disabled="locked" :aria-label="`第${index + 1}条弹幕的播放时间`" /></label><button v-if="onVideo" type="button" class="text-button" @click="seek(item)">跳转查看</button><button v-if="onVideo && !locked" type="button" class="text-button" @click="useCurrentTime(item)">使用当前时间</button></div>
       </div>
       <div v-if="draft.state !== 'PUBLISHED'" class="draft-actions">
@@ -24,17 +25,20 @@
 
 <script setup>
 /* global defineProps */
-import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { getCreatorDraft, confirmCreatorDraft } from '@/api/agent'
 import { useUserStore } from '@/store/user'
 import { useAssistantStore } from '@/store/assistant'
 import { useRoute } from 'vue-router'
+import { restoreDraftItems } from '@/agent/draft-selection.mjs'
 const props = defineProps({ runId: { type: String, required: true }, videoTitle: { type: String, default: '' } })
 const user = useUserStore()
 const assistant = useAssistantStore()
 const route = useRoute()
 const draft = ref(null), items = ref([]), loading = ref(false), publishing = ref(false), error = ref('')
+const draftRoot = ref(null)
 let controller, epoch = 0
+let resizeObserver, lastWidth = 0
 const kindLabel = computed(() => draft.value?.kind === 'DANMAKU' ? '弹幕' : '评论')
 const stateLabel = computed(() => ({ DRAFT: '尚未发送', PUBLISHING: '待确认发送结果', PUBLISHED: '已发送' })[draft.value?.state] || '')
 const locked = computed(() => publishing.value || draft.value?.state !== 'DRAFT')
@@ -46,9 +50,12 @@ function toggleAll() { const next = selected.value.length !== items.value.length
 function seek(item) { const seconds = Number(item.seconds); if (onVideo.value && Number.isFinite(seconds) && seconds >= 0) assistant.seekRequest = { videoId: String(draft.value.videoId), seconds } }
 function useCurrentTime(item) { const time = assistant.page?.playbackMs; if (onVideo.value && Number.isFinite(time) && time >= 0) item.seconds = time / 1000 }
 function stop() { epoch++; controller?.abort(); controller = null }
+function resizeText(element) { if (!element) return; element.style.height = 'auto'; element.style.height = `${element.scrollHeight + 2}px` }
 function apply(next) {
+  const restored = restoreDraftItems(next, draft.value, items.value)
   draft.value = next
-  items.value = (next?.items || []).map(item => ({ ...item, seconds: item.playbackMs == null ? null : item.playbackMs / 1000, selected: true }))
+  items.value = restored
+  nextTick(() => draftRoot.value?.querySelectorAll('textarea').forEach(resizeText))
 }
 async function load() {
   stop(); const current = epoch; controller = new AbortController(); loading.value = true; error.value = ''
@@ -70,9 +77,14 @@ async function publish() {
   } finally { if (current === epoch) publishing.value = false }
 }
 watch(() => [props.runId, user.user.token], () => { apply(null); publishing.value = false; load() }, { immediate: true })
-onBeforeUnmount(stop)
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined') return
+  resizeObserver = new ResizeObserver(entries => { const width = entries[0]?.contentRect.width; if (width && width !== lastWidth) { lastWidth = width; draftRoot.value?.querySelectorAll('textarea').forEach(resizeText) } })
+  if (draftRoot.value) resizeObserver.observe(draftRoot.value)
+})
+onBeforeUnmount(() => { stop(); resizeObserver?.disconnect() })
 </script>
 
 <style scoped>
-.creator-draft{margin-top:18px;padding:16px 16px 0;border:1px solid var(--workbench-border,#e7e3db);border-radius:12px;background:var(--workbench-raised,#faf9f5);color:var(--workbench-text,#292925)}.creator-draft header,.draft-actions,.draft-selection,.draft-item-heading,.draft-time{display:flex;align-items:center;gap:10px}.creator-draft header,.draft-selection,.draft-actions{justify-content:space-between}.creator-draft header span,.draft-hint,.draft-meta,.draft-selection,.draft-item-heading,.draft-time{font-size:12px;color:var(--workbench-muted,#77766f)}.draft-hint{line-height:1.5;margin:8px 0}.draft-meta{overflow-wrap:anywhere}.draft-selection{padding:10px 0;border-bottom:1px solid var(--workbench-border,#e7e3db)}.draft-item{display:grid;gap:7px;padding:10px 0;border-bottom:1px solid var(--workbench-border,#e7e3db)}.draft-item-heading span{margin-left:auto}.draft-item textarea{box-sizing:border-box;width:100%;resize:vertical;padding:9px;border:1px solid var(--workbench-border,#e2ded6);border-radius:8px;font:inherit;line-height:1.5;background:var(--workbench-bg,#fff);color:inherit}.draft-time{flex-wrap:wrap}.draft-time input{width:76px;margin-left:6px;padding:5px;border:1px solid var(--workbench-border,#ddd);border-radius:6px}.draft-actions{position:sticky;bottom:0;margin:0 -16px;padding:12px 16px;background:var(--workbench-raised,#faf9f5);border-top:1px solid var(--workbench-border,#e7e3db);z-index:2}.creator-draft button{cursor:pointer}.draft-actions button{padding:9px 15px;border:0;border-radius:8px;background:#c96442;color:#fff;font-weight:600}.creator-draft button:disabled{opacity:.5;cursor:default}.text-button{padding:3px 0;border:0;background:transparent;color:#ad573b}.creator-draft [role=alert]{color:#ab4c47;font-size:13px}
+.creator-draft{margin-top:18px;padding:16px 16px 0;border:1px solid var(--workbench-border,#e7e3db);border-radius:12px;background:var(--workbench-raised,#faf9f5);color:var(--workbench-text,#292925)}.creator-draft header,.draft-actions,.draft-selection,.draft-item-heading,.draft-time{display:flex;align-items:center;gap:10px}.creator-draft header,.draft-selection,.draft-actions{justify-content:space-between}.creator-draft header span,.draft-hint,.draft-meta,.draft-selection,.draft-item-heading,.draft-time{font-size:12px;color:var(--workbench-muted,#77766f)}.draft-hint{line-height:1.5;margin:8px 0}.draft-meta{overflow-wrap:anywhere}.draft-selection{padding:10px 0;border-bottom:1px solid var(--workbench-border,#e7e3db)}.draft-item{display:grid;gap:7px;padding:10px 0;border-bottom:1px solid var(--workbench-border,#e7e3db)}.draft-item-heading span{margin-left:auto}.draft-item textarea{box-sizing:border-box;width:100%;min-height:54px;overflow-y:hidden;resize:none;padding:9px;border:1px solid #eae6dd;border-radius:8px;font:inherit;line-height:1.5;background:#f6f4ee;color:inherit;transition:border-color .15s,background .15s}.draft-item textarea:hover,.draft-item textarea:focus{border-color:#c8b8a9;background:#faf9f5;outline:none}.draft-time{flex-wrap:wrap}.draft-time input{width:76px;margin-left:6px;padding:5px;border:1px solid var(--workbench-border,#ddd);border-radius:6px;background:#f6f4ee;color:inherit}.draft-actions{position:sticky;bottom:0;margin:12px -16px 0;padding:12px 16px;background:var(--workbench-raised,#faf9f5);border-top:1px solid var(--workbench-border,#e7e3db);z-index:2}.creator-draft button{cursor:pointer}.draft-actions button{padding:9px 15px;border:0;border-radius:8px;background:#c96442;color:#fff;font-weight:600}.creator-draft button:disabled{opacity:.5;cursor:default}.text-button{padding:3px 0;border:0;background:transparent;color:#ad573b}.creator-draft [role=alert]{color:#ab4c47;font-size:13px}
 </style>
