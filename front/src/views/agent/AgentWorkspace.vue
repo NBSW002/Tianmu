@@ -167,7 +167,7 @@
                     </li>
                   </ol>
                 </details>
-                <CreatorDraft v-if="turn.snapshot?.status === 'SUCCEEDED' && turn.snapshot?.task?.specification?.type === 'creator.draft'" :run-id="turn.runId" />
+                <CreatorDraft v-if="turn.snapshot?.status === 'SUCCEEDED' && turn.snapshot?.task?.specification?.type === 'creator.draft'" :run-id="turn.runId" :video-title="turn.videoTitle || ''" />
                 <div
                   v-if="turn.reportPath && turn.snapshot?.status === 'SUCCEEDED'"
                   class="report-panel"

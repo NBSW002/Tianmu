@@ -15,6 +15,7 @@
           <span class="player-info-compact">{{ compactInteractionCount(onlineUserCount) }} 人在看 · {{ compactInteractionCount(danmuCount) }} 条弹幕</span>
         </div>
       </div>
+      <button type="button" class="danmu-settings-link" @click="openDanmuSettings">弹幕设置</button>
       <div ref="artDanmuRef" class="danmu-panel"></div>
     </div>
   </div>
@@ -155,6 +156,7 @@ export default {
   methods: {
     compactInteractionCount,
     fullInteractionCount,
+    openDanmuSettings() { this.emitterRoot?.querySelector('.apd-config')?.click(); },
     initArtPlayer() {
       this.$nextTick(() => {
         this.instance = markRaw(new Artplayer({
@@ -455,4 +457,6 @@ export default {
     background-color: #00aeec;
   }
 }
+.danmu-settings-link { flex: 0 0 auto; border: 0; background: transparent; color: #77766f; font: inherit; font-size: 12px; cursor: pointer; padding: 6px; }
+.danmu-settings-link:hover { color: #c96442; }
 </style>

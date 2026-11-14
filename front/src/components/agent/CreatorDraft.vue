@@ -1,16 +1,18 @@
 <template>
   <section class="creator-draft" aria-label="作者互动草稿">
     <header><strong>{{ kindLabel }}预览</strong><span>{{ stateLabel }}</span></header>
-    <p class="draft-hint">仅以你本人的作者账号发送。先修改内容和勾选条目，再确认发送。</p>
+    <p class="draft-hint">请逐条核对内容{{ draft?.kind === 'DANMAKU' ? '和时间点' : '' }}，确认后以作者身份发送。</p>
     <p v-if="loading" role="status">正在读取草稿…</p>
     <template v-if="draft">
-      <div class="draft-meta">视频 #{{ draft.videoId }} · 作者账号 #{{ draft.userId }}</div>
-      <label v-for="(item, index) in items" :key="item.id" class="draft-item">
-        <span><input v-model="item.selected" type="checkbox" :disabled="locked" /> 第 {{ index + 1 }} 条</span>
+      <div v-if="displayTitle || authorName" class="draft-meta">{{ displayTitle }}<template v-if="displayTitle && authorName"> · </template><template v-if="authorName">作者：{{ authorName }}</template></div>
+      <div class="draft-selection"><span>已选 {{ selected.length }} / {{ items.length }} 条</span><button v-if="!locked" type="button" class="text-button" @click="toggleAll">{{ selected.length === items.length ? '取消全选' : '全选' }}</button></div>
+      <div v-for="(item, index) in items" :key="item.id" class="draft-item">
+        <label class="draft-item-heading"><input v-model="item.selected" type="checkbox" :disabled="locked" /> 第 {{ index + 1 }} 条 <span>{{ item.text.length }} / {{ draft.kind === 'COMMENT' ? 500 : 80 }}</span></label>
         <textarea v-model="item.text" :maxlength="draft.kind === 'COMMENT' ? 500 : 80" :disabled="locked" :aria-label="`第${index + 1}条${kindLabel}`" rows="2" />
-        <span v-if="draft.kind === 'DANMAKU'">播放时间（秒）<input v-model.number="item.seconds" type="number" min="0" step="0.001" :disabled="locked" :aria-label="`第${index + 1}条弹幕的播放时间`" /></span>
-      </label>
+        <div v-if="draft.kind === 'DANMAKU'" class="draft-time"><label>播放时间（秒）<input v-model.number="item.seconds" type="number" min="0" step="0.001" :disabled="locked" :aria-label="`第${index + 1}条弹幕的播放时间`" /></label><button v-if="onVideo" type="button" class="text-button" @click="seek(item)">跳转查看</button><button v-if="onVideo && !locked" type="button" class="text-button" @click="useCurrentTime(item)">使用当前时间</button></div>
+      </div>
       <div v-if="draft.state !== 'PUBLISHED'" class="draft-actions">
+        <span>已选 {{ selected.length }} 条</span>
         <button type="button" :disabled="publishing || !selected.length" @click="publish">{{ publishing ? '正在发送…' : draft.state === 'PUBLISHING' ? '重试确认发送结果' : `确认发送 ${selected.length} 条${kindLabel}` }}</button>
       </div>
       <p v-if="draft.state === 'PUBLISHING'" class="draft-hint">发送结果尚未确认。内容已锁定，请使用上面的重试按钮，避免重新生成后重复发送。</p>
@@ -25,14 +27,24 @@
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { getCreatorDraft, confirmCreatorDraft } from '@/api/agent'
 import { useUserStore } from '@/store/user'
-const props = defineProps({ runId: { type: String, required: true } })
+import { useAssistantStore } from '@/store/assistant'
+import { useRoute } from 'vue-router'
+const props = defineProps({ runId: { type: String, required: true }, videoTitle: { type: String, default: '' } })
 const user = useUserStore()
+const assistant = useAssistantStore()
+const route = useRoute()
 const draft = ref(null), items = ref([]), loading = ref(false), publishing = ref(false), error = ref('')
 let controller, epoch = 0
 const kindLabel = computed(() => draft.value?.kind === 'DANMAKU' ? '弹幕' : '评论')
 const stateLabel = computed(() => ({ DRAFT: '尚未发送', PUBLISHING: '待确认发送结果', PUBLISHED: '已发送' })[draft.value?.state] || '')
 const locked = computed(() => publishing.value || draft.value?.state !== 'DRAFT')
 const selected = computed(() => items.value.filter(item => item.selected).map(item => ({ id: item.id, text: item.text, playbackMs: draft.value?.kind === 'DANMAKU' ? Math.round(Number(item.seconds) * 1000) : null })))
+const onVideo = computed(() => draft.value && String(route.params.videoId || '') === String(draft.value.videoId) && assistant.page?.videoId === String(draft.value.videoId))
+const displayTitle = computed(() => props.videoTitle || (onVideo.value ? assistant.page?.title : '') || '')
+const authorName = computed(() => draft.value && String(user.user.userId) === String(draft.value.userId) ? (user.user.nickname || '') : '')
+function toggleAll() { const next = selected.value.length !== items.value.length; items.value.forEach(item => { item.selected = next }) }
+function seek(item) { const seconds = Number(item.seconds); if (onVideo.value && Number.isFinite(seconds) && seconds >= 0) assistant.seekRequest = { videoId: String(draft.value.videoId), seconds } }
+function useCurrentTime(item) { const time = assistant.page?.playbackMs; if (onVideo.value && Number.isFinite(time) && time >= 0) item.seconds = time / 1000 }
 function stop() { epoch++; controller?.abort(); controller = null }
 function apply(next) {
   draft.value = next
@@ -62,5 +74,5 @@ onBeforeUnmount(stop)
 </script>
 
 <style scoped>
-.creator-draft{margin-top:18px;padding:18px;border:1px solid #e6d9e8;border-radius:14px;background:#fdfaff;color:#453b4a}.creator-draft header,.draft-actions{display:flex;justify-content:space-between;gap:10px;align-items:center}.creator-draft header span,.draft-hint,.draft-meta{font-size:12px;color:#88778c}.draft-item{display:grid;gap:9px;padding:14px 0;border-bottom:1px solid #eee6ef}.draft-item>span{font-size:12px}.draft-item textarea{box-sizing:border-box;width:100%;resize:vertical;padding:10px;border:1px solid #ddd1e1;border-radius:8px;font:inherit;line-height:1.6;background:white;color:inherit}.draft-item input[type=number]{width:100px;margin-left:8px;padding:5px}.draft-actions{justify-content:flex-start;margin-top:14px;flex-wrap:wrap}.creator-draft button{padding:9px 14px;background:white;border:1px solid #cca7c5;border-radius:8px;color:#83577c;cursor:pointer}.creator-draft button:disabled{opacity:.5;cursor:default}.creator-draft [role=alert]{color:#ab4c47;font-size:13px}
+.creator-draft{margin-top:18px;padding:16px 16px 0;border:1px solid var(--workbench-border,#e7e3db);border-radius:12px;background:var(--workbench-raised,#faf9f5);color:var(--workbench-text,#292925)}.creator-draft header,.draft-actions,.draft-selection,.draft-item-heading,.draft-time{display:flex;align-items:center;gap:10px}.creator-draft header,.draft-selection,.draft-actions{justify-content:space-between}.creator-draft header span,.draft-hint,.draft-meta,.draft-selection,.draft-item-heading,.draft-time{font-size:12px;color:var(--workbench-muted,#77766f)}.draft-hint{line-height:1.5;margin:8px 0}.draft-meta{overflow-wrap:anywhere}.draft-selection{padding:10px 0;border-bottom:1px solid var(--workbench-border,#e7e3db)}.draft-item{display:grid;gap:7px;padding:10px 0;border-bottom:1px solid var(--workbench-border,#e7e3db)}.draft-item-heading span{margin-left:auto}.draft-item textarea{box-sizing:border-box;width:100%;resize:vertical;padding:9px;border:1px solid var(--workbench-border,#e2ded6);border-radius:8px;font:inherit;line-height:1.5;background:var(--workbench-bg,#fff);color:inherit}.draft-time{flex-wrap:wrap}.draft-time input{width:76px;margin-left:6px;padding:5px;border:1px solid var(--workbench-border,#ddd);border-radius:6px}.draft-actions{position:sticky;bottom:0;margin:0 -16px;padding:12px 16px;background:var(--workbench-raised,#faf9f5);border-top:1px solid var(--workbench-border,#e7e3db);z-index:2}.creator-draft button{cursor:pointer}.draft-actions button{padding:9px 15px;border:0;border-radius:8px;background:#c96442;color:#fff;font-weight:600}.creator-draft button:disabled{opacity:.5;cursor:default}.text-button{padding:3px 0;border:0;background:transparent;color:#ad573b}.creator-draft [role=alert]{color:#ab4c47;font-size:13px}
 </style>

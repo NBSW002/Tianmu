@@ -400,6 +400,7 @@ export default {
   },
   computed: {
     assistantOpen() { return useAssistantStore().open; },
+    assistantSeekRequest() { return useAssistantStore().seekRequest; },
     authorDescription() { return String(this.videoUserInfo.description || '').trim(); },
     isSourceProfile() { return /^B站来源归档账号[；;，,：:\s]/.test(this.authorDescription); },
     authorSignature() { return this.isSourceProfile ? '暂无个性签名' : this.authorDescription || '暂无个性签名'; },
@@ -420,6 +421,11 @@ export default {
     },
   },
   watch: {
+    assistantSeekRequest(request) {
+      if (!request || String(request.videoId) !== String(this.$route.params.videoId)) return;
+      const player = this.$refs.artplayerRef?.instance;
+      if (player && Number.isFinite(request.seconds) && request.seconds >= 0 && request.seconds < player.duration) player.seek = request.seconds;
+    },
     async "$route.params.videoId"(value, previous) {
       if (value === previous || !value) return;
       await this.closeWebSocket();
