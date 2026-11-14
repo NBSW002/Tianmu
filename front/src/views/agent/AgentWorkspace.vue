@@ -101,8 +101,10 @@
                     >{{ isPaused(turn) ? '已暂停' : statusLabel(turn.snapshot?.status) }}</span
                   >
                 </div>
-                <p v-for="note in turn.streamingNotes || []" :key="note.sequence" class="answer-text">{{ note.text }}</p>
-                <p v-if="turn.streamingText && !turn.snapshot?.answer && turn.snapshot?.status !== 'NEEDS_INPUT'" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
+                <template v-if="!(turn.snapshot?.status === 'FAILED' && turn.snapshot?.task?.specification?.type === 'creator.draft')">
+                  <p v-for="note in turn.streamingNotes || []" :key="note.sequence" class="answer-text">{{ note.text }}</p>
+                  <p v-if="turn.streamingText && !turn.snapshot?.answer && turn.snapshot?.status !== 'NEEDS_INPUT'" class="answer-text" aria-live="polite">{{ turn.streamingText }}</p>
+                </template>
                 <MemoryUsage v-if="validRunId(turn.runId) && isTerminal(turn.snapshot?.status)" :run-id="turn.runId" />
 
                 <div
@@ -423,6 +425,7 @@ function statusLabel(status) {
 function failureLabel(code) {
   return (
     {
+      DRAFT_REQUIRED: '未能生成可编辑草稿，内容尚未发送。请重新尝试生成。',
       DATE_OUT_OF_RANGE: '分析时段超出范围，请选择最近 30 天内已经结束的时段。',
       FORBIDDEN: '你没有权限分析这项内容，请确认视频或直播间 ID。',
       DEADLINE_EXCEEDED: '这次回复耗时较长，请稍后重试。',

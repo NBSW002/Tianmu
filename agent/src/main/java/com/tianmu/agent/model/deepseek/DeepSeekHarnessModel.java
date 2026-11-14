@@ -26,7 +26,9 @@ public final class DeepSeekHarnessModel implements ModelPort {
         return decide(context, new CallControl(Instant.now().plusSeconds(30), new CancellationToken()));
     }
     public Decision decide(ModelContext context, CallControl control) {
-        String requiredTool=context.finalizing() || context.availableTools().isEmpty()?null:com.tianmu.agent.application.ResourceSelection.requiredTool(context);
+        boolean creatorDraft=context.task()!=null && "creator.draft".equals(context.task().specification().type());
+        String requiredTool=context.finalizing() || context.availableTools().isEmpty()?null:
+                creatorDraft?"required":com.tianmu.agent.application.ResourceSelection.requiredTool(context);
         String action = switch (Objects.toString(requiredTool,"")) {
             case "read_skill" -> "本轮先读取 resource-discovery Skill，以开放已有报告读取工具。";
             case "read_report" -> "已有报告链接已在当前问题或历史工具结果中给出，不要再搜索历史。提取该链接的 run_id 与 artifact_id，读取报告；回答选题与结论时读取 topics。";

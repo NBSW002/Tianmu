@@ -115,6 +115,21 @@ class DeepSeekAdapterTest {
         }
     }
     ModelContext context() { return new ModelContext(input().query(), input().businessDate(), input().scope(), Set.of(), List.of(), List.of(), 6); }
+    @Test void creatorDraftRequestsRequireNativeToolsInsteadOfTextPreview() {
+        String query="生成智能弹幕草稿"; var scope=input().scope(); var date=input().businessDate();
+        var tool=new ToolDefinition("prepare_danmaku_draft","保存草稿",Map.of("type","object"));
+        var prep=new PreparedRequest(query,query,Emotion.NEUTRAL,Set.of(),Set.of(),Intent.OTHER);
+        var task=new PreparedTask(UUID.randomUUID(),query,query,date,"Asia/Shanghai",scope,prep,
+                new Specification("creator.draft",Map.of("video_id",1001L,"kind","DANMAKU"),Map.of()),Map.of(),
+                Set.of(tool.name()),Instant.now().plusSeconds(30),6);
+        var context=new ModelContext(query,date,scope,Set.of("smart-danmaku"),List.of(),List.of(tool),3,false,"",
+                null,task,MemoryTypes.View.empty(),List.of(),null,new CapabilityDirectory(List.of(),List.of()));
+        nativeAnswer=request->{
+            assertEquals("required",request.path("tool_choice").asText());
+            return Map.of("role","assistant","tool_calls",List.of(Map.of("id","draft-call-1","type","function","function",Map.of("name",tool.name(),"arguments","{}"))));
+        };
+        assertEquals(Kind.TOOL,new DeepSeekHarnessModel(client,properties,mapper,new PromptCatalog()).decide(context,control()).kind());
+    }
     ModelContext nativeContext(List<ToolResult> results,List<ToolExchange> exchanges) {
         return new ModelContext(input().query(),input().businessDate(),input().scope(),Set.of(),results,
                 List.of(new ToolDefinition("analyze_video_content","video",Map.of("type","object","properties",Map.of("video_id",Map.of("type","integer")))),new ToolDefinition("query_audience","audience",Map.of("type","object"))),6,false,"",null,null,com.tianmu.agent.core.MemoryTypes.View.empty(),exchanges);
