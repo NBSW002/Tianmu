@@ -42,35 +42,5 @@ class VideoRoomAnalysisTest {
         assertThrows(AgentException.class,()->AudienceTopics.parse(json,source,audience(),null));
         assertThrows(AgentException.class,()->AudienceTopics.parse(json,source.replace("2500","2501"),audience(),video));
     }
-    @Test void refreshIsCoalescedScopedAndDoesNotRepeatModelForUnchangedCorpus() throws Exception {
-        var executor=ExecutionConfiguration.standalone("room-test",1,1,4);
-        AtomicReference<Instant> time=new AtomicReference<>(Instant.now());
-        Clock clock=new Clock(){public ZoneId getZone(){return ZoneOffset.UTC;}public Clock withZone(ZoneId z){return Clock.fixed(time.get(),z);}public Instant instant(){return time.get();}};
-        var model=mock(AudienceModelPort.class);var vision=mock(VideoAnalysisService.class);
-        when(vision.analyze(anyLong(),any(),any(),anyString(),any(),any())).thenThrow(new AgentException("VIDEO_CONTENT_UNAVAILABLE","disabled"));
-        when(model.summarize(any(),any(),any(),any())).thenReturn("[{\"title\":\"尺寸问题\",\"observation\":\"观众询问尺寸\",\"recommendation\":\"补充尺寸信息\",\"sample_ids\":[\"1\",\"2\"]}]");
-        var beans=new StaticListableBeanFactory();beans.addBean("model",model);
-        AtomicInteger reads=new AtomicInteger();CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
-        var service=new RoomSummaryService((q,s,c)->{reads.incrementAndGet();entered.countDown();try{release.await(1,TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}return data(q);},beans.getBeanProvider(AudienceModelPort.class),vision,json,executor,clock);
-        LocalDateTime start=LocalDateTime.ofInstant(time.get(),DanmakuTypes.ZONE).minusMinutes(5).withNano(0);
-        try{
-            assertEquals("UPDATING",service.get(1001,start,owner).state());assertTrue(entered.await(1,TimeUnit.SECONDS));
-            service.get(1001,start,owner);assertEquals(1,reads.get());release.countDown();
-            long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);RoomSummaryService.View v;
-            do{v=service.get(1001,start,owner);if(v.state().equals("READY"))break;Thread.sleep(10);}while(System.nanoTime()<until);
-            assertEquals("READY",v.state());assertEquals(4,v.topics().get(0).messages());
-            assertThrows(AgentException.class,()->service.get(1002,start,owner));
-            time.set(time.get().plusSeconds(31));service.get(1001,start,owner);
-            until=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);
-            do{v=service.get(1001,start,owner);if(v.version()==2 && v.state().equals("READY"))break;Thread.sleep(10);}while(System.nanoTime()<until);
-            assertEquals(2,reads.get());verify(model,times(1)).summarize(any(),any(),any(),any());
-            assertEquals(2,v.version());
-        }finally{release.countDown();executor.shutdown();}
-    }
-    @Test void stableTopicsSurviveTitleChangesWithoutReusingAnIdTwice(){
-        Topic old=new Topic("old","尺寸","","",List.of("1"),3,"",List.of());
-        var next=new Topic("new","规格提问","","",List.of("1","2"),4,"",List.of());
-        assertEquals("old",RoomSummaryService.stableIds(List.of(old),List.of(next)).get(0).id());
-    }
 
 }

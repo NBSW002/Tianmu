@@ -348,8 +348,8 @@ const viewerSuggestions = [
 ];
 const videoSuggestions = [
   { icon: 'list', title: '观众反馈报告', description: '整理弹幕与评论，查看主要话题和观众原话', text: '请分析这个视频全部的弹幕和评论，结合实际视频画面生成观众反馈报告，包含主要话题、观众原话和改进建议。' },
-  { icon: 'stage', title: '起草评论', description: '生成作者评论草稿，确认后再发送', text: '请为这个视频生成3条智能评论草稿，以作者身份补充说明或引导讨论，先给我预览。' },
-  { icon: 'play', title: '起草弹幕', description: '结合画面起草，核对内容与时间点', text: '请为这个视频生成5条智能弹幕草稿，以作者身份自然引导互动，标明播放时间点，先给我预览。' },
+  { icon: 'stage', title: '智能评论', description: '生成作者评论草稿，确认后再发送', text: '请为这个视频生成3条智能评论草稿，以作者身份补充说明或引导讨论，先给我预览。' },
+  { icon: 'play', title: '智能弹幕', description: '结合画面起草，核对内容与时间点', text: '请为这个视频生成5条智能弹幕草稿，以作者身份自然引导互动，标明播放时间点，先给我预览。' },
   { icon: 'token', title: '互动统计', description: '查看弹幕、评论数量与活跃观众', text: '请统计这个视频全部的弹幕数量和评论数量，并列出互动最活跃的观众。' },
 ];
 const modelChoices = ref([]), selectedModel = ref(''), modelError = ref(''), modelsLoading = ref(false);

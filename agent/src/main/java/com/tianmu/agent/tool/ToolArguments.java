@@ -22,6 +22,7 @@ public final class ToolArguments {
     public enum Problem {
         UNEXPECTED_FIELD("Remove arguments not declared by this tool."),
         REQUIRED("Supply this required field."), STRING("Use a nonblank string."),
+        FEEDBACK_NOT_SELECTED("Remove feedback_topic_id: feedback was not selected for this task."),
         INTEGER("Use an integer representable as a signed 64-bit number."),
         RANGE("Use a value within the declared minimum and maximum."),
         LENGTH("Use a string within the declared length bounds."),

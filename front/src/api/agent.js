@@ -110,29 +110,10 @@ export async function getTracePayload(runId, reference, signal) {
   return (await request(`${runPath(runId)}/trace-payloads/${reference}`, { signal })).json()
 }
 
-export async function getQaCatalog(signal) {
-  return (await request('/api/agent/qa', { signal })).json()
-}
-
-export async function changeQaEntry(id, version, reset, signal) {
-  if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('无效的问答 ID')
-  return (await request(`/api/agent/qa/${id}/${reset ? 'reset' : 'disable'}`, {
-    method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
-  })).json()
-}
-
 export async function checkCreatorAccess(videoId, signal) {
   if (typeof videoId !== 'string' || !/^[1-9]\d{0,18}$/.test(videoId) ||
       (videoId.length === 19 && videoId > '9223372036854775807')) throw new Error('视频 ID 无效')
   return (await request(`/api/agent/videos/${videoId}/access`, { signal })).json()
-}
-
-export async function getRoomSummary(videoId, start, signal) {
-  if (!/^[1-9]\d{0,18}$/.test(videoId) || (videoId.length === 19 && videoId > '9223372036854775807'))
-    throw new Error('视频 ID 无效')
-  const query = start ? `?start=${encodeURIComponent(start)}` : ''
-  const response = await request(`/api/agent/rooms/${videoId}/summary${query}`, { signal })
-  return response.json()
 }
 
 export async function createAgentRun(body, key, signal) {

@@ -8,20 +8,14 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.beans.factory.ObjectProvider;
 import java.util.Optional;
 
-/** Bundled capabilities take priority. Learned answers are private and threshold-gated. */
+/** Developer-maintained FAQ entries only. */
 @Component
 @Primary
 public final class FaqGateway implements FaqPort {
-    private final ClasspathFaqPort bundled;private final QaCatalog learned;
-    public FaqGateway(ObjectProvider<ClasspathFaqPort> bundled,QaCatalog learned){this.bundled=bundled.getIfAvailable();this.learned=learned;}
+    private final ClasspathFaqPort bundled;
+    public FaqGateway(ObjectProvider<ClasspathFaqPort> bundled){this.bundled=bundled.getIfAvailable();}
     public Optional<FaqAnswer> find(Input input,CallControl control){
         control.checkpoint();
-        Optional<FaqAnswer> fixed=bundled==null?Optional.empty():bundled.find(input,control);
-        if(fixed.isPresent())return fixed;control.checkpoint();
-        try{return learned.find(input);}
-        catch(com.tianmu.agent.core.AgentException e){
-            if("QA_UNAVAILABLE".equals(e.code()))throw new IllegalStateException("Q&A lookup unavailable",e);
-            throw e;
-        }
+        return bundled==null?Optional.empty():bundled.find(input,control);
     }
 }

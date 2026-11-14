@@ -209,12 +209,15 @@ public class ToolDispatcher {
             com.tianmu.agent.harness.trace.TraceAttributes.apply(span, Map.of("tool.call_id", span.getSpanContext().getSpanId()));
             TraceDetails.capture("input", call, "TOOL_ARGUMENTS");
             com.tianmu.agent.harness.trace.TraceAttributes.apply(span,Map.of("tool.handler_executed",false));
-            var validation=ToolArguments.inspect(call,registry.definition(call.name()));
+            ToolCall normalized=tool.normalize(call);
+            var validation=ToolArguments.inspect(normalized,registry.definition(call.name()));
             run.checkpoint();
             if(!validation.valid())return new ValidationRejected(validation);
             var context=new HostContext(run,tool);
+            validation=tool.preflight(normalized,context);
+            if(!validation.valid())return new ValidationRejected(validation);
             com.tianmu.agent.harness.trace.TraceAttributes.apply(span,Map.of("tool.handler_executed",true));
-            ToolResult result = tool.execute(call, context);
+            ToolResult result = tool.execute(normalized, context);
             run.checkpoint();
             if (result == null || !call.name().equals(result.tool()) || result.data().containsKey("input_validation") || result.data().containsKey("batch_validation")
                     || result.terminalClarification()!=null && !call.name().equals("ask_clarification"))

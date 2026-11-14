@@ -1,5 +1,7 @@
 # EchoFrame / DokiTV Agent 架构与工程治理技术设计
 
+当前实现仅使用开发者维护的固定 FAQ；旧章节中自动学习、管理接口及 agent.qa 配置为历史设计。历史数据保留。
+
 日期：2026-11-07。版本：设计基线 v2，独立复审通过，用户已确认开始分批实施。范围：`agent`，以及与业务后端、前端的契约。本文是本次治理的统一入口；目标设计不表示已全部实现，也不是发布验收证明。研究证据见 [DSH 与 Claude 调研](DSH与Claude架构治理调研.md)，重构前配置证据见附录，实际落地状态见第16节。第15节给出恢复、预算、策略快照、完成协议等可执行细则；原始审查记录保留，不将作者修订等同于审查通过。
 
 ## 1. 目标、边界与证据标准
@@ -1559,8 +1561,6 @@ agent/src/main/java\com\tianmu\agent\harness\trace\TraceConfiguration.java:48:  
 agent/src/main/java\com\tianmu\agent\harness\trace\TraceConfiguration.java:63:    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="harness.trace.sink", havingValue="otlp")
 agent/src/main/java\com\tianmu\agent\harness\trace\TraceConfiguration.java:67:                .setTimeout(java.time.Duration.ofSeconds(3)).build();
 agent/src/main/java\com\tianmu\agent\harness\trace\TraceConfiguration.java:74:                                .setScheduleDelay(java.time.Duration.ofMillis(200)).build()).build();
-agent/src/main/java\com\tianmu\agent\application\RoomSummaryService.java:29:    private final Cache<Key,Slot> cache=Caffeine.newBuilder().maximumSize(100).expireAfterAccess(Duration.ofMinutes(15)).build();
-agent/src/main/java\com\tianmu\agent\application\RoomSummaryService.java:60:            if(Duration.between(slot.checked,clock.instant()).compareTo(Duration.ofSeconds(30))>=0 && !active.containsKey(key)){
 agent/src/main/java\com\tianmu\agent\application\FeedbackPreparationCoordinator.java:20:    private final ThreadPoolExecutor workers=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(4),r->{var t=new Thread(r,"feedback-source");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
 agent/src/main/java\com\tianmu\agent\application\FeedbackPreparationCoordinator.java:24:    @Scheduled(scheduler="maintenanceScheduler",fixedDelay=500)
 agent/src/main/java\com\tianmu\agent\interaction\MemoryCreatorDraftStore.java:4:import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

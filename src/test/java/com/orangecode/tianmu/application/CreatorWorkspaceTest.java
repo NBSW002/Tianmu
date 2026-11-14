@@ -80,7 +80,7 @@ class CreatorWorkspaceTest {
         assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM comment",Integer.class));
         assertEquals(0,db.queryForObject("SELECT comment_count FROM video_stats WHERE video_id=11",Integer.class));
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM feedback_reaction",Integer.class));
-        verify(redis).delete(List.of("videoDetails:11","video:11:bullet"));
+        verify(redis).delete("videoDetails:11");
     }
     @Test void failedCounterUpdateRollsBackThreadDeletion() {
         comments(); db.update("DELETE FROM video_stats WHERE video_id=11");

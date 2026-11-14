@@ -113,7 +113,7 @@ public class CreatorWorkspace {
     private void invalidate(long video) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
-                try { redis.delete(List.of("videoDetails:"+video,"video:"+video+":bullet")); }
+                try { redis.delete("videoDetails:"+video); }
                 catch(RuntimeException failure) { org.slf4j.LoggerFactory.getLogger(CreatorWorkspace.class).warn("creator_cache_invalidation_failed video={}",video); }
             }
         });

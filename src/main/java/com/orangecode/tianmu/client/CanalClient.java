@@ -2,7 +2,6 @@ package com.orangecode.tianmu.client;
 
 
 import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -256,7 +255,6 @@ public class CanalClient implements CommandLineRunner {
         switch (tableName) {
             case "user" -> insertUserToEs(map);
             case "video" -> insertVideoToEs(map);
-            case "bullet" -> insertBulletToRedis(map);
         }
     }
 
@@ -287,23 +285,6 @@ public class CanalClient implements CommandLineRunner {
             log.info("ES 插入视频成功: {}", save);
         } catch (Exception e) {
             log.error("ES 插入失败: ", e);
-        }
-    }
-
-    private void insertBulletToRedis(Map<String, String> map) {
-        String cacheKey = "video:" + map.get("video_id") + ":bullet";
-        String uid = map.get("user_id");
-        String id = map.get("bullet_id");
-        String content = map.get("content");
-        Double timePoint = Double.valueOf(map.get("playback_time"));
-        String value = uid + ":" + id + ":" + content;
-        try {
-            // 预防缓存雪崩
-            stringRedisTemplate.opsForZSet().add(cacheKey, value, timePoint);
-            stringRedisTemplate.expire(cacheKey, 72 * 3600 + ThreadLocalRandom.current().nextInt(3600), TimeUnit.SECONDS);
-            log.debug("Redis 插入弹幕成功: {}", value);
-        } catch (Exception e) {
-            log.error("Redis 插入失败: ", e);
         }
     }
 
@@ -461,7 +442,6 @@ public class CanalClient implements CommandLineRunner {
             map.put(column.getName(), column.getValue());
         }
         switch (tableName) {
-            case "bullet" -> deleteBulletToRedis(map);
             case "user" -> deleteUserToEs(map);
             case "video" -> deleteVideoToEs(map);
         }
@@ -487,19 +467,5 @@ public class CanalClient implements CommandLineRunner {
     }
 
 
-    private void deleteBulletToRedis(Map<String, String> map) {
-        try {
-            String vid = map.get("video_id");
-            String uid = map.get("user_id");
-            String id = map.get("bullet_id");
-            String content = map.get("content");
-            String cacheKey = "video:" + vid + ":bullet";
-            String value = uid + ":" + id + ":" + content;
-            stringRedisTemplate.opsForZSet().remove(cacheKey, value);
-            log.info("Redis 删除弹幕成功: {}", map.get("bullet_id"));
-        } catch (Exception e) {
-            log.error("Redis 删除弹幕失败: ", e);
-        }
-    }
 
 }

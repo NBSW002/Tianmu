@@ -113,13 +113,6 @@ agent:
     model-timeout: ${FEEDBACK_MODEL_TIMEOUT:30s}
   faq:
     location: ${AGENT_FAQ_LOCATION:classpath:faq/business.json}
-  qa:
-    enabled: ${AGENT_QA_ENABLED:true}
-    minimum-sessions: ${AGENT_QA_MINIMUM_SESSIONS:5}
-    minimum-answer-share: ${AGENT_QA_MINIMUM_ANSWER_SHARE:0.9}
-    window-days: 30
-    valid-days: 7
-    maximum-observations: 256
   execution:
     deadline-threads: ${AGENT_EXECUTION_DEADLINE_THREADS:1}
     maintenance-threads: ${AGENT_EXECUTION_MAINTENANCE_THREADS:2}

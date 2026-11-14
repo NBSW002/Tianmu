@@ -22,5 +22,9 @@ public interface AgentTool {
     /** Host-fenced durable submission; may return only its registered pending operation. */
     default boolean parallelSubmission(){return false;}
     default ToolDefinition describe(ToolDefinition declared, SkillCatalog skills) { return declared; }
+    /** Normalize explicitly supported wire-format aliases before schema validation. */
+    default ToolCall normalize(ToolCall call) { return call; }
+    /** Side-effect-free, task-aware validation after schema validation and before the handler. */
+    default ToolArguments.Validation preflight(ToolCall call, ToolContext context) { return new ToolArguments.Validation(java.util.List.of(), false); }
     ToolResult execute(ToolCall call, ToolContext context);
 }

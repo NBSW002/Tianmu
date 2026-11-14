@@ -18,9 +18,18 @@ class BusinessFaqTest {
     final AccessScope owner=new AccessScope("tianmu-site","author",Set.of());
     CallControl control(){return new CallControl(Instant.now().plusSeconds(10),new CancellationToken());}
     Input input(String question){return new Input(question,LocalDate.of(2026,10,29),owner);}
+    @Test void gatewayUsesOnlyDeveloperConfiguredEntries(){
+        var beans=new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        var faq=new ClasspathFaqPort(new ClassPathResource("faq/business.json"),null);
+        beans.addBean("faq",faq);
+        var gateway=new FaqGateway(beans.getBeanProvider(ClasspathFaqPort.class));
+        var entry=ResourceFiles.json(new ClassPathResource("faq/business.json"),ClasspathFaqPort.Entry[].class)[0];
+        assertEquals(entry.text(),gateway.find(input(entry.questions().get(0)),control()).orElseThrow().text());
+        assertTrue(gateway.find(input("没有配置的固定问答测试文本"),control()).isEmpty());
+    }
     @Test void everyConfiguredQuestionReturnsItsApprovedAnswer(){
         var resource=new ClassPathResource("faq/business.json");var faq=new ClasspathFaqPort(resource,null);
-        var entries=ResourceFiles.json(resource,ClasspathFaqPort.Entry[].class);assertEquals(15,entries.length);
+        var entries=ResourceFiles.json(resource,ClasspathFaqPort.Entry[].class);assertEquals(2,entries.length);
         Set<String> questions=new HashSet<>();
         for(var entry:entries)for(String question:entry.questions()){
             assertTrue(questions.add(question));var found=faq.find(input(" "+question+" "),control()).orElseThrow();

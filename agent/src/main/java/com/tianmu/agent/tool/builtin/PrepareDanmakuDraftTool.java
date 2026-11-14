@@ -10,5 +10,7 @@ public final class PrepareDanmakuDraftTool implements AgentTool {
     private final CreatorDraftPreparation service;
     public PrepareDanmakuDraftTool(CreatorDraftStore drafts){service=new CreatorDraftPreparation(drafts);}
     public String name(){return "prepare_danmaku_draft";}
+    public ToolCall normalize(ToolCall call){return CreatorDraftPreparation.normalize(call);}
+    public ToolArguments.Validation preflight(ToolCall call,ToolContext context){return CreatorDraftPreparation.preflight(call,context);}
     public ToolResult execute(ToolCall call,ToolContext context){return service.prepare(name(),"DANMAKU",call,context);}
 }

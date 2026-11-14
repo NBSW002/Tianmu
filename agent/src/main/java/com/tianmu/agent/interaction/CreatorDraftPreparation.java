@@ -9,6 +9,30 @@ import java.util.*;
 public final class CreatorDraftPreparation {
     private final CreatorDraftStore drafts;
     public CreatorDraftPreparation(CreatorDraftStore drafts){this.drafts=drafts;}
+    public static ToolCall normalize(ToolCall call) {
+        if (!(call.arguments().get("items") instanceof List<?> items)) return call;
+        var normalized = new ArrayList<Object>();
+        for (Object raw : items) {
+            if (!(raw instanceof Map<?,?> item)) { normalized.add(raw); continue; }
+            var copy = new LinkedHashMap<Object,Object>(item);
+            Object topic = copy.get("feedback_topic_id");
+            if (topic == null || topic instanceof String text && text.isBlank()) copy.remove("feedback_topic_id");
+            normalized.add(copy);
+        }
+        var args = new LinkedHashMap<String,Object>(call.arguments()); args.put("items", normalized);
+        return new ToolCall(call.name(),args,call.providerCallId(),call.providerGroupId(),call.assistantText(),call.reasoningContent());
+    }
+    public static ToolArguments.Validation preflight(ToolCall call, ToolContext context) {
+        var contract = context.analysisContract();
+        if (contract != null && !contract.textSources().isEmpty()) return new ToolArguments.Validation(List.of(),false);
+        var items = (List<?>) call.arguments().get("items");
+        var issues = new ArrayList<ToolArguments.Issue>();
+        for (int i=0;i<items.size();i++) if (((Map<?,?>)items.get(i)).containsKey("feedback_topic_id")) {
+            if (issues.size()==8) return new ToolArguments.Validation(issues,true);
+            issues.add(new ToolArguments.Issue("items["+i+"].feedback_topic_id",ToolArguments.Problem.FEEDBACK_NOT_SELECTED));
+        }
+        return new ToolArguments.Validation(issues,false);
+    }
     public ToolResult prepare(String tool,String kind,ToolCall call,ToolContext context){
         long videoId=ToolArguments.integer(call,"video_id");var evidence=context.evidence(ToolArguments.text(call,"video_evidence_id"));
         if(evidence.videoContent()==null || evidence.videoContent().videoId()!=videoId)throw new AgentException("INVALID_EVIDENCE","Read this video's content first");

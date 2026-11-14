@@ -716,19 +716,5 @@ class MysqlStorageIntegrationTest {
         }
     }
 
-    @Test void qaAdmissionIsDurableAndSessionReplayDoesNotInflateCounts()throws Exception{
-        var policy=new com.tianmu.agent.faq.QaPolicy(true,2,1,30,7,256);
-        var qa=new com.tianmu.agent.faq.QaCatalog(new MysqlQaStore(source,mapper),policy);
-        String question="如何设计选题主题",answer="先确定面向的观众，再整理可以持续观察和讨论的选题方向。";UUID session=UUID.randomUUID();
-        String ownerText=owner.tenantId().length()+":"+owner.tenantId()+owner.userId().length()+":"+owner.userId();
-        String ownerKey=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(ownerText.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        try{
-            qa.observe(owner,session,UUID.randomUUID(),question,answer,Instant.now());qa.observe(owner,session,UUID.randomUUID(),question,answer,Instant.now());
-            assertEquals(1,qa.list(owner).get(0).sessions());
-            qa.observe(owner,UUID.randomUUID(),UUID.randomUUID(),question,answer,Instant.now());
-            var restarted=new com.tianmu.agent.faq.QaCatalog(new MysqlQaStore(source,mapper),policy);
-            assertEquals(answer,restarted.find(new Input(question,LocalDate.now(),owner)).orElseThrow().text());
-        }finally{db.update("DELETE FROM agent_qa_catalog WHERE owner_key=?",ownerKey);}
-    }
 
 }
