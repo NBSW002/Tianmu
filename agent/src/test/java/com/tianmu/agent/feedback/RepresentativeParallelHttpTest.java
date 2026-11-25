@@ -53,6 +53,7 @@ class RepresentativeParallelHttpTest {
         when(model.decide(any(),any())).thenAnswer(inv->{
             ModelContext c=inv.getArgument(0);assertTrue(c.observations().stream().noneMatch(r->r.pending()!=null));
             if(!c.activeSkills().contains("audience-report"))return Decision.tool("read_skill",Map.of("name","audience-report"));
+            if(!c.activeSkills().contains("video-content"))return Decision.tool("read_skill",Map.of("name","video-content"));
             var material=c.observations().stream().filter(r->r.tool().equals("prepare_feedback_materials")).findFirst();
             if(material.isEmpty())return new Decision(Kind.TOOL,new ToolCall("analyze_video_content",Map.of("video_id",1001),"video","sources"),null,null,List.of(new ToolCall("prepare_feedback_materials",Map.of(),"materials","sources")));
             var visual=c.observations().stream().filter(r->r.tool().equals("analyze_video_content")).findFirst().orElseThrow();
@@ -60,7 +61,8 @@ class RepresentativeParallelHttpTest {
         });
     }
     @Test void materialsFinishDuringVideoAndOnlyThenThePairedResultsGenerateReport()throws Exception{
-        var run=runs.create("结合视频1001的视频内容、评论和弹幕生成观众反馈报告",owner);awaitTerminal(run);
+        String prompt="请结合这条视频的内容、评论和弹幕做一次创作者复盘：观众集中在哪一段提出了什么问题，下一版该怎么改？请给出播放时间和可核对的原话。如果没有足够证据表明某一段集中出现问题，请直接说明。";
+        var run=runs.create(prompt,owner,null,null,null,new RequestContext("1001"));awaitTerminal(run);
         assertEquals(Status.SUCCEEDED,run.snapshot().status(),()->String.valueOf(run.snapshot().errorCode()));assertTrue(preparedBeforeVideo.get()>0);
         assertEquals(List.of("video","materials"),run.execution().exchanges().stream().map(ToolExchange::call).filter(c->"sources".equals(c.providerGroupId())).map(ToolCall::providerCallId).toList());
         assertEquals(1,run.execution().observations().stream().filter(r->r.tool().equals("generate_feedback_report")).count());

@@ -23,6 +23,18 @@ class AnalysisSourcesTest {
         cases.put("综合分析视频1001的视频内容、评论和弹幕", Set.of(VIDEO, COMMENT, DANMAKU));
         cases.forEach((query, expected) -> assertEquals(expected, TaskMeaning.defaults().resolve(query, day, at).reading().sources(), query));
     }
+    @Test void creatorReviewOnVideoPageExposesAllRequestedSources() {
+        String prompt="请结合这条视频的内容、评论和弹幕做一次创作者复盘：观众集中在哪一段提出了什么问题，下一版该怎么改？请给出播放时间和可核对的原话。如果没有足够证据表明某一段集中出现问题，请直接说明。";
+        var page=new RequestContext("800117578320055499");
+        var spec=TaskMeaning.defaults().resolve(prompt,day,at,page);
+        assertEquals(Set.of(VIDEO,COMMENT,DANMAKU),spec.reading().sources());
+        assertEquals("audience.report",spec.type());
+        assertTrue(spec.reading().reportRequired());
+        for(String tool:List.of("analyze_video_content","analyze_comments","analyze_danmaku"))
+            assertTrue(AnalysisExecutionPolicy.permits(tool,spec),tool);
+        assertEquals(Set.of(COMMENT,DANMAKU),TaskMeaning.defaults()
+                .resolve("请根据这条视频的评论和弹幕做复盘",day,at,page).reading().sources());
+    }
     @Test void exclusionsAndSingleSourceReportsDoNotSilentlyReadOtherSources() {
         for (String query : List.of("视频1001昨天的观众报告，不看视频，只分析评论和弹幕", "视频1001昨天的观众报告，不用读取画面，只分析评论、弹幕"))
             assertEquals(Set.of(COMMENT, DANMAKU), TaskMeaning.defaults().resolve(query, day, at).reading().sources());

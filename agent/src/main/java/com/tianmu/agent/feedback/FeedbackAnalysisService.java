@@ -430,7 +430,8 @@ public final class FeedbackAnalysisService {
         };
         return page("observations",topics,offset,limit,FeedbackAnalysisService::topicView);
     }
-    public byte[] report(Asset asset){
+    public byte[] report(Asset asset){return FeedbackReportRenderer.render(reportDocument(asset));}
+    public FeedbackReportDocument reportDocument(Asset asset){
         if(FeedbackCompression.representativeVersion(asset.request().rulesVersion()))throw new AgentException("STRUCTURED_REPORT_REQUIRED","Render the persisted representative report JSON");
         var roots=topics(asset);var graph=new LinkedHashMap<String,Topic>();
         var leaves=new LinkedHashMap<String,List<Group>>();var loaded=new HashSet<UUID>();
@@ -459,7 +460,7 @@ public final class FeedbackAnalysisService {
         for(var chunk:asset.snapshot().chunks())for(Unit unit:objects.get(chunk,Unit[].class))if(unit.createdAt()!=null)daily.merge(unit.createdAt().atZone(DanmakuTypes.ZONE).toLocalDate().toString(),1L,Long::sum);
         // All-retained ranges may span years; collapse older days into monthly buckets before rendering.
         if(daily.size()>90){var monthly=new TreeMap<String,Long>();daily.forEach((day,n)->monthly.merge(day.substring(0,7),n,Long::sum));daily=monthly;}
-        return FeedbackReportRenderer.render(FeedbackReportDocument.build(asset,roots,graph,leaves,daily));
+        return FeedbackReportDocument.build(asset,roots,graph,leaves,daily);
     }
     public FeedbackReportJson compressedReport(Asset asset,FeedbackCompression.Material material){
         if(!FeedbackCompression.representativeVersion(asset.request().rulesVersion()))throw new AgentException("INVALID_EVIDENCE","Representative analysis required");

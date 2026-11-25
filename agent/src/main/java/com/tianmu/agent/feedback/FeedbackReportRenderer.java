@@ -13,7 +13,7 @@ public final class FeedbackReportRenderer {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE=DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm");
     private static String e(Object value){return Objects.toString(value,"").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;").replace("'","&#39;");}
-    private static String time(long ms){return String.format(Locale.ROOT,"%02d:%02d",ms/60000,ms/1000%60);}
+    static String time(long ms){return String.format(Locale.ROOT,"%02d:%02d",ms/60000,ms/1000%60);}
     private static String preview(String s,int max){return s.substring(0,s.offsetByCodePoints(0,Math.min(max,s.codePointCount(0,s.length()))));}
     private static String brief(String text){
         String plain=text.replaceAll("\\s+"," ").strip();

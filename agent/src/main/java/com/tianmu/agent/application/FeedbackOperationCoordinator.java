@@ -95,10 +95,11 @@ public final class FeedbackOperationCoordinator implements com.tianmu.agent.runt
             var reportJson=preparation.reportJson(job.id(),run.owner,run.callControl());
             traceReportEvidence(reportJson);
             var report=new ReportArtifacts(reportStore).save(run,evidence.id(),reportJson.html());
-            result=new ToolResult("generate_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"json_url",report.url()+"/json","summary",reportJson.summary(),"topics",reportJson.topics().stream().map(FeedbackReportJson.TopicView::title).toList(),"method",reportJson.method(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
+            result=new ToolResult("generate_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"json_url",report.url()+"/json","summary",reportJson.summary(),"topics",reportJson.topics().stream().map(FeedbackReportJson.TopicView::title).toList(),"method",reportJson.method(),"chat_summary",FeedbackChatSummary.fromReport(reportJson),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
         }else if(op.kind().equals("feedback-report")){
-            var report=new ReportArtifacts(reportStore).save(run,evidence.id(),service.report(asset));
-            result=new ToolResult("create_feedback_report",Map.of("status","READY","evidence_id",evidence.id(),"artifact_id",report.artifactId(),"url",report.url(),"demo",asset.model().equals("demo-scripted-feedback")),evidence.id());
+            var document=service.reportDocument(asset);
+            var report=new ReportArtifacts(reportStore).save(run,evidence.id(),FeedbackReportRenderer.render(document));
+            result=new ToolResult("create_feedback_report",document.receipt(report,evidence.id()),evidence.id());
         }else result=new ToolResult("analyze_feedback",Map.of("status","READY","evidence_id",evidence.id(),"summary",service.read(asset,"summary",0,1)),evidence.id());
         runs.resumeOperation(run,op,result);progress.remove(run.id);
     }

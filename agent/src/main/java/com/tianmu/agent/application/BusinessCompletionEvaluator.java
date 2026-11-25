@@ -5,6 +5,7 @@ import com.tianmu.agent.core.StopReason;
 import com.tianmu.agent.runtime.spi.CompletionEvaluator;
 import org.springframework.stereotype.Component;
 import java.util.*;
+import com.tianmu.agent.feedback.FeedbackChatSummary;
 
 /** Feedback report receipts are business facts, never names interpreted by the generic loop. */
 @Component
@@ -60,8 +61,8 @@ public final class BusinessCompletionEvaluator implements CompletionEvaluator {
                         && "READY".equals(last.data().get("status")) && last.evidenceId()!=null && input.registeredArtifacts().contains(last.evidenceId()) && last.data().containsKey("url")).toList();
                 if(!receipts.isEmpty()){
                     var last=receipts.get(receipts.size()-1);
-                    String label=last.tool().equals("generate_feedback_report")?"查看反馈报告":"查看 HTML 报告";
-                    return new Deliver(new Answer((Boolean.TRUE.equals(last.data().get("demo"))?"【模拟数据】":"")+"反馈报告已生成并保存。\n["+label+"]("+last.data().get("url")+")（需登录鉴权）",List.of(last.evidenceId())),StopReason.TOOL_DELIVERY);
+                    var answer=FeedbackChatSummary.answer(last.tool(),last.data(),last.evidenceId());
+                    return new Deliver(answer,StopReason.TOOL_DELIVERY);
                 }
                 if(input.answerProposal()!=null && input.proposalReason()!=StopReason.TOOL_DELIVERY)return new Reject("REPORT_REQUIRED");
             }

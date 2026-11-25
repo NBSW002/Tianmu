@@ -1,6 +1,8 @@
 package com.tianmu.agent.feedback;
 
 import com.tianmu.agent.core.AgentException;
+import com.tianmu.agent.core.AgentTypes.ToolResult;
+import com.tianmu.agent.core.DanmakuTypes.ReportRef;
 import com.tianmu.agent.core.FeedbackAnalysis.*;
 import com.tianmu.agent.core.VideoContent;
 import com.tianmu.agent.feedback.FeedbackModels.Group;
@@ -8,8 +10,16 @@ import java.text.Normalizer;
 import java.util.*;
 
 /** Presentation projection of accepted evidence. It never reclassifies or changes the membership ledger. */
-public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> notes,Map<String,Long> daily,FeedbackPlaybackTrend playback) {
+public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> notes,Map<String,Long> daily,FeedbackPlaybackTrend playback,String chatSummary) {
     public static final int MAIN_TOPIC_LIMIT=5;
+    public Map<String,Object> receipt(ReportRef report,String evidenceId){
+        return Map.of("status","READY","artifact_id",report.artifactId(),"url",report.url(),"evidence_id",evidenceId,
+                "chat_summary",chatSummary,"demo",asset.model().equals("demo-scripted-feedback"));
+    }
+    public ToolResult immediateResult(String tool,ReportRef report,String evidenceId){
+        var data=receipt(report,evidenceId);
+        return new ToolResult(tool,data,evidenceId,FeedbackChatSummary.answer(tool,data,evidenceId));
+    }
     public List<Card> mainCards(){return cards.stream().limit(MAIN_TOPIC_LIMIT).toList();}
     public long otherAudienceMessages(){return cards.stream().skip(MAIN_TOPIC_LIMIT).mapToLong(c->c.topic().messages()-c.topic().authorMessages()).sum();}
     public record Quote(String text,Source source,boolean author,Long playbackMs,String replyContext) {}
@@ -62,7 +72,8 @@ public record FeedbackReportDocument(Asset asset,List<Card> cards,List<Topic> no
                 || cards.stream().mapToLong(Card::danmaku).sum()!=asset.snapshot().counts().danmaku()
                 || cards.stream().mapToLong(c->c.topic().authorMessages()).sum()!=asset.snapshot().counts().authorComments()+asset.snapshot().counts().authorDanmaku())throw corrupt();
         var notes=graph.values().stream().filter(t->leaves.containsKey(t.id())).toList();
-        return new FeedbackReportDocument(asset,cards,notes,daily,asset.request().sources().contains(Source.DANMAKU)?FeedbackPlaybackTrend.build(asset,playbackGroups):null);
+        return new FeedbackReportDocument(asset,cards,notes,daily,asset.request().sources().contains(Source.DANMAKU)?FeedbackPlaybackTrend.build(asset,playbackGroups):null,
+                FeedbackChatSummary.fromNotes(notes,leaves,asset.snapshot().counts().total()));
     }
     static String replyContext(String raw){
         if(raw.isBlank())return "";

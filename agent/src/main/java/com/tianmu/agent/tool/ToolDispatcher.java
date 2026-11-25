@@ -391,9 +391,9 @@ public class ToolDispatcher {
             if(!job.runId().equals(run.id))throw new AgentException("INVALID_EVIDENCE","Sources belong to another run");
             job=preparation.startReport(jobId,run.owner,run.callControl());
             if(job.phase()==com.tianmu.agent.core.FeedbackAnalysis.Phase.READY){
-                var asset=feedback.asset(job.id(),run.owner,request);var ev=bindFeedback(run,asset);var report=saveReport(ev.id(),feedback.report(asset));
-                return new ToolResult(tool.name(),Map.of("status","READY","artifact_id",report.artifactId(),"url",report.url()),ev.id(),
-                        new Answer((asset.model().equals("demo-scripted-feedback")?"【模拟数据】":"")+"反馈报告已生成并保存。\n[查看 HTML 报告]("+report.url()+")（需登录鉴权）",List.of(ev.id())));
+                var asset=feedback.asset(job.id(),run.owner,request);var ev=bindFeedback(run,asset);var document=feedback.reportDocument(asset);
+                var report=saveReport(ev.id(),com.tianmu.agent.feedback.FeedbackReportRenderer.render(document));
+                return document.immediateResult(tool.name(),report,ev.id());
             }
             if(!com.tianmu.agent.feedback.MemoryFeedbackJobStore.active(job.phase()))throw new AgentException("ANALYSIS_NOT_READY","Report cannot proceed");
             return new ToolResult(tool.name(),Map.of("status","PENDING","operation_id",job.id().toString()),null,null,com.tianmu.agent.core.PendingOperation.bounded(job.id(),"feedback-report",job.deadline(),run.deadline()));

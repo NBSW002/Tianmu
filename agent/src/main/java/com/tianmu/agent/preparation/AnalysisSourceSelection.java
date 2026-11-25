@@ -8,7 +8,7 @@ import static com.tianmu.agent.core.AnalysisContract.Source.*;
 /** Conservative explicit-source grammar. Unclear negation is clarified rather than widening reads. */
 public final class AnalysisSourceSelection {
     private AnalysisSourceSelection() {}
-    private static final Pattern VIDEO_WORDS = Pattern.compile("视频内容|视频画面|画面|镜头|剧情|对白|字幕|视频[0-9]+的?(?:实际)?内容|(?:看|读取|读|结合|加上)(?:这个|该|当前|一下|同一|实际)?视频(?![0-9]*(?:的)?(?:评论|弹幕))|视频(?:也|还要)(?:看|分析|读)|视频(?:[0-9]+)?(?:和|与|、)(?:评论|弹幕|观众反馈)");
+    private static final Pattern VIDEO_WORDS = Pattern.compile("视频(?:[0-9]+)?的?(?:实际)?内容|画面|镜头|剧情|对白|字幕|(?:看|读取|读|结合|加上)(?:这个|该|当前|一下|同一|实际)?视频(?![0-9]*(?:的)?(?:评论|弹幕))|视频(?:也|还要)(?:看|分析|读)|视频(?:[0-9]+)?(?:和|与|、)(?:评论|弹幕|观众反馈)");
     private static final Pattern NEGATIVE = Pattern.compile("不(?:要|用|必|需要|读取|分析|看|结合|是)|无需|别(?:看|读|分析)|排除|去掉");
     private static final Pattern NO_REPORT = Pattern.compile("(?:不要|不用|不需要|无需|别|不)(?:再)?(?:生成|制作|输出|导出|做|写)?\\s*(?:HTML|html)?\\s*(?:报告|复盘)");
     public static boolean mentions(String text) { return text.contains("评论") || text.contains("弹幕") || VIDEO_WORDS.matcher(text).find(); }

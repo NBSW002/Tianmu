@@ -88,6 +88,9 @@ class RepresentativeReportHttpTest {
         assertEquals(Status.SUCCEEDED,run.snapshot().status(),()->String.valueOf(run.snapshot().errorCode()));
         assertTrue(run.task().resourceVersions().containsKey(com.tianmu.agent.application.TaskAssembler.COMPRESSION_RESOURCE));
         var receipt=run.execution().observations().stream().filter(r->r.tool().equals("generate_feedback_report")).findFirst().orElseThrow();
+        String answer=run.snapshot().answer().text();
+        assertTrue(answer.contains(noData?"没有符合筛选条件":"观众原话"),answer);
+        assertTrue(answer.contains(receipt.data().get("url").toString()));
         String url=receipt.data().get("json_url").toString();
         mvc.perform(get(url).header("Authorization","Bearer demo-alice")).andExpect(status().isOk()).andExpect(jsonPath("$.schemaVersion").value("feedback-report-json-v1")).andExpect(jsonPath("$.method.raw").value(noData?0:40)).andExpect(jsonPath("$.method.representatives").value(noData?0:4));
         mvc.perform(get(url)).andExpect(status().isUnauthorized());mvc.perform(get(url).header("Authorization","Bearer demo-bob")).andExpect(result->assertTrue(Set.of(403,404).contains(result.getResponse().getStatus())));
