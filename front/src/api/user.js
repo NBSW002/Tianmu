@@ -56,7 +56,7 @@ export const fetchLogout = (userId) => {
 // 关注，userId:用户id，creatorId:被关注用户id
 export const fetchFocus = (userId = '', creatorId) => {
     return request({
-        url: "/video/user/follow",
+        url: "/user/follow",
         method: "POST",
         data: {
             userId,
@@ -68,7 +68,7 @@ export const fetchFocus = (userId = '', creatorId) => {
 // 取消关注，userId:用户id，creatorId:被关注用户id
 export const fetchUnfocus = (userId, creatorId) => {
     return request({
-        url: "/video/user/chanel/follow",
+        url: "/user/chanel/follow",
         method: "POST",
         data: {
             userId,
@@ -80,7 +80,7 @@ export const fetchUnfocus = (userId, creatorId) => {
 // 获取关注列表
 export const fetchFocusList = (userId) => {
     return request({
-        url: "/video/user/following/list",
+        url: "/user/following/list",
         method: "GET",
         params: {
             userId
@@ -91,7 +91,7 @@ export const fetchFocusList = (userId) => {
 // 获取粉丝列表
 export const fetchFansList = (userId) => {
     return request({
-        url: "/video/user/followers/list",
+        url: "/user/followers/list",
         method: "GET",
         params: {
             userId
